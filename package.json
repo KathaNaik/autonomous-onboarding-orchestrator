@@ -18,7 +18,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "pnpm --filter @aoo/db db:generate",
     "db:migrate": "pnpm --filter @aoo/db db:migrate",
-    "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start"
+    "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start",
+    "worker:admin": "pnpm --silent --filter @aoo/worker admin"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

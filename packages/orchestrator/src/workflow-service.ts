@@ -11,7 +11,11 @@ import {
 } from "@aoo/db";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { WorkflowNotFoundError, WorkflowVersionConflictError } from "./errors.js";
+import {
+  IdempotencyKeyConflictError,
+  WorkflowNotFoundError,
+  WorkflowVersionConflictError,
+} from "./errors.js";
 import {
   CreateWorkflowInputSchema,
   TransitionInputSchema,
@@ -86,6 +90,20 @@ export function createWorkflowService(db: Database): WorkflowService {
           .where(eq(onboardingWorkflows.id, input.workflowId))
           .for("update");
         if (!current) throw new WorkflowNotFoundError(input.workflowId);
+        // Replay check comes before the version check: a retry after a committed transition
+        // carries a stale expectedVersion by definition. The row lock above makes this race-free.
+        if (input.idempotencyKey !== undefined) {
+          const [prior] = await tx
+            .select({ workflowId: auditEvents.workflowId })
+            .from(auditEvents)
+            .where(eq(auditEvents.idempotencyKey, input.idempotencyKey));
+          if (prior) {
+            if (prior.workflowId !== current.id) {
+              throw new IdempotencyKeyConflictError(input.idempotencyKey, current.id);
+            }
+            return current;
+          }
+        }
         if (current.version !== input.expectedVersion) {
           throw new WorkflowVersionConflictError(
             current.id,
@@ -142,6 +160,7 @@ export function createWorkflowService(db: Database): WorkflowService {
           toState: input.to,
           workflowVersion: updated.version,
           correlationId: input.correlationId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
           payload: {
             ...(input.reason !== undefined && { reason: input.reason }),
             ...(current.state === "POLICY_REVIEW" &&

@@ -29,6 +29,13 @@
       "when": 1790185774736,
       "tag": "0003_audit_occurred_at_clock_timestamp",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790186865149,
+      "tag": "0004_outbox_worker_leases_and_attempts",
+      "breakpoints": true
     }
   ]
 }

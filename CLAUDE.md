@@ -6,14 +6,15 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                               | Status                         |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests              | Complete (accepted)            |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit | Complete (awaiting acceptance) |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                 | Complete (awaiting acceptance) |
-| M3B       | Not yet defined (expected: outbox worker); the user defines it when starting it                                                     | Not started                    |
+| Milestone | Scope                                                                                                                                                                          | Status                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)             |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)  |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)  |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance) |
+| M4        | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                     |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), and the M3A signed HRIS webhook, which creates workflows and writes outbox events (see **HRIS webhook**). **No outbox worker or dispatcher, automatic workflow execution, agents, policy engine, resource catalog, integrations, AWS infrastructure or frontend features exist yet.** Outbox rows are written but not yet published. Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). **Nothing drives a workflow past `ACCESS_PLANNING` yet. No agents, policy engine, resource catalog, per-resource access execution, integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -60,13 +61,15 @@ These decisions are fixed. Changing any of them needs an explicit decision from 
   - `0001_audit_events_append_only`: hand-written. Database triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`.
   - `0002_hris_receipts_and_outbox`: M3A. Adds `hris_event_receipts` and `outbox_events` and changes no existing table.
   - `0003_audit_occurred_at_clock_timestamp`: M3A. `audit_events.occurred_at` now defaults to `clock_timestamp()` instead of `now()`. `now()` is the transaction _start_ time, which misordered audit events written by concurrent transactions that commit in a different order than they began.
+  - `0004_outbox_worker_leases_and_attempts`: M3B. Adds to `outbox_events`: `status`, `cycle_attempts`, lease columns, `dead_lettered_at`, `redrive_count`, integrity CHECKs, and a claimable index that replaces `outbox_events_unpublished_idx`. Also adds the `outbox_event_attempts` table and `audit_events.idempotency_key` (unique where not null). Additive; existing rows remain valid.
 
 ### Events
 
 - **Transactional outbox.** A state change and the events it emits are written in the same database transaction. A separate dispatcher publishes those events afterwards.
 - **Development:** a local worker process polls the outbox and delivers events.
-- **In place since M3A:** the `outbox_events` table, and outbox writes in the same transaction as the change they describe (HRIS intake). **Not built:** the worker/dispatcher (M3B). Rows stay `published_at IS NULL` until then.
-- Outbox columns: `idempotency_key` (unique per logical event), `aggregate_type`/`aggregate_id`, `event_type`, `payload` (jsonb, validated against a `@aoo/shared` schema before insert), `correlation_id`, `available_at`, `published_at`, `attempts`, `last_error`. A partial index on `available_at WHERE published_at IS NULL` exists for the future poller.
+- **In place since M3A:** the `outbox_events` table, and outbox writes in the same transaction as the change they describe (HRIS intake).
+- **In place since M3B:** the local worker that claims and processes outbox rows (see **Outbox worker**). EventBridge and SQS are still future work.
+- Outbox columns: `idempotency_key` (unique per logical event), `aggregate_type`/`aggregate_id`, `event_type`, `payload` (jsonb, validated against a `@aoo/shared` schema before insert), `correlation_id`, `status` (`PENDING` / `PROCESSED` / `DEAD_LETTERED`), `available_at`, `published_at` (set when delivered successfully), `attempts` (total claims ever, never reset), `cycle_attempts` (claims since creation or the last redrive), `last_error`, `lease_token` / `lease_owner` / `lease_expires_at`, `dead_lettered_at` and `redrive_count`. CHECK constraints tie `published_at` to `PROCESSED`, tie `dead_lettered_at` to `DEAD_LETTERED`, keep the lease columns all-or-nothing, and allow a lease only on a `PENDING` row.
 - Outbox event types and payload schemas live in `@aoo/shared` (`OUTBOX_EVENT_TYPES`, `src/outbox.ts`).
 - **Target:** AWS EventBridge for routing and SQS for consumption. The dispatcher sits behind an interface, so switching from the local worker to AWS doesn't change domain code.
 - **No cloud infrastructure yet.** AWS SDKs, infrastructure-as-code and AWS credentials wait for the milestone that introduces the AWS event transport. Don't add them before then.
@@ -109,30 +112,32 @@ The transition table is `WORKFLOW_TRANSITIONS` in `packages/orchestrator/src/sta
 
 **`WorkflowService`** (`createWorkflowService(db)`). This is internal, not HTTP.
 
-| Method                                                                            | Behavior                                                                                                                                                |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createWorkflow({ employee, actor, correlationId? })`                             | Upserts the employee by `hrisEmployeeId` and creates the workflow in `RECEIVED` at version 1, with its first step and a `workflow.created` audit event. |
-| `getWorkflow(id)`                                                                 | Returns `{ workflow, employee, steps }`, or `null`.                                                                                                     |
-| `transition({ workflowId, to, expectedVersion, actor, reason?, correlationId? })` | Validates and applies one transition, and returns the updated workflow.                                                                                 |
-| `listAuditEvents(workflowId)`                                                     | Returns the audit trail in version order.                                                                                                               |
+| Method                                                                                             | Behavior                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `createWorkflow({ employee, actor, correlationId? })`                                              | Upserts the employee by `hrisEmployeeId` and creates the workflow in `RECEIVED` at version 1, with its first step and a `workflow.created` audit event.                                                                                                                                                                                                                              |
+| `getWorkflow(id)`                                                                                  | Returns `{ workflow, employee, steps }`, or `null`.                                                                                                                                                                                                                                                                                                                                  |
+| `transition({ workflowId, to, expectedVersion, actor, reason?, correlationId?, idempotencyKey? })` | Validates and applies one transition, and returns the updated workflow. With `idempotencyKey` (M3B), the transition is at-most-once: if a transition with that key already committed for this workflow, it returns the current workflow and writes nothing, even though `expectedVersion` is now stale. The key is stored on the `workflow.transitioned` audit row, which is unique. |
+| `listAuditEvents(workflowId)`                                                                      | Returns the audit trail in version order.                                                                                                                                                                                                                                                                                                                                            |
 
 **Transition guarantees:**
 
 - **Transactional:** the workflow update, step bookkeeping and `workflow.transitioned` audit event commit in one transaction, or not at all.
 - **Validated:** a transition not in the table throws `InvalidTransitionError`, and nothing is written. Inputs are parsed with Zod. `FAILED` requires a `reason`. A database `CHECK` enforces that `failure_reason` is set if and only if the state is `FAILED`.
 - **Concurrency:** optimistic locking on `onboarding_workflows.version`. Callers pass the `expectedVersion` they last read. The transaction takes a row lock (`SELECT … FOR UPDATE`), checks the version, and updates with `WHERE version = expectedVersion`. A stale or losing caller gets `WorkflowVersionConflictError`; it must re-read and decide again. Never retry blindly with the new version.
-- Errors are typed with a stable `code`: `WORKFLOW_NOT_FOUND`, `INVALID_TRANSITION`, `WORKFLOW_VERSION_CONFLICT`.
+- Errors are typed with a stable `code`: `WORKFLOW_NOT_FOUND`, `INVALID_TRANSITION`, `WORKFLOW_VERSION_CONFLICT`, `IDEMPOTENCY_KEY_CONFLICT` (a key already used for another workflow).
+- **Replay check order:** after taking the row lock, the idempotency check runs **before** the version check, because a retry after a committed transition necessarily carries a stale version.
 
 **Tables:**
 
-| Table                  | Purpose                                                                                                                                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `employees`            | Hires, unique by `hris_employee_id`.                                                                                                                                                                  |
-| `onboarding_workflows` | One row per onboarding: `state`, `version` (concurrency token), `failure_reason`, `completed_at`. Foreign key to `employees`.                                                                         |
-| `workflow_steps`       | Units of work: `step_key`, nullable `subject_key`, `status` (`RUNNING` / `SUCCEEDED` / `FAILED`), `attempt`, `error` and timing fields. Foreign key to `onboarding_workflows`.                        |
-| `audit_events`         | Append-only history: actor, from/to state, resulting `workflow_version`, `correlation_id` and `payload` (jsonb). Foreign key to `onboarding_workflows` (nullable, for future non-workflow events).    |
-| `hris_event_receipts`  | (M3A) One row per accepted HRIS event: `event_id` (unique, HRIS-assigned), `event_type`, `hris_employee_id`, full `payload`, `payload_sha256`, `workflow_id` (FK), `workflow_created`, `received_at`. |
-| `outbox_events`        | (M3A) Transactional outbox; see **Events**.                                                                                                                                                           |
+| Table                   | Purpose                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `employees`             | Hires, unique by `hris_employee_id`.                                                                                                                                                                                                                                                                               |
+| `onboarding_workflows`  | One row per onboarding: `state`, `version` (concurrency token), `failure_reason`, `completed_at`. Foreign key to `employees`.                                                                                                                                                                                      |
+| `workflow_steps`        | Units of work: `step_key`, nullable `subject_key`, `status` (`RUNNING` / `SUCCEEDED` / `FAILED`), `attempt`, `error` and timing fields. Foreign key to `onboarding_workflows`.                                                                                                                                     |
+| `audit_events`          | Append-only history: actor, from/to state, resulting `workflow_version`, `correlation_id` and `payload` (jsonb). Foreign key to `onboarding_workflows` (nullable, for future non-workflow events).                                                                                                                 |
+| `hris_event_receipts`   | (M3A) One row per accepted HRIS event: `event_id` (unique, HRIS-assigned), `event_type`, `hris_employee_id`, full `payload`, `payload_sha256`, `workflow_id` (FK), `workflow_created`, `received_at`.                                                                                                              |
+| `outbox_events`         | (M3A, extended in M3B) Transactional outbox; see **Events**.                                                                                                                                                                                                                                                       |
+| `outbox_event_attempts` | (M3B) One row per claim: `attempt_number`, `worker_id`, `lease_token` (unique), `claimed_at`, `lease_expires_at`, `finished_at`, `outcome` (`SUCCEEDED` / `FAILED` / `DEAD_LETTERED` / `LEASE_EXPIRED`; NULL while in flight), `error` and `detail` (jsonb: the handler result, or the error with `retryDelayMs`). |
 
 Every table has a UUID primary key and `timestamptz` timestamps. All foreign keys are `ON DELETE RESTRICT`, so history is never cascaded away.
 
@@ -193,6 +198,47 @@ pnpm hris:simulate --help
 
 Each run generates fresh random fields. Reusing `--event-id` from an earlier run therefore sends different content and returns 409, by design. Use `--from-file` to resend an event exactly. The simulator exits non-zero if any delivery is not 202.
 
+### Outbox worker (in place since M3B)
+
+`apps/worker` is a separate process from the API that consumes `outbox_events`. The logic lives in `@aoo/orchestrator` and is split into two layers:
+
+- **Transport-independent handlers** (`src/events/`): `EventEnvelope → HandlerResult` (`processed` or `skipped`). Handlers never see leases or SQL. Throwing `PermanentEventError` means dead-letter now; any other error is retried. The registry is `createEventHandlers({ workflows })`. The future SQS transport reuses these handlers unchanged.
+- **Transport** (`src/outbox/`): the `OutboxStore` interface (`claim`, `complete`, `fail`), `createPostgresOutboxStore(db)`, and `createOutboxRunner(store, options)`. The runner applies the retry policy and backoff, and runs one batch's handlers concurrently. An SQS transport would implement `OutboxStore` (receive, delete, change visibility).
+
+**Claiming and leases:**
+
+- `claim` runs `SELECT … WHERE status='PENDING' AND available_at <= now AND (no lease OR lease expired) … FOR UPDATE SKIP LOCKED LIMIT batch`. It then sets a fresh `lease_token` (UUID), `lease_owner` and `lease_expires_at = now + OUTBOX_LEASE_MS`, increments `attempts` and `cycle_attempts`, and inserts an `outbox_event_attempts` row, all in one transaction. Any attempt row still open for the event is closed as `LEASE_EXPIRED`. At most one valid lease per event can exist.
+- **Fencing:** `complete` and `fail` update only `WHERE id AND lease_token = <mine> AND status='PENDING' AND lease_expires_at > clock_timestamp()`. If zero rows match, the store raises `LeaseLostError` and the runner discards its result. A stale worker can never acknowledge, fail or overwrite an event after its lease expired or was taken over.
+- **Crash recovery:** a worker that dies leaves an expired lease behind. Any worker reclaims the event after `OUTBOX_LEASE_MS`.
+
+**Retries:**
+
+- Delay before retry _n_ = `min(OUTBOX_BACKOFF_MAX_MS, OUTBOX_BACKOFF_BASE_MS · 2^(n-1))`, with equal jitter: uniformly distributed between half that value and the full value. It is applied as `available_at = now + delay`.
+- After `OUTBOX_MAX_ATTEMPTS` claims in a cycle, a permanent error or an unknown event type, the event becomes `DEAD_LETTERED` (sets `dead_lettered_at`). `last_error` holds the latest error, and every attempt keeps its error and details. Errors are stored with their `cause` chain and codes (`detail.error.cause`), and `last_error` appends the root cause, for example `Error: Failed query … [root cause: error (P0001): …]`. Without this, Drizzle's `Failed query` wrapper hides the PostgreSQL error.
+
+**Redrive:**
+
+- `pnpm worker:admin dead-letters` lists dead letters.
+- `pnpm worker:admin redrive --id <uuid> [--id …] --reason "<why>" [--actor <who>] [--dry-run]` redrives them. It only updates rows that are currently `DEAD_LETTERED`: status becomes `PENDING`, `cycle_attempts` resets to 0, `available_at` becomes now and `redrive_count` is incremented. Attempt history and `attempts` are kept. Each redrive writes an `outbox.event.redriven` audit event. Redriving concurrently or twice is safe.
+
+**`hris.offer_signed.accepted` handler:**
+
+- `workflowCreated: false` (the event was linked to an already active workflow): skipped with `ACTIVE_WORKFLOW_REUSED`. The workflow is never read, restarted or re-run.
+- `workflowCreated: true`: calls `WorkflowService.transition(RECEIVED → ACCESS_PLANNING)` with the current version and `idempotencyKey = workflow-start:<workflowId>`. A retry after a crash that happened after the commit but before the ack replays as a no-op, with no duplicate steps or audit events.
+- If the workflow already left `RECEIVED` without our start, for example because it was failed manually, the event is skipped with `WORKFLOW_NOT_IN_RECEIVED`.
+- A version conflict is retried. A malformed payload or missing workflow is a permanent error.
+
+**Process behavior:**
+
+- **Poll loop:** a full batch polls again immediately; otherwise it waits `OUTBOX_POLL_INTERVAL_MS`. After infrastructure errors the wait backs off, up to 30 s.
+- **SIGTERM/SIGINT:** stops claiming, finishes the in-flight batch (up to `WORKER_SHUTDOWN_TIMEOUT_MS`), closes the pool and exits 0. On a hard kill, the leases expire and another worker recovers the events.
+- **Health** on `WORKER_HEALTH_PORT`:
+  - `GET /live` returns 200 while the loop keeps turning.
+  - `GET /ready` returns 200 when the last poll reached PostgreSQL and the worker isn't stopping, and 503 otherwise.
+  - Both return JSON: `workerId`, `lastPollAt`, `lastPollError`, `consecutiveFailures`, totals and uptime.
+- **Logs:** pino JSON on stdout, with `service`, `workerId`, `eventId`, `eventType`, `attempt`, `cycleAttempt` and `correlationId`.
+- **Handlers must be idempotent.** Delivery is at-least-once, and a handler can outlive its lease.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -232,6 +278,7 @@ apps/
   api/        @aoo/api     Fastify server. src/app.ts = buildApp() factory, src/server.ts = process entry
   web/        @aoo/web     Next.js App Router. app/ = routes, app/api/* = route handlers
   hris-simulator/ @aoo/hris-simulator  CLI that signs and sends synthetic HRIS events (pnpm hris:simulate)
+  worker/      @aoo/worker        Outbox worker process (poll loop, /live, /ready, pino logs) + admin CLI (pnpm worker:admin)
 packages/
   shared/        @aoo/shared        Zod schemas + inferred types (incl. WORKFLOW_STATES). Built to dist/ with tsc
   db/            @aoo/db            Drizzle schema, pg client, config loader, migrator. migrations/ = versioned SQL
@@ -248,6 +295,11 @@ Location decisions made in M3A:
 - The signature protocol is in `@aoo/webhooks`, so the API and the simulator share it without importing each other.
 - The simulator is an app (`apps/hris-simulator`).
 
+Location decisions made in M3B:
+
+- Event handlers (`src/events/`) and the outbox transport, store and runner (`src/outbox/`) live in `@aoo/orchestrator`, because they write workflow and outbox tables.
+- `apps/worker` is only the process shell: config, loop, health, logging and the admin CLI.
+
 Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
@@ -261,6 +313,8 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - `@aoo/db` depends only on `@aoo/shared`, `drizzle-orm`, `pg` and `zod`. It contains schema and plumbing, not domain logic.
 - In code, only `@aoo/orchestrator` writes `hris_event_receipts` and `outbox_events`. The API calls orchestrator services. It uses `@aoo/db` only to create the connection and must not write tables itself.
 - `@aoo/webhooks` has no workspace dependencies. It may use Node APIs (`node:crypto`), so it must not be imported by `@aoo/shared` or the web app.
+- In code, only `@aoo/orchestrator` writes `outbox_event_attempts` and outbox status and lease columns. `apps/worker` uses `@aoo/db` only to create the connection.
+- Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
 
 ### Service endpoints
 
@@ -274,7 +328,7 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 | `postgres`      | PostgreSQL 18, host port `${POSTGRES_PORT:-5432}`. Data persists in the named volume `pgdata`; `docker compose down -v` deletes it. Healthcheck: `pg_isready`. |
 | `migrate`       | One-shot job (`--target migrate`) that applies migrations once `postgres` is healthy, then exits 0.                                                            |
 
-Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `api` only after `postgres` is healthy **and** `migrate` has exited successfully, and starts `web` only after `api` is healthy. `/health` is liveness only; it doesn't check the database. The worker and the HRIS simulator are not in Compose; run the simulator from the host.
+Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `api` only after `postgres` is healthy **and** `migrate` has exited successfully, and starts `web` only after `api` is healthy. `/health` is liveness only; it doesn't check the database. The `worker` service (M3B) starts after `postgres` is healthy and `migrate` has succeeded. It publishes no port, so `docker compose up --scale worker=N` works; its Docker healthcheck polls `/ready` inside the container. It has a 20 s stop grace period for graceful shutdown. The HRIS simulator isn't in Compose; run it from the host.
 
 ### Environment variables
 
@@ -289,6 +343,14 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 | `HRIS_WEBHOOK_SECRET`                                                | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only |
 | `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                      | api                                                                                                   | `65536`                                                                                                            |
 | `HRIS_WEBHOOK_URL`                                                   | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                              |
+| `WORKER_ID`                                                          | worker                                                                                                | `<hostname>-<pid>` (unique per container replica)                                                                  |
+| `WORKER_HEALTH_HOST`, `WORKER_HEALTH_PORT`                           | worker                                                                                                | `0.0.0.0`, `4100`                                                                                                  |
+| `WORKER_SHUTDOWN_TIMEOUT_MS`                                         | worker                                                                                                | `15000`                                                                                                            |
+| `OUTBOX_BATCH_SIZE`                                                  | worker (1–100)                                                                                        | `10`                                                                                                               |
+| `OUTBOX_POLL_INTERVAL_MS`                                            | worker (≥ 10)                                                                                         | `1000`                                                                                                             |
+| `OUTBOX_LEASE_MS`                                                    | worker; must exceed the poll interval, and should exceed the worst-case handler time                  | `30000`                                                                                                            |
+| `OUTBOX_MAX_ATTEMPTS`                                                | worker (claims per cycle before dead-lettering)                                                       | `5`                                                                                                                |
+| `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`                    | worker; max must be ≥ base                                                                            | `1000`, `300000`                                                                                                   |
 | `TEST_DATABASE_URL`                                                  | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
 
@@ -302,6 +364,7 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 - **Formatting:** Prettier, 100-column width (`pnpm format`). Don't hand-format.
 - **Tests:** put them in each package's `test/` directory as `*.test.ts(x)`. Test the API through `app.inject()` and web route handlers by calling them directly. Tests resolve workspace packages to their `src/` through the shared alias list in `vitest.aliases.ts` (repo root), so they don't need a build. Add new workspace packages there.
 - **API dependencies:** `buildApp(config, overrides?)` wires real, database-backed services by default. Unit tests may override them with test doubles (for example, `hrisIntake`). The pg pool connects lazily, so building the app never touches the database.
+- **Event handlers:** keep them transport-independent (`EventEnvelope` in, `HandlerResult` out) and idempotent. Make at-most-once side effects idempotent with keys (for example, `transition({ idempotencyKey })`), not with pre-checks alone. Throw `PermanentEventError` only when retrying can never help.
 - **Integration tests:** put them in `test/integration/` and register them in the package's `vitest.integration.config.ts` (in `apps/*` or `packages/*`). `pnpm test` excludes them; run them with `pnpm test:integration`. Each project's global setup calls `createTestDatabase()` from `@aoo/db/testing`, which creates a fresh, migrated database per run and drops it afterwards. Don't mock the database in integration tests. Race tests should be deterministic: hold a transaction open with a test-only trigger (`pg_sleep`) instead of relying on bursts.
 - **Workspace package exports:** each package's `exports` has a `source` condition pointing at `src/index.ts`, before `types`/`default` (dist). Typecheck configs (`tsconfig.json`) set `customConditions: ["source"]`, so typechecking doesn't need a build. Build configs (`tsconfig.build.json`) don't. `tsx --conditions=source` runs workspace code from source.
 - **Side effects:** all external calls go through adapters and carry a correlation ID. External writes also carry a durable idempotency key. Domain code never calls ServiceNow, Okta or GitHub directly.
@@ -320,6 +383,10 @@ pnpm typecheck        # tsc --noEmit in every package
 pnpm test             # unit tests (Vitest across all projects; no database needed)
 pnpm test:integration # PostgreSQL integration tests: orchestrator + API webhook (needs postgres running, see TEST_DATABASE_URL)
 pnpm hris:simulate    # send signed synthetic HRIS events to the API (see HRIS webhook)
+pnpm --filter @aoo/worker dev      # run the outbox worker locally (needs DATABASE_URL)
+pnpm worker:admin dead-letters     # list dead-lettered outbox events
+pnpm worker:admin redrive --id <uuid> --reason "<why>"   # redrive a dead letter (audited)
+docker compose up -d --scale worker=2   # full stack with two workers
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts
 pnpm db:migrate                    # apply migrations to DATABASE_URL

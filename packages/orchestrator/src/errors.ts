@@ -62,3 +62,16 @@ export class HrisEventConflictError extends Error {
     this.name = "HrisEventConflictError";
   }
 }
+
+/** An idempotency key was already used for a different workflow. */
+export class IdempotencyKeyConflictError extends Error {
+  readonly code = "IDEMPOTENCY_KEY_CONFLICT";
+
+  constructor(
+    readonly idempotencyKey: string,
+    readonly workflowId: string,
+  ) {
+    super(`idempotency key ${idempotencyKey} was already used for another workflow`);
+    this.name = "IdempotencyKeyConflictError";
+  }
+}

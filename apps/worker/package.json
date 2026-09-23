@@ -1,0 +1,24 @@
+{
+  "name": "@aoo/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch --conditions=source src/main.ts",
+    "start": "node dist/main.js",
+    "admin": "tsx --conditions=source src/admin.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aoo/db": "workspace:*",
+    "@aoo/orchestrator": "workspace:*",
+    "pino": "^10.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "drizzle-orm": "^0.45.3",
+    "tsx": "^4.23.15",
+    "@aoo/shared": "workspace:*"
+  }
+}

@@ -104,13 +104,20 @@ export const auditEvents = pgTable(
     workflowVersion: integer("workflow_version"),
     correlationId: text("correlation_id"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    /** Set on transitions that must happen at most once (e.g. "workflow-start:<id>"). */
+    idempotencyKey: text("idempotency_key"),
     // clock_timestamp(), not now(): now() is the transaction start, which misorders events
     // written by concurrent transactions that commit in a different order than they began.
     occurredAt: timestamp("occurred_at", { withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
   },
-  (t) => [index("audit_events_workflow_id_idx").on(t.workflowId, t.workflowVersion)],
+  (t) => [
+    index("audit_events_workflow_id_idx").on(t.workflowId, t.workflowVersion),
+    uniqueIndex("audit_events_idempotency_key_idx")
+      .on(t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
+  ],
 );
 
 export type Employee = typeof employees.$inferSelect;
@@ -140,9 +147,17 @@ export const hrisEventReceipts = pgTable(
   (t) => [index("hris_event_receipts_workflow_id_idx").on(t.workflowId)],
 );
 
+export const OUTBOX_STATUSES = ["PENDING", "PROCESSED", "DEAD_LETTERED"] as const;
+export const outboxStatusEnum = pgEnum("outbox_status", OUTBOX_STATUSES);
+
 /**
  * Transactional outbox: rows are written in the same transaction as the state change they
- * describe and published later by a dispatcher (M3B). idempotency_key is unique per logical event.
+ * describe, then claimed and processed by the outbox worker.
+ *
+ * Lifecycle: PENDING → PROCESSED, or PENDING → (retries) → DEAD_LETTERED → (manual redrive) → PENDING.
+ * A PENDING row is claimed by setting a lease (lease_token/owner/expires_at). A lease that has
+ * expired may be reclaimed by another worker, and completion is fenced on lease_token plus an
+ * unexpired lease, so a stale worker can never acknowledge or fail an event it no longer holds.
  */
 export const outboxEvents = pgTable(
   "outbox_events",
@@ -154,20 +169,91 @@ export const outboxEvents = pgTable(
     eventType: text("event_type").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     correlationId: text("correlation_id"),
+    status: outboxStatusEnum("status").notNull().default("PENDING"),
     availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set when the event was successfully delivered (locally: its handler succeeded). */
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    /** Total claims ever made; numbers outbox_event_attempts. Never reset. */
     attempts: integer("attempts").notNull().default(0),
+    /** Claims since creation or the last redrive; compared against the retry limit. */
+    cycleAttempts: integer("cycle_attempts").notNull().default(0),
     lastError: text("last_error"),
+    leaseToken: uuid("lease_token"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+    redriveCount: integer("redrive_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("outbox_events_unpublished_idx")
+    index("outbox_events_claimable_idx")
       .on(t.availableAt)
-      .where(sql`${t.publishedAt} IS NULL`),
+      .where(sql`${t.status} = 'PENDING'`),
     index("outbox_events_aggregate_idx").on(t.aggregateType, t.aggregateId),
     check("outbox_events_attempts_non_negative", sql`${t.attempts} >= 0`),
+    check(
+      "outbox_events_cycle_attempts_valid",
+      sql`${t.cycleAttempts} >= 0 AND ${t.cycleAttempts} <= ${t.attempts}`,
+    ),
+    check(
+      "outbox_events_published_iff_processed",
+      sql`(${t.status} = 'PROCESSED') = (${t.publishedAt} IS NOT NULL)`,
+    ),
+    check(
+      "outbox_events_dead_lettered_iff_status",
+      sql`(${t.status} = 'DEAD_LETTERED') = (${t.deadLetteredAt} IS NOT NULL)`,
+    ),
+    check(
+      "outbox_events_lease_all_or_nothing",
+      sql`(${t.leaseToken} IS NULL) = (${t.leaseOwner} IS NULL) AND (${t.leaseToken} IS NULL) = (${t.leaseExpiresAt} IS NULL)`,
+    ),
+    check(
+      "outbox_events_lease_only_when_pending",
+      sql`${t.leaseToken} IS NULL OR ${t.status} = 'PENDING'`,
+    ),
+  ],
+);
+
+export const OUTBOX_ATTEMPT_OUTCOMES = [
+  "SUCCEEDED",
+  "FAILED",
+  "DEAD_LETTERED",
+  "LEASE_EXPIRED",
+] as const;
+export const outboxAttemptOutcomeEnum = pgEnum("outbox_attempt_outcome", OUTBOX_ATTEMPT_OUTCOMES);
+
+/**
+ * One row per claim of an outbox event: who held it, until when, and how it ended. outcome is
+ * NULL while the attempt is in flight; a reclaim after lease expiry closes it as LEASE_EXPIRED.
+ */
+export const outboxEventAttempts = pgTable(
+  "outbox_event_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    outboxEventId: uuid("outbox_event_id")
+      .notNull()
+      .references(() => outboxEvents.id, { onDelete: "restrict" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    workerId: text("worker_id").notNull(),
+    leaseToken: uuid("lease_token").notNull().unique(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    outcome: outboxAttemptOutcomeEnum("outcome"),
+    error: text("error"),
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+  },
+  (t) => [
+    uniqueIndex("outbox_event_attempts_event_attempt_idx").on(t.outboxEventId, t.attemptNumber),
+    check(
+      "outbox_event_attempts_outcome_iff_finished",
+      sql`(${t.outcome} IS NULL) = (${t.finishedAt} IS NULL)`,
+    ),
   ],
 );
 
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
+export type OutboxEventAttempt = typeof outboxEventAttempts.$inferSelect;

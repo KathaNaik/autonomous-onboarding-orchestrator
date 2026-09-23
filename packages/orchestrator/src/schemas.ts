@@ -24,6 +24,12 @@ export const TransitionInputSchema = z
     actor: ActorSchema,
     reason: z.string().trim().min(1).max(2000).optional(),
     correlationId: CorrelationIdSchema.optional(),
+    /**
+     * Makes the transition at-most-once: if a transition with this key was already committed
+     * (for this workflow), the call returns the current workflow without writing anything,
+     * even if expectedVersion is now stale.
+     */
+    idempotencyKey: z.string().trim().min(1).max(200).optional(),
   })
   .refine((input) => input.to !== "FAILED" || input.reason !== undefined, {
     message: "reason is required when transitioning to FAILED",
