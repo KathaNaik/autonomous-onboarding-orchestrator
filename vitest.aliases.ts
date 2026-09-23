@@ -1,0 +1,15 @@
+import { fileURLToPath } from "node:url";
+
+const src = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+/**
+ * Resolves workspace packages to their TypeScript sources in tests, so tests never need a build.
+ * Mirrors the "source" export condition in each package.json. Subpaths come before bare names.
+ */
+export const workspaceAliases = [
+  { find: /^@aoo\/db\/testing$/, replacement: src("packages/db/src/testing.ts") },
+  { find: /^@aoo\/db$/, replacement: src("packages/db/src/index.ts") },
+  { find: /^@aoo\/orchestrator$/, replacement: src("packages/orchestrator/src/index.ts") },
+  { find: /^@aoo\/shared$/, replacement: src("packages/shared/src/index.ts") },
+  { find: /^@aoo\/webhooks$/, replacement: src("packages/webhooks/src/index.ts") },
+];

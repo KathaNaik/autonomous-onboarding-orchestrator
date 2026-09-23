@@ -181,12 +181,40 @@ importers:
 
   apps/api:
     dependencies:
+      '@aoo/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@aoo/orchestrator':
+        specifier: workspace:*
+        version: link:../../packages/orchestrator
       '@aoo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@aoo/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/webhooks
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(@types/pg@8.23.1)(pg@8.23.0)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+
+  apps/hris-simulator:
+    dependencies:
+      '@aoo/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@aoo/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/webhooks
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -266,6 +294,8 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+
+  packages/webhooks: {}
 
 packages:
 

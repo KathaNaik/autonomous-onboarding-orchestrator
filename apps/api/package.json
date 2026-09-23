@@ -5,16 +5,20 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --conditions=source src/server.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@aoo/shared": "workspace:*",
     "fastify": "^5.12.5",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@aoo/db": "workspace:*",
+    "@aoo/orchestrator": "workspace:*",
+    "@aoo/webhooks": "workspace:*"
   },
   "devDependencies": {
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "drizzle-orm": "^0.45.3"
   }
 }

@@ -1,6 +1,7 @@
 import { WORKFLOW_STATES } from "@aoo/shared";
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -103,7 +104,11 @@ export const auditEvents = pgTable(
     workflowVersion: integer("workflow_version"),
     correlationId: text("correlation_id"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    // clock_timestamp(), not now(): now() is the transaction start, which misorders events
+    // written by concurrent transactions that commit in a different order than they began.
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
   },
   (t) => [index("audit_events_workflow_id_idx").on(t.workflowId, t.workflowVersion)],
 );
@@ -112,3 +117,57 @@ export type Employee = typeof employees.$inferSelect;
 export type OnboardingWorkflow = typeof onboardingWorkflows.$inferSelect;
 export type WorkflowStep = typeof workflowSteps.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+
+/**
+ * One row per accepted HRIS event. event_id is the HRIS-assigned id and is unique, which makes
+ * redelivery idempotent. payload_sha256 detects a reused event_id carrying different content.
+ */
+export const hrisEventReceipts = pgTable(
+  "hris_event_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: text("event_id").notNull().unique(),
+    eventType: text("event_type").notNull(),
+    hrisEmployeeId: text("hris_employee_id").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    workflowCreated: boolean("workflow_created").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("hris_event_receipts_workflow_id_idx").on(t.workflowId)],
+);
+
+/**
+ * Transactional outbox: rows are written in the same transaction as the state change they
+ * describe and published later by a dispatcher (M3B). idempotency_key is unique per logical event.
+ */
+export const outboxEvents = pgTable(
+  "outbox_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: uuid("aggregate_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    correlationId: text("correlation_id"),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("outbox_events_unpublished_idx")
+      .on(t.availableAt)
+      .where(sql`${t.publishedAt} IS NULL`),
+    index("outbox_events_aggregate_idx").on(t.aggregateType, t.aggregateId),
+    check("outbox_events_attempts_non_negative", sql`${t.attempts} >= 0`),
+  ],
+);
+
+export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
+export type OutboxEvent = typeof outboxEvents.$inferSelect;

@@ -36,3 +36,29 @@ export class WorkflowVersionConflictError extends Error {
     this.name = "WorkflowVersionConflictError";
   }
 }
+
+/** Authenticated, well-formed event that is not allowed to start onboarding. */
+export class HrisEventNotEligibleError extends Error {
+  readonly code = "HRIS_EVENT_NOT_ELIGIBLE";
+
+  constructor(
+    readonly eventId: string,
+    readonly offerStatus: string,
+    readonly candidateStatus: string,
+  ) {
+    super(
+      `event ${eventId} cannot start onboarding (offerStatus=${offerStatus}, candidateStatus=${candidateStatus})`,
+    );
+    this.name = "HrisEventNotEligibleError";
+  }
+}
+
+/** An eventId that was already accepted arrived again with different content. */
+export class HrisEventConflictError extends Error {
+  readonly code = "HRIS_EVENT_CONFLICT";
+
+  constructor(readonly eventId: string) {
+    super(`event ${eventId} was already accepted with a different payload`);
+    this.name = "HrisEventConflictError";
+  }
+}

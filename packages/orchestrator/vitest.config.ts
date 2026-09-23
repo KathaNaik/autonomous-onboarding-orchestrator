@@ -1,5 +1,5 @@
 import { defineProject } from "vitest/config";
-import { workspaceAliases } from "./vitest.shared.js";
+import { workspaceAliases } from "../../vitest.aliases.js";
 
 export default defineProject({
   resolve: { alias: workspaceAliases },

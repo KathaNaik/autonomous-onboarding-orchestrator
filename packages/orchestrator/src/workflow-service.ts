@@ -7,11 +7,9 @@ import {
   type Database,
   type Employee,
   type OnboardingWorkflow,
-  type Transaction,
   type WorkflowStep,
 } from "@aoo/db";
-import type { WorkflowState } from "@aoo/shared";
-import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { WorkflowNotFoundError, WorkflowVersionConflictError } from "./errors.js";
 import {
@@ -21,6 +19,7 @@ import {
   type TransitionInput,
 } from "./schemas.js";
 import { assertTransition, isTerminal } from "./state-machine.js";
+import { insertWorkflow, startStep, upsertEmployee } from "./workflow-writes.js";
 
 export interface WorkflowDetails {
   workflow: OnboardingWorkflow;
@@ -48,39 +47,12 @@ export function createWorkflowService(db: Database): WorkflowService {
       const input = CreateWorkflowInputSchema.parse(rawInput);
 
       return db.transaction(async (tx) => {
-        const [employee] = await tx
-          .insert(employees)
-          .values(input.employee)
-          .onConflictDoUpdate({
-            target: employees.hrisEmployeeId,
-            set: {
-              email: input.employee.email,
-              firstName: input.employee.firstName,
-              lastName: input.employee.lastName,
-              updatedAt: sql`now()`,
-            },
-          })
-          .returning();
-        if (!employee) throw new Error("employee upsert returned no row");
-
-        const [workflow] = await tx
-          .insert(onboardingWorkflows)
-          .values({ employeeId: employee.id })
-          .returning();
-        if (!workflow) throw new Error("workflow insert returned no row");
-
-        await startStep(tx, workflow.id, workflow.state);
-        await tx.insert(auditEvents).values({
-          workflowId: workflow.id,
-          eventType: "workflow.created",
+        const employee = await upsertEmployee(tx, input.employee);
+        return insertWorkflow(tx, {
+          employee,
           actor: input.actor,
-          toState: workflow.state,
-          workflowVersion: workflow.version,
           correlationId: input.correlationId ?? null,
-          payload: { employeeId: employee.id, hrisEmployeeId: employee.hrisEmployeeId },
         });
-
-        return workflow;
       });
     },
 
@@ -190,24 +162,4 @@ export function createWorkflowService(db: Database): WorkflowService {
         .orderBy(asc(auditEvents.workflowVersion), asc(auditEvents.occurredAt));
     },
   };
-}
-
-/** Opens the phase step for `state`; re-entering a phase (e.g. approval loops) bumps attempt. */
-async function startStep(tx: Transaction, workflowId: string, state: WorkflowState) {
-  const [previous] = await tx
-    .select({ n: count() })
-    .from(workflowSteps)
-    .where(
-      and(
-        eq(workflowSteps.workflowId, workflowId),
-        eq(workflowSteps.stepKey, state),
-        isNull(workflowSteps.subjectKey),
-      ),
-    );
-  await tx.insert(workflowSteps).values({
-    workflowId,
-    stepKey: state,
-    status: "RUNNING",
-    attempt: (previous?.n ?? 0) + 1,
-  });
 }

@@ -15,6 +15,20 @@
       "when": 1790182051389,
       "tag": "0001_audit_events_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790185492114,
+      "tag": "0002_hris_receipts_and_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790185774736,
+      "tag": "0003_audit_occurred_at_clock_timestamp",
+      "breakpoints": true
     }
   ]
 }

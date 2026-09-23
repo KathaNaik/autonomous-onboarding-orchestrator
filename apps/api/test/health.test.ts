@@ -2,13 +2,13 @@ import { HealthResponseSchema } from "@aoo/shared";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { loadConfig } from "../src/config.js";
+import { testConfig } from "./helpers.js";
 
 describe("GET /health", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await buildApp(loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }));
+    app = await buildApp(testConfig());
   });
 
   afterAll(async () => {

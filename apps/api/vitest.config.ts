@@ -1,14 +1,11 @@
-import { fileURLToPath } from "node:url";
 import { defineProject } from "vitest/config";
+import { workspaceAliases } from "../../vitest.aliases.js";
 
 export default defineProject({
-  resolve: {
-    alias: {
-      "@aoo/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)),
-    },
-  },
+  resolve: { alias: workspaceAliases },
   test: {
     name: "api",
     environment: "node",
+    exclude: ["test/integration/**", "node_modules/**"],
   },
 });

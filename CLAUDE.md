@@ -10,9 +10,10 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests              | Complete (accepted)            |
 | M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit | Complete (awaiting acceptance) |
-| M3        | Not yet defined; the user defines it when starting it                                                                               | Not started                    |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                 | Complete (awaiting acceptance) |
+| M3B       | Not yet defined (expected: outbox worker); the user defines it when starting it                                                     | Not started                    |
 
-What exists today: the M1 scaffold, plus the M2 database and workflow engine (see **Workflow engine**). **No agents, HRIS webhook ingestion, event queue or outbox, policy engine, resource catalog, integrations or frontend features exist yet.** The workflow engine is not exposed over HTTP yet. Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), and the M3A signed HRIS webhook, which creates workflows and writes outbox events (see **HRIS webhook**). **No outbox worker or dispatcher, automatic workflow execution, agents, policy engine, resource catalog, integrations, AWS infrastructure or frontend features exist yet.** Outbox rows are written but not yet published. Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -54,12 +55,19 @@ These decisions are fixed. Changing any of them needs an explicit decision from 
 
 - Commit the `.sql` files **and** `migrations/meta/` (journal + snapshots) together. Never edit either by hand after the migration has been applied anywhere. Prettier ignores this directory.
 - Review generated SQL before committing it.
-- `0001_audit_events_append_only` is hand-written. Database triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`.
+- Applied migrations, in order:
+  - `0000_init`: the M2 workflow tables.
+  - `0001_audit_events_append_only`: hand-written. Database triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`.
+  - `0002_hris_receipts_and_outbox`: M3A. Adds `hris_event_receipts` and `outbox_events` and changes no existing table.
+  - `0003_audit_occurred_at_clock_timestamp`: M3A. `audit_events.occurred_at` now defaults to `clock_timestamp()` instead of `now()`. `now()` is the transaction _start_ time, which misordered audit events written by concurrent transactions that commit in a different order than they began.
 
 ### Events
 
 - **Transactional outbox.** A state change and the events it emits are written in the same database transaction. A separate dispatcher publishes those events afterwards.
 - **Development:** a local worker process polls the outbox and delivers events.
+- **In place since M3A:** the `outbox_events` table, and outbox writes in the same transaction as the change they describe (HRIS intake). **Not built:** the worker/dispatcher (M3B). Rows stay `published_at IS NULL` until then.
+- Outbox columns: `idempotency_key` (unique per logical event), `aggregate_type`/`aggregate_id`, `event_type`, `payload` (jsonb, validated against a `@aoo/shared` schema before insert), `correlation_id`, `available_at`, `published_at`, `attempts`, `last_error`. A partial index on `available_at WHERE published_at IS NULL` exists for the future poller.
+- Outbox event types and payload schemas live in `@aoo/shared` (`OUTBOX_EVENT_TYPES`, `src/outbox.ts`).
 - **Target:** AWS EventBridge for routing and SQS for consumption. The dispatcher sits behind an interface, so switching from the local worker to AWS doesn't change domain code.
 - **No cloud infrastructure yet.** AWS SDKs, infrastructure-as-code and AWS credentials wait for the milestone that introduces the AWS event transport. Don't add them before then.
 
@@ -117,12 +125,14 @@ The transition table is `WORKFLOW_TRANSITIONS` in `packages/orchestrator/src/sta
 
 **Tables:**
 
-| Table                  | Purpose                                                                                                                                                                                            |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `employees`            | Hires, unique by `hris_employee_id`.                                                                                                                                                               |
-| `onboarding_workflows` | One row per onboarding: `state`, `version` (concurrency token), `failure_reason`, `completed_at`. Foreign key to `employees`.                                                                      |
-| `workflow_steps`       | Units of work: `step_key`, nullable `subject_key`, `status` (`RUNNING` / `SUCCEEDED` / `FAILED`), `attempt`, `error` and timing fields. Foreign key to `onboarding_workflows`.                     |
-| `audit_events`         | Append-only history: actor, from/to state, resulting `workflow_version`, `correlation_id` and `payload` (jsonb). Foreign key to `onboarding_workflows` (nullable, for future non-workflow events). |
+| Table                  | Purpose                                                                                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `employees`            | Hires, unique by `hris_employee_id`.                                                                                                                                                                  |
+| `onboarding_workflows` | One row per onboarding: `state`, `version` (concurrency token), `failure_reason`, `completed_at`. Foreign key to `employees`.                                                                         |
+| `workflow_steps`       | Units of work: `step_key`, nullable `subject_key`, `status` (`RUNNING` / `SUCCEEDED` / `FAILED`), `attempt`, `error` and timing fields. Foreign key to `onboarding_workflows`.                        |
+| `audit_events`         | Append-only history: actor, from/to state, resulting `workflow_version`, `correlation_id` and `payload` (jsonb). Foreign key to `onboarding_workflows` (nullable, for future non-workflow events).    |
+| `hris_event_receipts`  | (M3A) One row per accepted HRIS event: `event_id` (unique, HRIS-assigned), `event_type`, `hris_employee_id`, full `payload`, `payload_sha256`, `workflow_id` (FK), `workflow_created`, `received_at`. |
+| `outbox_events`        | (M3A) Transactional outbox; see **Events**.                                                                                                                                                           |
 
 Every table has a UUID primary key and `timestamptz` timestamps. All foreign keys are `ON DELETE RESTRICT`, so history is never cascaded away.
 
@@ -131,6 +141,57 @@ Every table has a UUID primary key and `timestamptz` timestamps. All foreign key
 - The workflow `state` is an **aggregate phase, not a global gate.** `PROVISIONING ⇄ AWAITING_APPROVAL` may alternate, so authorized resources provision while others wait. No workflow-level column records a single approval.
 - In M2, each phase is one step (`step_key` = the state, `subject_key` = NULL). Per-resource work adds steps with `subject_key` set (for example, a catalog entitlement), each with its own status and attempts. A partial unique index allows at most one `RUNNING` step per (workflow, step_key, subject_key).
 - The per-resource access-request table and its state machine, per-resource approvals and dependency ordering come in later milestones. They are added as new tables and migrations that reference `onboarding_workflows`.
+
+### HRIS webhook (in place since M3A)
+
+`POST /webhooks/hris` on the API. It accepts a simulated HRIS `offer.signed` event and is the only way a workflow starts.
+
+**Request:**
+
+- Header `X-HRIS-Signature: sha256=<hex>`: HMAC-SHA256 of the **exact raw request body**, keyed with `HRIS_WEBHOOK_SECRET`. The protocol lives in `@aoo/webhooks` (`signHrisPayload`, `verifyHrisSignature`, using a constant-time compare).
+- `Content-Type: application/json`. The body is capped at `HRIS_WEBHOOK_BODY_LIMIT_BYTES` (default 64 KiB).
+- Body: `HrisOfferSignedEventSchema` (`@aoo/shared`). Fields: `eventId`, `eventType: "offer.signed"`, `occurredAt` (ISO 8601), `employeeId`, `employee { firstName, lastName, email }`, `role`, `department`, `managerId`, `offerStatus` (`SIGNED|PENDING|DECLINED|RESCINDED`) and `candidateStatus` (`CLEARED|PENDING|NOT_CLEARED`). Unknown fields are stripped.
+
+**Processing order:** raw-body HMAC check → content type → JSON parse → Zod validation → eligibility → one database transaction → response. Nothing is persisted for a request rejected before the transaction.
+
+**Responses:** the body is `HrisWebhookAcceptedResponseSchema` or `HrisWebhookErrorResponseSchema`.
+
+| Status | Meaning                                                                                                                                                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `202`  | Accepted: `{ status: "accepted", eventId, workflowId, workflowCreated, duplicate }`. Sent **only after the transaction commits**. A redelivery of an accepted event also gets `202`, with `duplicate: true` and the original `workflowId`. |
+| `401`  | `SIGNATURE_MISSING` / `SIGNATURE_INVALID`.                                                                                                                                                                                                 |
+| `415`  | `UNSUPPORTED_MEDIA_TYPE`.                                                                                                                                                                                                                  |
+| `400`  | `MALFORMED_JSON` / `INVALID_PAYLOAD`. The message includes the Zod issues.                                                                                                                                                                 |
+| `413`  | Body over the limit (Fastify's default error body).                                                                                                                                                                                        |
+| `422`  | `NOT_ELIGIBLE`: the offer isn't `SIGNED` or the candidate isn't `CLEARED`. Only a signed offer for a cleared candidate may start onboarding. Nothing is persisted.                                                                         |
+| `409`  | `EVENT_ID_CONFLICT`: this `eventId` was already accepted with different content. Nothing is written.                                                                                                                                       |
+| `500`  | `INTERNAL_ERROR`: the transaction rolled back. The HRIS should retry.                                                                                                                                                                      |
+
+**The intake transaction:** `createHrisIntakeService(db).acceptOfferSigned(event)` in `@aoo/orchestrator`. It runs in one PostgreSQL transaction:
+
+1. Takes `pg_advisory_xact_lock` on `hris:<eventId>`, so concurrent deliveries of the same event serialize.
+2. If a receipt for `eventId` exists, returns it as a duplicate when `payload_sha256` matches, or raises a conflict when it doesn't. The hash is taken over the Zod-parsed event, so a re-serialized retry (different key order or whitespace) still matches.
+3. Upserts the employee by `employeeId`. This also row-locks the employee, so different events for the same hire serialize.
+4. Reuses the employee's **active** (non-terminal) workflow if there is one, recording audit event `hris.offer_signed.linked`. Otherwise it creates a new workflow in `RECEIVED` (audit `workflow.created`, actor `hris-webhook`). A hire whose previous workflow is `COMPLETED` or `FAILED` gets a new workflow.
+5. Inserts the receipt, whose `event_id` is unique.
+6. Inserts one outbox event: `hris.offer_signed.accepted`, aggregate `onboarding_workflow/<workflowId>`, idempotency key `hris.offer_signed.accepted:<eventId>`, payload `HrisOfferSignedAcceptedPayloadSchema` = `{ workflowId, workflowCreated, receiptId, hrisEventId, hrisEventType, hrisEmployeeId }`.
+
+The correlation ID for every row is `hris:<eventId>`. Any failure rolls back all six steps, the API returns 500, and a retry with the same event then succeeds.
+
+**HRIS simulator:** `apps/hris-simulator` signs synthetic events with the same protocol and POSTs them.
+
+```sh
+export HRIS_WEBHOOK_SECRET=dev-only-hris-webhook-secret-change-me   # compose default
+pnpm hris:simulate                               # one eligible event (expect 202)
+pnpm hris:simulate --count 5                     # five hires
+pnpm hris:simulate --save evt.json               # send and save the event...
+pnpm hris:simulate --from-file evt.json --repeat 5   # ...then redeliver it 5x concurrently (duplicates)
+pnpm hris:simulate --candidate-status PENDING    # expect 422
+pnpm hris:simulate --bad-signature               # expect 401
+pnpm hris:simulate --help
+```
+
+Each run generates fresh random fields. Reusing `--event-id` from an earlier run therefore sends different content and returns 409, by design. Use `--from-file` to resend an event exactly. The simulator exits non-zero if any delivery is not 202.
 
 ### Integrations
 
@@ -170,13 +231,22 @@ In place:
 apps/
   api/        @aoo/api     Fastify server. src/app.ts = buildApp() factory, src/server.ts = process entry
   web/        @aoo/web     Next.js App Router. app/ = routes, app/api/* = route handlers
+  hris-simulator/ @aoo/hris-simulator  CLI that signs and sends synthetic HRIS events (pnpm hris:simulate)
 packages/
   shared/        @aoo/shared        Zod schemas + inferred types (incl. WORKFLOW_STATES). Built to dist/ with tsc
   db/            @aoo/db            Drizzle schema, pg client, config loader, migrator. migrations/ = versioned SQL
   orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence)
+  webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
 ```
 
 Location decisions made in M2: the database schema, client and migrations live in `@aoo/db`. The orchestrator lives in `@aoo/orchestrator`, which depends on `@aoo/db` and `@aoo/shared`.
+
+Location decisions made in M3A:
+
+- The HRIS intake transaction lives in `@aoo/orchestrator` (`hris-intake.ts`), because it writes workflow tables.
+- The receipt and outbox tables are in `@aoo/db`.
+- The signature protocol is in `@aoo/webhooks`, so the API and the simulator share it without importing each other.
+- The simulator is an app (`apps/hris-simulator`).
 
 Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
@@ -189,6 +259,8 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - Agent code can't depend on provisioning adapters or write to the database directly.
 - Only the orchestrator writes workflow state and invokes adapters. In code: only `@aoo/orchestrator` writes the workflow tables (`onboarding_workflows`, `workflow_steps`, `audit_events`). Other packages that depend on `@aoo/db` must not write them.
 - `@aoo/db` depends only on `@aoo/shared`, `drizzle-orm`, `pg` and `zod`. It contains schema and plumbing, not domain logic.
+- In code, only `@aoo/orchestrator` writes `hris_event_receipts` and `outbox_events`. The API calls orchestrator services. It uses `@aoo/db` only to create the connection and must not write tables itself.
+- `@aoo/webhooks` has no workspace dependencies. It may use Node APIs (`node:crypto`), so it must not be imported by `@aoo/shared` or the web app.
 
 ### Service endpoints
 
@@ -202,20 +274,23 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 | `postgres`      | PostgreSQL 18, host port `${POSTGRES_PORT:-5432}`. Data persists in the named volume `pgdata`; `docker compose down -v` deletes it. Healthcheck: `pg_isready`. |
 | `migrate`       | One-shot job (`--target migrate`) that applies migrations once `postgres` is healthy, then exits 0.                                                            |
 
-Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `web` only after `api` is healthy. The API doesn't use the database yet, so it doesn't depend on `postgres`. The worker is not in Compose yet.
+Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `api` only after `postgres` is healthy **and** `migrate` has exited successfully, and starts `web` only after `api` is healthy. `/health` is liveness only; it doesn't check the database. The worker and the HRIS simulator are not in Compose; run the simulator from the host.
 
 ### Environment variables
 
 All env vars are read through Zod loaders. `.env.example` lists every variable.
 
-| Variable                                                             | Used by                                                                                               | Default                                                    |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                  | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                  |
-| `WEB_PORT` / `PORT`                                                  | web (dev / container)                                                                                 | `3000`                                                     |
-| `API_BASE_URL`                                                       | web                                                                                                   | `http://localhost:4000`                                    |
-| `DATABASE_URL`                                                       | `@aoo/db` (`pnpm db:migrate`, `WorkflowService`, `migrate` container)                                 | required, `postgres://` URL                                |
-| `TEST_DATABASE_URL`                                                  | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                    |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials) |
+| Variable                                                             | Used by                                                                                               | Default                                                                                                            |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                  | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                                                                          |
+| `WEB_PORT` / `PORT`                                                  | web (dev / container)                                                                                 | `3000`                                                                                                             |
+| `API_BASE_URL`                                                       | web                                                                                                   | `http://localhost:4000`                                                                                            |
+| `DATABASE_URL`                                                       | `@aoo/db` (`pnpm db:migrate`, the `migrate` container), api (required since M3A)                      | required, `postgres://` URL                                                                                        |
+| `HRIS_WEBHOOK_SECRET`                                                | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only |
+| `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                      | api                                                                                                   | `65536`                                                                                                            |
+| `HRIS_WEBHOOK_URL`                                                   | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                              |
+| `TEST_DATABASE_URL`                                                  | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
 
 ## Coding conventions
 
@@ -225,8 +300,9 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 - **Imports:** in `api` and `shared`, relative imports use `.js` extensions (NodeNext). Web uses bundler resolution and the `@/` alias. Use `import type` for type-only imports (`verbatimModuleSyntax` is on).
 - **Naming:** files are `kebab-case.ts`. Zod schemas are `PascalCaseSchema` with a matching `type PascalCase`. Workspace packages use the `@aoo/` scope.
 - **Formatting:** Prettier, 100-column width (`pnpm format`). Don't hand-format.
-- **Tests:** put them in each package's `test/` directory as `*.test.ts(x)`. Test the API through `app.inject()` and web route handlers by calling them directly. Tests resolve workspace packages to their `src/` (Vitest aliases), so they don't need a build.
-- **Integration tests:** put them in `test/integration/` and register them in the package's `vitest.integration.config.ts`. `pnpm test` excludes them; run them with `pnpm test:integration`. They run against real PostgreSQL in a fresh, migrated database per run. Don't mock the database in integration tests.
+- **Tests:** put them in each package's `test/` directory as `*.test.ts(x)`. Test the API through `app.inject()` and web route handlers by calling them directly. Tests resolve workspace packages to their `src/` through the shared alias list in `vitest.aliases.ts` (repo root), so they don't need a build. Add new workspace packages there.
+- **API dependencies:** `buildApp(config, overrides?)` wires real, database-backed services by default. Unit tests may override them with test doubles (for example, `hrisIntake`). The pg pool connects lazily, so building the app never touches the database.
+- **Integration tests:** put them in `test/integration/` and register them in the package's `vitest.integration.config.ts` (in `apps/*` or `packages/*`). `pnpm test` excludes them; run them with `pnpm test:integration`. Each project's global setup calls `createTestDatabase()` from `@aoo/db/testing`, which creates a fresh, migrated database per run and drops it afterwards. Don't mock the database in integration tests. Race tests should be deterministic: hold a transaction open with a test-only trigger (`pg_sleep`) instead of relying on bursts.
 - **Workspace package exports:** each package's `exports` has a `source` condition pointing at `src/index.ts`, before `types`/`default` (dist). Typecheck configs (`tsconfig.json`) set `customConditions: ["source"]`, so typechecking doesn't need a build. Build configs (`tsconfig.build.json`) don't. `tsx --conditions=source` runs workspace code from source.
 - **Side effects:** all external calls go through adapters and carry a correlation ID. External writes also carry a durable idempotency key. Domain code never calls ServiceNow, Okta or GitHub directly.
 - **Dependencies:** add them to the package that uses them, never to the root, except shared dev tooling. pnpm blocks dependency build scripts by default; approve one with `pnpm approve-builds <pkg>`, which records it under `allowBuilds` in `pnpm-workspace.yaml`.
@@ -242,7 +318,8 @@ pnpm dev              # build shared, then run shared (tsc -w), api (tsx watch :
 pnpm build            # build all packages in dependency order
 pnpm typecheck        # tsc --noEmit in every package
 pnpm test             # unit tests (Vitest across all projects; no database needed)
-pnpm test:integration # PostgreSQL integration tests (needs postgres running, see TEST_DATABASE_URL)
+pnpm test:integration # PostgreSQL integration tests: orchestrator + API webhook (needs postgres running, see TEST_DATABASE_URL)
+pnpm hris:simulate    # send signed synthetic HRIS events to the API (see HRIS webhook)
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts
 pnpm db:migrate                    # apply migrations to DATABASE_URL

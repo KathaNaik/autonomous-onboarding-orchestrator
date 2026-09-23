@@ -17,7 +17,8 @@
     "check": "pnpm format:check && pnpm typecheck && pnpm test",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "pnpm --filter @aoo/db db:generate",
-    "db:migrate": "pnpm --filter @aoo/db db:migrate"
+    "db:migrate": "pnpm --filter @aoo/db db:migrate",
+    "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

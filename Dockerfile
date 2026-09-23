@@ -10,9 +10,11 @@ FROM base AS build
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/hris-simulator/package.json apps/hris-simulator/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 COPY packages/orchestrator/package.json packages/orchestrator/
+COPY packages/webhooks/package.json packages/webhooks/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
