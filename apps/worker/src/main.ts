@@ -2,11 +2,13 @@ import { once } from "node:events";
 import { createDatabase } from "@aoo/db";
 import {
   createEventHandlers,
+  createExternalOperationService,
   createOutboxRunner,
   createPostgresOutboxStore,
   createWorkflowService,
 } from "@aoo/orchestrator";
-import { loadConfig } from "./config.js";
+import { createServiceNowClient, safeUrl } from "@aoo/servicenow";
+import { loadConfig, loadWorkerServiceNowConfig } from "./config.js";
 import { createHealthServer } from "./health.js";
 import { createLogger } from "./logger.js";
 import { createWorkerLoop } from "./worker.js";
@@ -17,6 +19,19 @@ const logger = createLogger(config.LOG_LEVEL, config.WORKER_ID);
 const database = createDatabase(config.DATABASE_URL, {
   maxConnections: Math.min(50, config.OUTBOX_BATCH_SIZE * 2 + 2),
 });
+const servicenowConfig = loadWorkerServiceNowConfig(config);
+const externalOperations = createExternalOperationService(database.db, {
+  ...(servicenowConfig && {
+    servicenow: createServiceNowClient(servicenowConfig, {
+      logger: logger.child({ provider: "servicenow" }),
+    }),
+  }),
+  reconcile: {
+    attempts: config.EXTERNAL_OP_RECONCILE_ATTEMPTS,
+    delayMs: config.EXTERNAL_OP_RECONCILE_DELAY_MS,
+  },
+  logger,
+});
 const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
   workerId: config.WORKER_ID,
   batchSize: config.OUTBOX_BATCH_SIZE,
@@ -26,7 +41,14 @@ const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
     backoffBaseMs: config.OUTBOX_BACKOFF_BASE_MS,
     backoffMaxMs: config.OUTBOX_BACKOFF_MAX_MS,
   },
-  handlers: createEventHandlers({ workflows: createWorkflowService(database.db) }),
+  handlers: createEventHandlers({
+    workflows: createWorkflowService(database.db),
+    externalOperations: {
+      service: externalOperations,
+      ownerId: config.WORKER_ID,
+      leaseMs: config.OUTBOX_LEASE_MS,
+    },
+  }),
   logger,
 });
 const loop = createWorkerLoop({
@@ -51,6 +73,13 @@ logger.info(
     maxAttempts: config.OUTBOX_MAX_ATTEMPTS,
     backoffBaseMs: config.OUTBOX_BACKOFF_BASE_MS,
     backoffMaxMs: config.OUTBOX_BACKOFF_MAX_MS,
+    servicenow: servicenowConfig
+      ? {
+          instance: safeUrl(new URL(servicenowConfig.instanceUrl)),
+          timeoutMs: servicenowConfig.timeoutMs,
+          table: servicenowConfig.accessRequestTable,
+        }
+      : "disabled",
   },
   "worker configured",
 );

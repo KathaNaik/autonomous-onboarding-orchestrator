@@ -9,6 +9,9 @@ export default defineProject({
     include: ["test/integration/**/*.test.ts"],
     globalSetup: ["test/integration/global-setup.ts"],
     testTimeout: 30_000,
+    // Files share one database and one outbox queue; a runner in one file would claim another
+    // file's events. Run files sequentially (each file still parks leftovers in afterEach).
+    fileParallelism: false,
     hookTimeout: 60_000,
   },
 });

@@ -61,6 +61,13 @@ services:
       OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
       OUTBOX_BACKOFF_BASE_MS: ${OUTBOX_BACKOFF_BASE_MS:-1000}
       OUTBOX_BACKOFF_MAX_MS: ${OUTBOX_BACKOFF_MAX_MS:-300000}
+      # ServiceNow (optional; integration account only, never the schema-verifier account).
+      # 3 × SERVICENOW_TIMEOUT_MS must be ≤ 0.8 × OUTBOX_LEASE_MS (checked at startup).
+      SERVICENOW_INSTANCE_URL: ${SERVICENOW_INSTANCE_URL:-}
+      SERVICENOW_USERNAME: ${SERVICENOW_USERNAME:-}
+      SERVICENOW_PASSWORD: ${SERVICENOW_PASSWORD:-}
+      SERVICENOW_ACCESS_REQUEST_TABLE: ${SERVICENOW_ACCESS_REQUEST_TABLE:-}
+      SERVICENOW_TIMEOUT_MS: ${WORKER_SERVICENOW_TIMEOUT_MS:-5000}
     # No published port: health is internal (Docker HEALTHCHECK on /ready), so
     # `docker compose up --scale worker=3` works. WORKER_ID defaults to <hostname>-<pid>.
     stop_grace_period: 20s

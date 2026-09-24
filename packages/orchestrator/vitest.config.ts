@@ -6,6 +6,6 @@ export default defineProject({
   test: {
     name: "orchestrator",
     environment: "node",
-    exclude: ["test/integration/**", "node_modules/**"],
+    exclude: ["test/integration/**", "test/live/**", "node_modules/**"],
   },
 });

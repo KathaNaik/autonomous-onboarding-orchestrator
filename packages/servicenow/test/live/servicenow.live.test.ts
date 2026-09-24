@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   ServiceNowAuthError,
   checkAccessRequestTable,
+  checkIntegrationAccess,
   createServiceNowClient,
   loadServiceNowConfig,
   type ServiceNowClient,
@@ -81,6 +82,14 @@ describe("ServiceNow PDI (live, read-only)", () => {
       "pending",
       "requires_approval",
     ]);
+  });
+
+  it("integration account is least-privilege: read + create, no delete/write, no admin", async () => {
+    const schemaClient = createServiceNowClient(loadSchemaVerificationConfig(process.env));
+    const access = await schemaClient.describeAccessControls();
+    const roles = await schemaClient.describeUserRoles(config.username);
+    console.info(`[live] ${config.username} roles: ${roles.join(", ")}`);
+    expect(checkIntegrationAccess(config.accessRequestTable, access, roles)).toEqual([]);
   });
 
   it("rejects wrong credentials with ServiceNowAuthError", async () => {

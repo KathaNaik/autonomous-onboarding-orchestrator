@@ -93,3 +93,36 @@ export const ChoiceEntrySchema = z.object({
   label: z.string(),
   inactive: z.string(),
 });
+
+/**
+ * Fields for creating an Onboarding Access Request. Limits mirror table-spec.ts, so ServiceNow
+ * never silently truncates a value (which would break read-back verification).
+ */
+export const CreateAccessRequestInputSchema = z.object({
+  shortDescription: z.string().trim().min(1).max(160),
+  employeeId: z.string().trim().min(1).max(100),
+  workflowId: z.string().trim().min(1).max(40),
+  resourceId: z.string().trim().min(1).max(255),
+  requestedEntitlement: z.string().trim().min(1).max(255),
+  agentReason: z.string().trim().max(4000).default(""),
+  policyDecision: z.enum(POLICY_DECISIONS),
+  // Deterministic, query-safe provider-side idempotency key (unique in the table).
+  correlationKey: z
+    .string()
+    .min(8)
+    .max(255)
+    .regex(/^[A-Za-z0-9:._-]+$/, "may only contain letters, digits and : . _ -"),
+});
+export type CreateAccessRequestInput = z.input<typeof CreateAccessRequestInputSchema>;
+
+export const AclEntrySchema = z.object({
+  sys_id: z.string(),
+  name: z.string(),
+  "operation.name": z.string(),
+  active: z.string(),
+});
+export const AclRoleEntrySchema = z.object({
+  sys_security_acl: z.string(),
+  "sys_user_role.name": z.string(),
+});
+export const UserRoleEntrySchema = z.object({ "role.name": z.string() });

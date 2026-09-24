@@ -2,6 +2,7 @@ import type { ServiceNowConfig } from "./config.js";
 import {
   ServiceNowAuthError,
   ServiceNowError,
+  ServiceNowOutcomeUnknownError,
   ServiceNowPermissionError,
   ServiceNowRequestError,
   ServiceNowResponseError,
@@ -13,7 +14,11 @@ import {
   ACCESS_REQUEST_FIELDS,
   AccessRequestQuerySchema,
   AccessRequestRecordSchema,
+  AclEntrySchema,
+  AclRoleEntrySchema,
   ChoiceEntrySchema,
+  CreateAccessRequestInputSchema,
+  UserRoleEntrySchema,
   DictionaryEntrySchema,
   ListEnvelopeSchema,
   SingleEnvelopeSchema,
@@ -21,6 +26,7 @@ import {
   TableObjectSchema,
   type AccessRequestQuery,
   type AccessRequestRecord,
+  type CreateAccessRequestInput,
 } from "./schemas.js";
 import { ACCESS_REQUEST_TABLE_SPEC } from "./table-spec.js";
 import type { z } from "zod";
@@ -64,18 +70,72 @@ export interface TableDescription {
   choices: Record<string, string[]>;
 }
 
-/** Read-only ServiceNow Table API client. Independent of workflows: no orchestrator imports. */
+export interface AccessControlDescription {
+  acls: Array<{ name: string; operation: string; active: boolean; roles: string[] }>;
+}
+
+/** ServiceNow Table API client (read + create only). Independent of workflows: no orchestrator imports. */
 export interface ServiceNowClient {
   /** Authenticates and reads (at most) one row from the access-request table. */
-  verifyConnectivity(): Promise<ConnectivityResult>;
-  queryAccessRequests(query?: AccessRequestQuery): Promise<AccessRequestRecord[]>;
+  verifyConnectivity(options?: RequestOptions): Promise<ConnectivityResult>;
+  queryAccessRequests(
+    query?: AccessRequestQuery,
+    options?: RequestOptions,
+  ): Promise<AccessRequestRecord[]>;
   /** null when no record with this sys_id exists (or it is not visible to the user). */
-  getAccessRequest(sysId: string): Promise<AccessRequestRecord | null>;
+  getAccessRequest(sysId: string, options?: RequestOptions): Promise<AccessRequestRecord | null>;
+  /**
+   * Creates one record (single POST, never retried here). Returns the validated created record.
+   * The only write in the adapter; there is no update or delete.
+   */
+  createAccessRequest(
+    input: CreateAccessRequestInput,
+    options?: RequestOptions,
+  ): Promise<AccessRequestRecord>;
+  /** Setup verification only: ACLs on the table and the roles they require (needs admin read). */
+  describeAccessControls(): Promise<AccessControlDescription>;
+  /** Setup verification only: role names held by a user (needs admin read). */
+  describeUserRoles(userName: string): Promise<string[]>;
   /** Reads table metadata (sys_db_object, sys_dictionary); needs dictionary read rights. */
   describeAccessRequestTable(): Promise<TableDescription>;
 }
 
 const noopLogger: ServiceNowLogger = { debug: () => {}, warn: () => {} };
+
+/** Connection errors that prove the request never reached ServiceNow. */
+const NOT_SENT_NETWORK_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+]);
+
+function networkErrorCode(err: unknown): string | undefined {
+  for (
+    let e: unknown = err, depth = 0;
+    e && depth < 4;
+    e = (e as { cause?: unknown }).cause, depth++
+  ) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
+}
+
+const isAbort = (err: unknown) =>
+  err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+
+/** Per-request timeout, additionally bounded by the caller's overall deadline when given. */
+function withDeadline(timeoutMs: number, deadline?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return deadline ? AbortSignal.any([timeout, deadline]) : timeout;
+}
+
+export interface RequestOptions {
+  /** Overall deadline for this call including retries (e.g. derived from the worker lease). */
+  signal?: AbortSignal;
+}
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 const MAX_RETRY_AFTER_MS = 10_000;
@@ -110,6 +170,7 @@ export function createServiceNowClient(
     operation: string,
     path: string,
     params: Record<string, string>,
+    deadline?: AbortSignal,
   ): Promise<unknown> {
     const url = new URL(path, config.instanceUrl);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -121,6 +182,9 @@ export function createServiceNowClient(
         const backoff = config.retryBaseMs * 2 ** (attempt - 2);
         await sleep(Math.round(backoff / 2 + random() * (backoff / 2)));
       }
+      // The caller's deadline (e.g. the worker lease) bounds all retries, not just one attempt.
+      if (deadline?.aborted)
+        throw new ServiceNowTimeoutError(operation, config.timeoutMs, attempt - 1);
       const started = Date.now();
       let res: Response;
       try {
@@ -128,12 +192,10 @@ export function createServiceNowClient(
           method: "GET",
           headers: { Authorization: authorization, Accept: "application/json" },
           redirect: "manual",
-          signal: AbortSignal.timeout(config.timeoutMs),
+          signal: withDeadline(config.timeoutMs, deadline),
         });
       } catch (err) {
-        const timedOut =
-          err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-        lastError = timedOut
+        lastError = isAbort(err)
           ? new ServiceNowTimeoutError(operation, config.timeoutMs, attempt)
           : new ServiceNowUnavailableError(operation, "network error reaching the instance", {
               cause: redact(err),
@@ -151,36 +213,7 @@ export function createServiceNowClient(
         "servicenow request",
       );
 
-      if (res.status === 200) {
-        const contentType = res.headers.get("content-type") ?? "";
-        const text = await res.text();
-        if (text.length > MAX_BODY_BYTES) {
-          throw new ServiceNowResponseError(
-            "MALFORMED_RESPONSE",
-            operation,
-            "response too large",
-            200,
-          );
-        }
-        if (!contentType.includes("application/json")) {
-          // A hibernating/waking PDI serves an HTML page instead of JSON.
-          throw new ServiceNowUnavailableError(
-            operation,
-            "instance returned a non-JSON response (a developer instance may be hibernating; wake it at developer.servicenow.com)",
-            { status: 200, instanceUnavailable: true },
-          );
-        }
-        try {
-          return JSON.parse(text);
-        } catch {
-          throw new ServiceNowResponseError(
-            "MALFORMED_RESPONSE",
-            operation,
-            "response is not valid JSON",
-            200,
-          );
-        }
-      }
+      if (res.status === 200) return readJson(res, operation);
 
       await res.body?.cancel().catch(() => {});
       if (res.status === 401) throw new ServiceNowAuthError(operation);
@@ -227,6 +260,147 @@ export function createServiceNowClient(
     throw lastError!;
   }
 
+  /**
+   * Single-attempt POST. Never retried here: a create is not idempotent at the HTTP level, so the
+   * caller (the external-operation executor) decides what to do, reconciling by correlation key
+   * first. Failures are classified by what they imply about whether ServiceNow processed it:
+   *  - ServiceNowUnavailableError with notSent=true: definitely not processed (refused/DNS/429/
+   *    hibernating instance) → safe to retry the POST later.
+   *  - ServiceNowOutcomeUnknownError: timeout, dropped connection or 5xx after sending → the
+   *    record may exist; the caller must reconcile before any new POST.
+   *  - 401/403/400 and malformed 2xx bodies map to their usual error types.
+   */
+  async function post(
+    operation: string,
+    path: string,
+    params: Record<string, string>,
+    body: Record<string, string>,
+    deadline?: AbortSignal,
+  ): Promise<unknown> {
+    const url = new URL(path, config.instanceUrl);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    if (deadline?.aborted) {
+      throw new ServiceNowUnavailableError(operation, "deadline passed before sending", {
+        notSent: true,
+      });
+    }
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: "POST",
+        headers: {
+          Authorization: authorization,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        redirect: "manual",
+        signal: withDeadline(config.timeoutMs, deadline),
+      });
+    } catch (err) {
+      const code = networkErrorCode(err);
+      const error =
+        code && NOT_SENT_NETWORK_CODES.has(code)
+          ? new ServiceNowUnavailableError(
+              operation,
+              `connection failed before sending (${code})`,
+              {
+                notSent: true,
+                cause: redact(err),
+              },
+            )
+          : new ServiceNowOutcomeUnknownError(
+              operation,
+              isAbort(err)
+                ? `no response within ${config.timeoutMs}ms or before the deadline`
+                : `connection lost${code ? ` (${code})` : ""}`,
+              { cause: redact(err) },
+            );
+      logger.warn({ operation, url: safeUrl(url), err: error.toJSON() }, "servicenow write failed");
+      throw error;
+    }
+    logger.debug(
+      {
+        operation,
+        method: "POST",
+        url: safeUrl(url),
+        status: res.status,
+        durationMs: Date.now() - started,
+      },
+      "servicenow request",
+    );
+    if (res.status === 201 || res.status === 200) {
+      try {
+        return await readJson(res, operation);
+      } catch (err) {
+        // A 2xx arrived, so the record most likely exists; the body just can't be trusted.
+        throw new ServiceNowOutcomeUnknownError(
+          operation,
+          `created response unreadable: ${(err as Error).message}`,
+          {
+            status: res.status,
+          },
+        );
+      }
+    }
+    await res.body?.cancel().catch(() => {});
+    if (res.status === 401) throw new ServiceNowAuthError(operation);
+    if (res.status === 403) throw new ServiceNowPermissionError(operation);
+    if (res.status === 400) {
+      throw new ServiceNowResponseError("BAD_REQUEST", operation, "request rejected (400)", 400);
+    }
+    if (res.status === 429 || (res.status >= 300 && res.status < 400)) {
+      throw new ServiceNowUnavailableError(operation, `instance returned ${res.status}`, {
+        status: res.status,
+        notSent: true,
+        instanceUnavailable: res.status !== 429,
+      });
+    }
+    if (res.status >= 500) {
+      throw new ServiceNowOutcomeUnknownError(operation, `instance returned ${res.status}`, {
+        status: res.status,
+      });
+    }
+    throw new ServiceNowResponseError(
+      "UNEXPECTED_STATUS",
+      operation,
+      `unexpected status ${res.status}`,
+      res.status,
+    );
+  }
+
+  async function readJson(res: Response, operation: string): Promise<unknown> {
+    const contentType = res.headers.get("content-type") ?? "";
+    const text = await res.text();
+    if (text.length > MAX_BODY_BYTES) {
+      throw new ServiceNowResponseError(
+        "MALFORMED_RESPONSE",
+        operation,
+        "response too large",
+        res.status,
+      );
+    }
+    if (!contentType.includes("application/json")) {
+      // A hibernating/waking PDI serves an HTML page instead of JSON.
+      throw new ServiceNowUnavailableError(
+        operation,
+        "instance returned a non-JSON response (a developer instance may be hibernating; wake it at developer.servicenow.com)",
+        { status: res.status, instanceUnavailable: true },
+      );
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new ServiceNowResponseError(
+        "MALFORMED_RESPONSE",
+        operation,
+        "response is not valid JSON",
+        res.status,
+      );
+    }
+  }
+
   function parse<T extends z.ZodType>(schema: T, value: unknown, operation: string): z.output<T> {
     const parsed = schema.safeParse(value);
     if (!parsed.success) {
@@ -250,14 +424,15 @@ export function createServiceNowClient(
   };
 
   return {
-    async verifyConnectivity() {
+    async verifyConnectivity(options = {}) {
       const operation = "verifyConnectivity";
       const started = Date.now();
-      const body = await get(operation, `/api/now/table/${table}`, {
-        sysparm_limit: "1",
-        sysparm_fields: "sys_id",
-        sysparm_exclude_reference_link: "true",
-      });
+      const body = await get(
+        operation,
+        `/api/now/table/${table}`,
+        { sysparm_limit: "1", sysparm_fields: "sys_id", sysparm_exclude_reference_link: "true" },
+        options.signal,
+      );
       const { result } = parse(ListEnvelopeSchema, body, operation);
       return {
         instanceUrl: config.instanceUrl,
@@ -268,7 +443,7 @@ export function createServiceNowClient(
       };
     },
 
-    async queryAccessRequests(rawQuery = {}) {
+    async queryAccessRequests(rawQuery = {}, options = {}) {
       const operation = "queryAccessRequests";
       const query = AccessRequestQuerySchema.safeParse(rawQuery);
       if (!query.success)
@@ -283,23 +458,33 @@ export function createServiceNowClient(
           `correlation_key=${queryValue(operation, "correlationKey", q.correlationKey)}`,
       ].filter((c): c is string => typeof c === "string");
 
-      const body = await get(operation, `/api/now/table/${table}`, {
-        ...recordParams,
-        sysparm_query: [...conditions, "ORDERBYDESCsys_created_on"].join("^"),
-        sysparm_limit: String(q.limit),
-        sysparm_offset: String(q.offset),
-      });
+      const body = await get(
+        operation,
+        `/api/now/table/${table}`,
+        {
+          ...recordParams,
+          sysparm_query: [...conditions, "ORDERBYDESCsys_created_on"].join("^"),
+          sysparm_limit: String(q.limit),
+          sysparm_offset: String(q.offset),
+        },
+        options.signal,
+      );
       const { result } = parse(ListEnvelopeSchema, body, operation);
       return result.map((r) => parse(AccessRequestRecordSchema, r, operation));
     },
 
-    async getAccessRequest(sysId) {
+    async getAccessRequest(sysId, options = {}) {
       const operation = "getAccessRequest";
       if (!SysIdSchema.safeParse(sysId).success) {
         throw new ServiceNowRequestError(operation, "sysId must be a 32-character hex sys_id");
       }
       try {
-        const body = await get(operation, `/api/now/table/${table}/${sysId}`, recordParams);
+        const body = await get(
+          operation,
+          `/api/now/table/${table}/${sysId}`,
+          recordParams,
+          options.signal,
+        );
         return parse(
           AccessRequestRecordSchema,
           parse(SingleEnvelopeSchema, body, operation).result,
@@ -309,6 +494,92 @@ export function createServiceNowClient(
         if (err instanceof ServiceNowError && err.code === "NOT_FOUND") return null;
         throw err;
       }
+    },
+
+    async createAccessRequest(rawInput, options = {}) {
+      const operation = "createAccessRequest";
+      const parsed = CreateAccessRequestInputSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        throw new ServiceNowRequestError(
+          operation,
+          parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        );
+      }
+      const i = parsed.data;
+      const body = await post(
+        operation,
+        `/api/now/table/${table}`,
+        { ...recordParams, sysparm_input_display_value: "false" },
+        {
+          short_description: i.shortDescription,
+          employee_id: i.employeeId,
+          workflow_id: i.workflowId,
+          resource_id: i.resourceId,
+          requested_entitlement: i.requestedEntitlement,
+          agent_reason: i.agentReason,
+          policy_decision: i.policyDecision,
+          correlation_key: i.correlationKey,
+        },
+        options.signal,
+      );
+      try {
+        return parse(
+          AccessRequestRecordSchema,
+          parse(SingleEnvelopeSchema, body, operation).result,
+          operation,
+        );
+      } catch (err) {
+        // 2xx with an unexpected body: the record probably exists, but this response proves nothing.
+        throw new ServiceNowOutcomeUnknownError(operation, (err as Error).message, { status: 201 });
+      }
+    },
+
+    async describeAccessControls() {
+      const operation = "describeAccessControls";
+      const acls = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_security_acl", {
+          sysparm_query: `nameSTARTSWITH${table}`,
+          sysparm_fields: "sys_id,name,operation.name,active",
+          sysparm_limit: "200",
+        }),
+        operation,
+      ).result.map((a) => parse(AclEntrySchema, a, operation));
+      const links = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_security_acl_role", {
+          sysparm_query: `sys_security_acl.nameSTARTSWITH${table}`,
+          sysparm_fields: "sys_security_acl,sys_user_role.name",
+          sysparm_exclude_reference_link: "true",
+          sysparm_limit: "500",
+        }),
+        operation,
+      ).result.map((l) => parse(AclRoleEntrySchema, l, operation));
+      return {
+        acls: acls.map((a) => ({
+          name: a.name,
+          operation: a["operation.name"],
+          active: a.active === "true",
+          roles: links
+            .filter((l) => l.sys_security_acl === a.sys_id)
+            .map((l) => l["sys_user_role.name"])
+            .sort(),
+        })),
+      };
+    },
+
+    async describeUserRoles(userName) {
+      const operation = "describeUserRoles";
+      const rows = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_user_has_role", {
+          sysparm_query: `user.user_name=${queryValue(operation, "userName", userName)}^state=active`,
+          sysparm_fields: "role.name",
+          sysparm_limit: "200",
+        }),
+        operation,
+      ).result.map((r) => parse(UserRoleEntrySchema, r, operation));
+      return [...new Set(rows.map((r) => r["role.name"]))].sort();
     },
 
     async describeAccessRequestTable() {
@@ -417,6 +688,52 @@ export function checkAccessRequestTable(description: TableDescription): string[]
     if ("defaultValue" in spec && col.defaultValue !== spec.defaultValue) {
       problems.push(
         `column ${spec.name} default is "${col.defaultValue}", expected "${spec.defaultValue}"`,
+      );
+    }
+  }
+  return problems;
+}
+
+const ELEVATED_ROLES = new Set(["admin", "security_admin", "maint"]);
+
+/**
+ * Least-privilege check for the integration account (setup verification only). Requires:
+ * read + create on the table rows and fields via roles the user holds; no delete (or write) grant
+ * through its roles; no elevated roles. Returns problems (empty = OK).
+ */
+export function checkIntegrationAccess(
+  table: string,
+  access: AccessControlDescription,
+  integrationUserRoles: string[],
+): string[] {
+  const problems: string[] = [];
+  const held = new Set(integrationUserRoles);
+  for (const role of integrationUserRoles) {
+    if (ELEVATED_ROLES.has(role)) problems.push(`integration user holds elevated role ${role}`);
+  }
+  const grants = (operation: string, name: string) =>
+    access.acls.some(
+      (a) =>
+        a.active &&
+        a.operation === operation &&
+        a.name === name &&
+        a.roles.some((r) => held.has(r)),
+    );
+  for (const operation of ["read", "create"]) {
+    for (const name of [table, `${table}.*`]) {
+      if (!grants(operation, name)) {
+        problems.push(
+          `no active ${operation} ACL on ${name} for a role the integration user holds`,
+        );
+      }
+    }
+  }
+  for (const acl of access.acls) {
+    if (!acl.active || !["delete", "write"].includes(acl.operation)) continue;
+    const via = acl.roles.filter((r) => held.has(r));
+    if (via.length > 0) {
+      problems.push(
+        `integration user is granted ${acl.operation} on ${acl.name} via ${via.join(", ")}`,
       );
     }
   }

@@ -10,6 +10,7 @@ export type ServiceNowErrorCode =
   | "TIMEOUT"
   | "UNAVAILABLE"
   | "INSTANCE_UNAVAILABLE"
+  | "OUTCOME_UNKNOWN"
   | "MALFORMED_RESPONSE"
   | "SCHEMA_MISMATCH"
   | "UNEXPECTED_STATUS";
@@ -91,10 +92,18 @@ export class ServiceNowTimeoutError extends ServiceNowError {
 
 /** Network failure, 5xx, 429, a hibernating PDI, or a non-JSON response. */
 export class ServiceNowUnavailableError extends ServiceNowError {
+  /** For writes: true when the request certainly did not reach/was not processed by ServiceNow. */
+  readonly notSent: boolean;
+
   constructor(
     operation: string,
     message: string,
-    options: { status?: number; cause?: unknown; instanceUnavailable?: boolean } = {},
+    options: {
+      status?: number;
+      cause?: unknown;
+      instanceUnavailable?: boolean;
+      notSent?: boolean;
+    } = {},
   ) {
     super(
       options.instanceUnavailable ? "INSTANCE_UNAVAILABLE" : "UNAVAILABLE",
@@ -106,6 +115,26 @@ export class ServiceNowUnavailableError extends ServiceNowError {
         cause: options.cause,
       },
     );
+    this.notSent = options.notSent ?? false;
+  }
+}
+
+/**
+ * A write may or may not have been applied: the request was sent but no trustworthy answer came
+ * back (timeout, dropped connection, 5xx, unreadable 2xx). Never blindly repeat the write;
+ * reconcile by correlation key first.
+ */
+export class ServiceNowOutcomeUnknownError extends ServiceNowError {
+  constructor(
+    operation: string,
+    message: string,
+    options: { status?: number; cause?: unknown } = {},
+  ) {
+    super("OUTCOME_UNKNOWN", operation, `outcome unknown: ${message}`, {
+      ...(options.status !== undefined && { status: options.status }),
+      retryable: true,
+      cause: options.cause,
+    });
   }
 }
 

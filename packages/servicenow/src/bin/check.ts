@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   ServiceNowError,
   checkAccessRequestTable,
+  checkIntegrationAccess,
   createServiceNowClient,
   loadServiceNowConfig,
 } from "../index.js";
@@ -50,7 +51,24 @@ try {
       choices: description.choices,
       problems,
     };
-    if (problems.length > 0) report.ok = false;
+    // Least privilege of the integration account (read via the schema-verification account).
+    const access = await schemaClient.describeAccessControls();
+    const integrationRoles = await schemaClient.describeUserRoles(config.username);
+    const accessProblems = checkIntegrationAccess(
+      config.accessRequestTable,
+      access,
+      integrationRoles,
+    );
+    report.access = {
+      integrationUser: config.username,
+      integrationRoles,
+      acls: access.acls.map(
+        (a) =>
+          `${a.operation} ${a.name} → ${a.roles.join(", ") || "(no role)"}${a.active ? "" : " (inactive)"}`,
+      ),
+      problems: accessProblems,
+    };
+    if (problems.length > 0 || accessProblems.length > 0) report.ok = false;
   }
   print(report);
   process.exitCode = report.ok ? 0 : 1;

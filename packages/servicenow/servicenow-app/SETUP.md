@@ -129,3 +129,50 @@ Once the application is set up, export it into this directory and commit it:
    - To re-create the application on another instance, use **Retrieved Update Sets → Import Update Set from XML**, then preview and commit.
 
 As an alternative, you can link the application to a Git repository with **Studio → Source Control**. The XML export is simpler for a PDI, which may be reclaimed.
+
+## 9. M4B: create permission for the integration account
+
+M4B creates Onboarding Access Request records. The integration account gets **create only**:
+
+- no write or update;
+- **no delete**;
+- never the admin or schema-verifier account.
+
+Set the application scope to **Autonomous Onboarding** first, so every change is captured in the application.
+
+**1. Role.** Go to **System Security → Roles → New**:
+
+- **Name:** `integration_writer`, saved as `x_2230066_autono_0.integration_writer`
+- **Application:** Autonomous Onboarding
+
+**2. Two create ACLs.** First elevate to `security_admin`, then go to **System Security → Access Control (ACL) → New**:
+
+| Field         | ACL 1                                         | ACL 2                                |
+| ------------- | --------------------------------------------- | ------------------------------------ |
+| Type          | record                                        | record                               |
+| Operation     | **create**                                    | **create**                           |
+| Decision type | Allow If                                      | Allow If                             |
+| Name          | Onboarding Access Request, field `-- None --` | Onboarding Access Request, field `*` |
+| Requires role | `x_2230066_autono_0.integration_writer`       | same                                 |
+
+Leave **Local or Existing** on **Local** and leave Security Attribute empty.
+
+**Do not** create `write` or `delete` ACLs for this role. The adapter has no update or delete call.
+
+**3. Assign the role.** Open user `aoo.integration` → **Roles** → **Edit…** and add `x_2230066_autono_0.integration_writer`. It should end up holding `integration_reader` and `integration_writer` only; ServiceNow may also auto-add `snc_required_script_writer_permission`.
+
+**4. Verify.** `pnpm servicenow:check --schema` reports `access.problems: []`. It checks, through the schema-verification account:
+
+- read and create are granted on the table and `table.*` via roles the integration user holds;
+- the integration user is granted no delete or write;
+- it holds no elevated role.
+
+**5. Export** a new version. **Do not edit `autonomous-onboarding-1.0.0.xml`.** Publish the application as version `1.1.0` and export the update set to `update-sets/autonomous-onboarding-1.1.0.xml`, the same way as step 8. Review it for users or secrets before committing.
+
+**6. Live write test.** Run `pnpm test:servicenow:live`, which runs the read-only suite and then the write suite. The write suite creates **synthetic** records only:
+
+- correlation key prefix `aoo-test-oar-`;
+- employee `TEST-EMP-M4B-LIVE`;
+- short description `SYNTHETIC TEST RECORD – M4B …`.
+
+It never deletes them, and each run adds 2 records.

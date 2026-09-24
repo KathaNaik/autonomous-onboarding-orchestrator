@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { loadServiceNowConfig, type ServiceNowConfig } from "@aoo/servicenow";
 import { z } from "zod";
 
 const int = (min: number, max: number, fallback: number) =>
@@ -21,6 +22,8 @@ const EnvSchema = z
     OUTBOX_MAX_ATTEMPTS: int(1, 100, 5),
     OUTBOX_BACKOFF_BASE_MS: int(1, 3_600_000, 1000),
     OUTBOX_BACKOFF_MAX_MS: int(1, 86_400_000, 300_000),
+    EXTERNAL_OP_RECONCILE_ATTEMPTS: int(1, 10, 3),
+    EXTERNAL_OP_RECONCILE_DELAY_MS: int(0, 30_000, 1000),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {
     message: "OUTBOX_BACKOFF_MAX_MS must be >= OUTBOX_BACKOFF_BASE_MS",
@@ -35,4 +38,34 @@ export type WorkerConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return EnvSchema.parse(env);
+}
+
+/** Share of the worker lease an external operation may spend calling the provider. */
+export const EXTERNAL_CALL_LEASE_FRACTION = 0.8;
+/** Provider calls on the happy path of one attempt: pre-create lookup, create, read-back. */
+export const EXTERNAL_CALLS_PER_ATTEMPT = 3;
+
+/**
+ * ServiceNow is optional for the worker. Uses ONLY the integration account (loadServiceNowConfig);
+ * schema-verification credentials are never read here.
+ *
+ * Invariant: EXTERNAL_CALLS_PER_ATTEMPT × SERVICENOW_TIMEOUT_MS ≤ EXTERNAL_CALL_LEASE_FRACTION ×
+ * OUTBOX_LEASE_MS. The executor additionally enforces a hard deadline of that same fraction of
+ * the lease on every provider call (including retries and reconciliation), so no call outlives
+ * the lease even when this inequality is only barely met.
+ */
+export function loadWorkerServiceNowConfig(
+  config: WorkerConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): ServiceNowConfig | null {
+  if (!env.SERVICENOW_INSTANCE_URL?.trim()) return null;
+  const sn = loadServiceNowConfig(env);
+  const budget = Math.floor(config.OUTBOX_LEASE_MS * EXTERNAL_CALL_LEASE_FRACTION);
+  if (EXTERNAL_CALLS_PER_ATTEMPT * sn.timeoutMs > budget) {
+    throw new Error(
+      `SERVICENOW_TIMEOUT_MS (${sn.timeoutMs}) is too long for OUTBOX_LEASE_MS (${config.OUTBOX_LEASE_MS}): ` +
+        `${EXTERNAL_CALLS_PER_ATTEMPT} × timeout must be ≤ ${budget} ms. Lower the timeout or raise the lease.`,
+    );
+  }
+  return sn;
 }

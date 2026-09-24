@@ -14,10 +14,11 @@
     "@aoo/db": "workspace:*",
     "@aoo/orchestrator": "workspace:*",
     "pino": "^10.0.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@aoo/servicenow": "workspace:*",
+    "drizzle-orm": "^0.45.3"
   },
   "devDependencies": {
-    "drizzle-orm": "^0.45.3",
     "tsx": "^4.23.15",
     "@aoo/shared": "workspace:*"
   }

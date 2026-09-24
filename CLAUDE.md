@@ -6,16 +6,17 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                                                                          | Status                                                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)                                                                              |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)                                                                   |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)                                                                   |
-| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance)                                                                  |
-| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**) |
-| M4B       | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                                                                                      |
+| Milestone | Scope                                                                                                                                                                          | Status                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)                                                                               |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)                                                                    |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)                                                                    |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance)                                                                   |
+| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)  |
+| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**) |
+| M5        | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                                                                                       |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds a **read-only** ServiceNow Table API adapter (see **ServiceNow adapter**), which nothing calls yet. **Nothing drives a workflow past `ACCESS_PLANNING` yet. No ServiceNow writes (tickets, approvals), agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. **Nothing drives a workflow past `ACCESS_PLANNING` yet. No approval callbacks, agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -240,6 +241,130 @@ Each run generates fresh random fields. Reusing `--event-id` from an earlier run
 - **Logs:** pino JSON on stdout, with `service`, `workerId`, `eventId`, `eventType`, `attempt`, `cycleAttempt` and `correlationId`.
 - **Handlers must be idempotent.** Delivery is at-least-once, and a handler can outlive its lease.
 
+### External operations (in place since M4B)
+
+Every side effect on an external system is a **durable external operation** in `external_operations` (`@aoo/db`, migration `0005`), executed by `@aoo/orchestrator` (`src/external-operations/`). The table is provider-generic:
+
+- `provider` is `servicenow`, `okta` or `github`;
+- `operation_type` names the action, for example `servicenow.create_access_request`.
+
+Okta and GitHub actions reuse it later.
+
+**Columns:**
+
+- `id` and `workflow_id` (FK);
+- `provider` and `operation_type`;
+- `idempotency_key` (**unique**, the local logical identity);
+- `correlation_key` (unique per provider, the provider-side identity);
+- `request` (validated payload) and `request_sha256`;
+- `status`;
+- `external_id` (ServiceNow `sys_id`) and `external_reference` (ticket number);
+- `attempts`;
+- `last_error` and `last_error_detail` (sanitized);
+- `evidence` (for CONFLICT);
+- the owner lease: `owner_token`, `owner_id`, `owner_expires_at`;
+- `completed_at` and timestamps.
+
+CHECK constraints tie the owner lease to active states, and a SUCCEEDED row must have both external ids.
+
+**States:**
+
+| State             | Meaning                                                                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PENDING`         | Created, never attempted, or the last attempt provably didn't reach the provider.                                                                                                                   |
+| `IN_PROGRESS`     | Owned by one worker, with a live owner lease.                                                                                                                                                       |
+| `OUTCOME_UNKNOWN` | A write may have reached the provider. **Never POST again without reconciling.**                                                                                                                    |
+| `SUCCEEDED`       | Verified by provider read-back. Terminal.                                                                                                                                                           |
+| `FAILED`          | Permanent: authentication, permission or validation. Recover with `pnpm worker:admin reopen-operation`.                                                                                             |
+| `CONFLICT`        | Provider state contradicts the request: more than one record, or differing fields. Evidence (sys_ids, numbers and mismatched field _names_) is preserved, and there's no automatic retry or reopen. |
+
+**Keys.** For `(workflowId, resourceId, requestedEntitlement)`:
+
+- `idempotency_key` is `servicenow.create_access_request:<workflowId>:<resourceId>:<entitlement>`;
+- `correlation_key` is `<prefix><first 40 hex characters of sha256(idempotency_key)>`, with prefix `aoo-oar-` normally and `aoo-test-oar-` for live tests.
+
+Both are deterministic and query-safe, and contain no employee data. ServiceNow's **unique `correlation_key`** column is the final duplicate guard.
+
+**Enqueue:** `requestServiceNowAccessRequest(input)` writes three things in one transaction: the operation (`ON CONFLICT (idempotency_key) DO NOTHING`), an `external_operation.execute` outbox event and an audit event. Repeating it returns the same operation; the same key with different details raises `IDEMPOTENCY_CONFLICT`.
+
+**Execution** (`execute(operationId, { ownerId, leaseMs })`, called by the worker handler):
+
+1. **SUCCEEDED** returns immediately without calling the provider. **FAILED** or **CONFLICT** throws `STOPPED`.
+2. **Claim** under `SELECT … FOR UPDATE`. An operation is claimable if it's PENDING, or IN_PROGRESS / OUTCOME_UNKNOWN with an expired owner lease. The claim sets a new `owner_token`, `owner_expires_at = now + leaseMs` and `attempts + 1`. Otherwise it throws `BUSY` (retryable).
+3. **Every later write is fenced** by `owner_token`, an unexpired lease and an active status. A stale owner gets `OWNERSHIP_LOST` and can't overwrite anything, including a SUCCEEDED row.
+4. **Reconcile first, always:** query ServiceNow by `correlation_key`. One match is verified and becomes SUCCEEDED. More than one match is a CONFLICT.
+5. If there are none, **POST once**.
+   - **2xx:** persist `sys_id` and number, **read back by `sys_id`**, verify the correlation key and every request field, and only then mark SUCCEEDED. A mismatch, such as a field dropped by an ACL, is a CONFLICT.
+   - **401 or invalid input:** FAILED.
+   - **Provably unsent:** release to PENDING (or OUTCOME_UNKNOWN if an earlier owner might have sent) and retry later.
+   - **Anything else** (timeout, dropped connection, 5xx, unreadable 2xx, 403, 400): **persist OUTCOME_UNKNOWN first**, then run bounded reconciliation (`EXTERNAL_OP_RECONCILE_ATTEMPTS` queries, `EXTERNAL_OP_RECONCILE_DELAY_MS` apart):
+     - found: verify, then SUCCEEDED;
+     - not found after a 403 or 400: FAILED;
+     - otherwise: release as OUTCOME_UNKNOWN and retry via the outbox. The next attempt reconciles before any POST.
+6. SUCCEEDED, FAILED and CONFLICT each write an audit event.
+
+**Timeout/lease invariant:**
+
+- The executor's hard deadline is 0.8 × the lease, and it bounds every provider call, retry and reconciliation sleep through `AbortSignal`.
+- The worker refuses to start unless `3 × SERVICENOW_TIMEOUT_MS ≤ 0.8 × OUTBOX_LEASE_MS`. That's one attempt each for the lookup, the create and the read-back. Compose uses `SERVICENOW_TIMEOUT_MS=5000` with the 30 s lease.
+- The operation's owner lease is the worker's outbox lease, so a provider call can never outlive the lease that protects it. A worker killed mid-call leaves an expired owner, and the next owner reconciles.
+
+**Error sanitization:** `sanitizeExternalError()` / `formatSanitizedError()` (`src/external-operations/sanitize.ts`) is the only path to `last_error`, `last_error_detail` and logs.
+
+- **Kept:** provider, category (`AUTHENTICATION`, `PERMISSION`, `TIMEOUT`, `OUTCOME_UNKNOWN`, …), code, HTTP status, operation and correlation key.
+- **Removed:**
+  - auth headers, URL userinfo and secret-like `key=value` pairs;
+  - cookies;
+  - URL query strings and `sysparm_*` values;
+  - SQL `params:` dumps;
+  - the request's employee and payload values;
+  - cause chains.
+- The outbox handler rethrows only sanitized messages, so outbox `last_error` and attempt history are clean too.
+
+**Operator commands:**
+
+- `pnpm worker:admin external-ops [--status S]` lists operations without the request payload.
+- `pnpm worker:admin reopen-operation --id <uuid> --reason "…"` reopens a FAILED operation only; it's audited and re-enqueued.
+
+#### M4B verification record
+
+Verified 2026-09-24 against PDI `https://dev225201.service-now.com`, using synthetic data only.
+
+**ServiceNow configuration:**
+
+- New role `x_2230066_autono_0.integration_writer`, and two **create** ACLs (table and `table.*`) requiring it. There are no write or delete ACLs.
+- `aoo.integration` holds `integration_reader`, `integration_writer` and the platform-assigned `snc_required_script_writer_permission`, and no elevated role.
+- `pnpm servicenow:check --schema` reports `access.problems: []`.
+- Exported as `packages/servicenow/servicenow-app/update-sets/autonomous-onboarding-1.1.0.xml` (45 records). 1.0.0 is unchanged. The export was reviewed: no users, role assignments, secrets, test data or delete/write ACLs.
+
+**Live write** (`pnpm test:servicenow:live`: read suite 6/6, write suite 2/2):
+
+- **Created `OAR0001003`** (sys_id `7b42ff09c3a34310317dfb2ed4013191`, key `aoo-test-oar-1fb6f302…`), verified by read-back.
+- **Repeated execution** returned it without a provider call. Repeating the enqueue returned the same operation.
+- **Simulated crash:** after wiping the local ids, reconciliation returned the same sys_id **with no second POST**.
+- **Exactly one ServiceNow record** exists for the key.
+- **Two concurrent executors:** one created `OAR0001004`; the other got `BUSY`, with a total of 1 POST and 1 record.
+- An independent query found exactly one record per synthetic correlation key.
+
+**Worker in Compose:** ServiceNow enabled (5 s timeout, satisfying the lease invariant), authenticating from inside the container. The worker logs contain no password or `Authorization` header.
+
+**Test counts:**
+
+- `pnpm check`: 235 unit tests (31 new in M4B: ServiceNow client writes and deadlines, access checks, keys, sanitization, worker config);
+- `pnpm test:integration`: 79 (21 new external-operation tests against real PostgreSQL and a fake ServiceNow);
+- `pnpm build`: all 9 packages.
+
+**Mutation checks:** removing reconcile-before-create fails 5 tests, and removing the owner-token fence fails the live-owner stale-write test.
+
+**Remaining limitations (M4B):**
+
+- Nothing in the workflow enqueues ServiceNow operations yet. Policy logic and agents come later, so `requestServiceNowAccessRequest` is called only by tests.
+- FAILED operations need a manual `reopen-operation`. CONFLICT needs human investigation in ServiceNow, and there's no automatic reopen.
+- Synthetic live-test records stay in the PDI: the integration account has no delete permission, by design. Each live run adds 2.
+- A `sys_id` stored before read-back (2xx, then a crash before verification) is re-verified on the next attempt through reconciliation by correlation key.
+- Basic auth; OAuth is still a later decision.
+- The host disk was at about 2 GiB free after the Compose rebuild; image builds can make Docker's VM read-only again.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -303,7 +428,13 @@ It was reviewed before being added and contains **no** users, role assignments, 
 - `queryAccessRequests({ employeeId?, workflowId?, correlationKey?, limit?, offset? })` returns validated records. The encoded query rejects values containing `^` or line breaks, which blocks query injection.
 - `getAccessRequest(sysId)` returns the record, or `null` on 404.
 - `describeAccessRequestTable()` reads `sys_db_object` and `sys_dictionary`, and `checkAccessRequestTable()` compares the result with the spec.
-- **GET only.** There is no POST, PATCH or DELETE anywhere.
+- **Writes (M4B):** `createAccessRequest(input, { signal })` is the only write: a single POST, never retried by the client. There is no PATCH or DELETE anywhere.
+  - Failures are classified by what they imply about the provider:
+    - `ServiceNowUnavailableError` with `notSent: true` (connection refused, DNS failure, 429, hibernation) means **not processed**;
+    - `ServiceNowOutcomeUnknownError` (timeout, dropped connection, 5xx, unreadable 2xx) means **may exist**;
+    - 401, 403 and 400 map to their usual types.
+  - Every read and write accepts a deadline `signal`, which bounds the whole call including retries.
+- **Least-privilege check:** `describeAccessControls()`, `describeUserRoles()` and `checkIntegrationAccess()` are used only by `servicenow:check --schema` and the live test. They require read and create, and no delete, write or elevated role, for the integration account.
 
 **Resilience:**
 
@@ -433,6 +564,12 @@ Location decisions made in M3B:
 Location decisions made in M4A:
 
 - The ServiceNow adapter is its own package, `@aoo/servicenow`, depending only on `zod`.
+
+Location decisions made in M4B:
+
+- `external_operations` lives in `@aoo/db`.
+- The executor, keys and sanitizer live in `@aoo/orchestrator/src/external-operations`; it depends on `@aoo/servicenow`, since only the orchestrator invokes adapters.
+- The worker constructs the ServiceNow client (integration account only) and injects it.
 - The PDI setup guide and update-set exports live in `packages/servicenow/servicenow-app/`.
 
 Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
@@ -450,7 +587,8 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - `@aoo/webhooks` has no workspace dependencies. It may use Node APIs (`node:crypto`), so it must not be imported by `@aoo/shared` or the web app.
 - In code, only `@aoo/orchestrator` writes `outbox_event_attempts` and outbox status and lease columns. `apps/worker` uses `@aoo/db` only to create the connection.
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
-- `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` may call adapters, and nothing calls `@aoo/servicenow` yet.
+- `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` invokes adapters, through `ExternalOperationService` and a narrow gateway interface (`ServiceNowAccessRequestGateway`). The worker wires in the real client; tests wire in fakes.
+- Only `@aoo/orchestrator` writes `external_operations`.
 
 ### Service endpoints
 
@@ -492,6 +630,8 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 | `SERVICENOW_ACCESS_REQUEST_TABLE`                                             | servicenow adapter                                                                                    | required; scoped table name, e.g. `x_1234567_autonomo_onboarding_access_request`                                   |
 | `SERVICENOW_TIMEOUT_MS`, `SERVICENOW_MAX_RETRIES`, `SERVICENOW_RETRY_BASE_MS` | servicenow adapter                                                                                    | `10000`, `2`, `250`                                                                                                |
 | `SERVICENOW_SCHEMA_USERNAME`, `SERVICENOW_SCHEMA_PASSWORD`                    | schema verification only (`pnpm servicenow:check --schema`, live test); never loaded at runtime       | optional; a dedicated verifier account, e.g. `aoo.schema.verifier`                                                 |
+| `EXTERNAL_OP_RECONCILE_ATTEMPTS`, `EXTERNAL_OP_RECONCILE_DELAY_MS`            | worker: bounded reconciliation after an uncertain write                                               | `3`, `1000`                                                                                                        |
+| `WORKER_SERVICENOW_TIMEOUT_MS`                                                | compose → worker `SERVICENOW_TIMEOUT_MS` (3 × timeout ≤ 0.8 × `OUTBOX_LEASE_MS`)                      | `5000`                                                                                                             |
 | `TEST_DATABASE_URL`                                                           | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`          | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
 
@@ -508,6 +648,7 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 - **Event handlers:** keep them transport-independent (`EventEnvelope` in, `HandlerResult` out) and idempotent. Make at-most-once side effects idempotent with keys (for example, `transition({ idempotencyKey })`), not with pre-checks alone. Throw `PermanentEventError` only when retrying can never help.
 - **Integration tests:** put them in `test/integration/` and register them in the package's `vitest.integration.config.ts` (in `apps/*` or `packages/*`). `pnpm test` excludes them; run them with `pnpm test:integration`. Each project's global setup calls `createTestDatabase()` from `@aoo/db/testing`, which creates a fresh, migrated database per run and drops it afterwards. Don't mock the database in integration tests. Race tests should be deterministic: hold a transaction open with a test-only trigger (`pg_sleep`) instead of relying on bursts.
 - **Live tests** (external systems such as the ServiceNow PDI): put them in `test/live/*.live.test.ts`, with a dedicated `vitest.live.config.ts` and a root `test:<system>:live` script. Exclude them from the package's unit config. They run only when invoked explicitly, must fail with `BLOCKED` when not configured, and must never be replaced by mocks when reporting live results.
+- **Shared outbox in integration tests:** test files whose runners claim outbox events must not run in parallel against the same database. The orchestrator integration project sets `fileParallelism: false`, and each file parks leftovers in `afterEach`.
 - **Workspace package exports:** each package's `exports` has a `source` condition pointing at `src/index.ts`, before `types`/`default` (dist). Typecheck configs (`tsconfig.json`) set `customConditions: ["source"]`, so typechecking doesn't need a build. Build configs (`tsconfig.build.json`) don't. `tsx --conditions=source` runs workspace code from source.
 - **Side effects:** all external calls go through adapters and carry a correlation ID. External writes also carry a durable idempotency key. Domain code never calls ServiceNow, Okta or GitHub directly.
 - **Dependencies:** add them to the package that uses them, never to the root, except shared dev tooling. pnpm blocks dependency build scripts by default; approve one with `pnpm approve-builds <pkg>`, which records it under `allowBuilds` in `pnpm-workspace.yaml`.
@@ -530,7 +671,9 @@ pnpm worker:admin dead-letters     # list dead-lettered outbox events
 pnpm worker:admin redrive --id <uuid> --reason "<why>"   # redrive a dead letter (audited)
 docker compose up -d --scale worker=2   # full stack with two workers
 pnpm servicenow:check [--schema]        # read-only ServiceNow connectivity check (needs SERVICENOW_* in .env)
-pnpm test:servicenow:live               # explicit live ServiceNow PDI test (GET only)
+pnpm test:servicenow:live               # explicit live ServiceNow tests: read-only suite, then the M4B WRITE suite (synthetic records)
+pnpm worker:admin external-ops [--status FAILED]           # list durable external operations
+pnpm worker:admin reopen-operation --id <uuid> --reason "…" # reopen a FAILED operation (audited)
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts
 pnpm db:migrate                    # apply migrations to DATABASE_URL

@@ -21,7 +21,7 @@
     "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start",
     "worker:admin": "pnpm --silent --filter @aoo/worker admin",
     "servicenow:check": "pnpm --silent --filter @aoo/servicenow check",
-    "test:servicenow:live": "vitest run --config packages/servicenow/vitest.live.config.ts"
+    "test:servicenow:live": "vitest run --config packages/servicenow/vitest.live.config.ts && vitest run --config packages/orchestrator/vitest.live.config.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

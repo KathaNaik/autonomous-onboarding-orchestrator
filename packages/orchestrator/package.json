@@ -21,7 +21,8 @@
     "@aoo/db": "workspace:*",
     "@aoo/shared": "workspace:*",
     "drizzle-orm": "^0.45.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@aoo/servicenow": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15"

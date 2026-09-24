@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadServiceNowConfig } from "../src/config.js";
 import { ServiceNowConfigError } from "../src/errors.js";
-import { checkAccessRequestTable } from "../src/client.js";
+import { checkAccessRequestTable, checkIntegrationAccess } from "../src/client.js";
 import { ACCESS_REQUEST_TABLE_SPEC } from "../src/table-spec.js";
 import { redact, redactText } from "../src/redact.js";
 
@@ -183,5 +183,54 @@ describe("checkAccessRequestTable: choices and defaults", () => {
         choices: { policy_decision: ["pending", "allow", "deny", "requires_approval"] },
       }),
     ).toEqual(['column policy_decision default is "allow", expected "pending"']);
+  });
+});
+
+describe("checkIntegrationAccess", () => {
+  const t = "x_1234567_autonomo_onboarding_access_request";
+  const acl = (operation: string, name: string, roles: string[], active = true) => ({
+    operation,
+    name,
+    roles,
+    active,
+  });
+  const good = {
+    acls: [
+      acl("read", t, ["x.integration_reader"]),
+      acl("read", `${t}.*`, ["x.integration_reader"]),
+      acl("create", t, ["x.integration_writer"]),
+      acl("create", `${t}.*`, ["x.integration_writer"]),
+      acl("delete", t, ["x.admin"]),
+      acl("write", t, ["x.user"]),
+    ],
+  };
+  const roles = ["x.integration_reader", "x.integration_writer"];
+
+  it("accepts read + create through held roles, with delete/write only for other roles", () => {
+    expect(checkIntegrationAccess(t, good, roles)).toEqual([]);
+  });
+
+  it("flags missing create, a delete grant, a write grant, inactive ACLs and admin", () => {
+    const problems = checkIntegrationAccess(
+      t,
+      {
+        acls: [
+          ...good.acls.filter((a) => a.operation !== "create"),
+          acl("create", t, ["x.integration_writer"], false),
+          acl("delete", t, ["x.integration_writer"]),
+          acl("write", `${t}.*`, ["x.integration_reader"]),
+        ],
+      },
+      [...roles, "admin"],
+    );
+    expect(problems).toEqual(
+      expect.arrayContaining([
+        "integration user holds elevated role admin",
+        `no active create ACL on ${t} for a role the integration user holds`,
+        `no active create ACL on ${t}.* for a role the integration user holds`,
+        `integration user is granted delete on ${t} via x.integration_writer`,
+        `integration user is granted write on ${t}.* via x.integration_reader`,
+      ]),
+    );
   });
 });

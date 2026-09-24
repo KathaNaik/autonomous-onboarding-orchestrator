@@ -36,6 +36,13 @@
       "when": 1790186865149,
       "tag": "0004_outbox_worker_leases_and_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790238594181,
+      "tag": "0005_external_operations",
+      "breakpoints": true
     }
   ]
 }

@@ -254,6 +254,92 @@ export const outboxEventAttempts = pgTable(
   ],
 );
 
+export const EXTERNAL_PROVIDERS = ["servicenow", "okta", "github"] as const;
+export const externalProviderEnum = pgEnum("external_provider", EXTERNAL_PROVIDERS);
+
+/**
+ * PENDING          created, never attempted, or a previous attempt provably did not reach the provider
+ * IN_PROGRESS      owned by one worker (owner_token + unexpired owner_expires_at)
+ * OUTCOME_UNKNOWN  a write may have reached the provider; any next attempt must reconcile first
+ * SUCCEEDED        verified by provider read-back (terminal)
+ * FAILED           stopped: permanent error (auth, permission, validation); reopen manually
+ * CONFLICT         stopped: provider state contradicts the request; evidence preserved
+ */
+export const EXTERNAL_OPERATION_STATUSES = [
+  "PENDING",
+  "IN_PROGRESS",
+  "OUTCOME_UNKNOWN",
+  "SUCCEEDED",
+  "FAILED",
+  "CONFLICT",
+] as const;
+export const externalOperationStatusEnum = pgEnum(
+  "external_operation_status",
+  EXTERNAL_OPERATION_STATUSES,
+);
+
+/**
+ * Durable record of one logical external side effect (e.g. "create the ServiceNow access request
+ * for workflow W, resource R"). Persisted before the provider is called; the provider-side
+ * correlation_key makes the effect idempotent at the provider as well.
+ */
+export const externalOperations = pgTable(
+  "external_operations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    provider: externalProviderEnum("provider").notNull(),
+    operationType: text("operation_type").notNull(),
+    /** Local logical identity of the side effect; one row per logical operation. */
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    /** Deterministic provider-side key (ServiceNow correlation_key). */
+    correlationKey: text("correlation_key").notNull(),
+    request: jsonb("request").$type<Record<string, unknown>>().notNull(),
+    requestSha256: text("request_sha256").notNull(),
+    status: externalOperationStatusEnum("status").notNull().default("PENDING"),
+    /** Provider record id (ServiceNow sys_id) once known. */
+    externalId: text("external_id"),
+    /** Human-facing provider reference (ServiceNow ticket number) once known. */
+    externalReference: text("external_reference"),
+    attempts: integer("attempts").notNull().default(0),
+    /** Sanitized; never contains credentials or request payload values. */
+    lastError: text("last_error"),
+    lastErrorDetail: jsonb("last_error_detail").$type<Record<string, unknown>>(),
+    /** Provider evidence captured when stopping with CONFLICT. */
+    evidence: jsonb("evidence").$type<Record<string, unknown>>(),
+    ownerToken: uuid("owner_token"),
+    ownerId: text("owner_id"),
+    ownerExpiresAt: timestamp("owner_expires_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("external_operations_provider_correlation_idx").on(t.provider, t.correlationKey),
+    index("external_operations_workflow_id_idx").on(t.workflowId),
+    index("external_operations_status_idx").on(t.status),
+    check("external_operations_attempts_non_negative", sql`${t.attempts} >= 0`),
+    check(
+      "external_operations_owner_all_or_nothing",
+      sql`(${t.ownerToken} IS NULL) = (${t.ownerId} IS NULL) AND (${t.ownerToken} IS NULL) = (${t.ownerExpiresAt} IS NULL)`,
+    ),
+    check(
+      "external_operations_owner_only_while_active",
+      sql`${t.ownerToken} IS NULL OR ${t.status} IN ('IN_PROGRESS', 'OUTCOME_UNKNOWN')`,
+    ),
+    check(
+      "external_operations_in_progress_has_owner",
+      sql`${t.status} <> 'IN_PROGRESS' OR ${t.ownerToken} IS NOT NULL`,
+    ),
+    check(
+      "external_operations_succeeded_is_complete",
+      sql`${t.status} <> 'SUCCEEDED' OR (${t.externalId} IS NOT NULL AND ${t.externalReference} IS NOT NULL AND ${t.completedAt} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type OutboxEventAttempt = typeof outboxEventAttempts.$inferSelect;
+export type ExternalOperation = typeof externalOperations.$inferSelect;

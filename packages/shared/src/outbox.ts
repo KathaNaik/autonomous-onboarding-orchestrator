@@ -13,4 +13,13 @@ export type HrisOfferSignedAcceptedPayload = z.infer<typeof HrisOfferSignedAccep
 
 export const OUTBOX_EVENT_TYPES = {
   hrisOfferSignedAccepted: "hris.offer_signed.accepted",
+  externalOperationExecute: "external_operation.execute",
 } as const;
+
+/** Asks a worker to execute (or resume/reconcile) one durable external operation. */
+export const ExternalOperationExecutePayloadSchema = z.object({
+  operationId: z.uuid(),
+  provider: z.string(),
+  operationType: z.string(),
+});
+export type ExternalOperationExecutePayload = z.infer<typeof ExternalOperationExecutePayloadSchema>;
