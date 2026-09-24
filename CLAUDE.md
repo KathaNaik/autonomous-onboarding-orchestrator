@@ -6,15 +6,16 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                                                                          | Status                          |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)             |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)  |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)  |
-| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance) |
-| M4        | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                     |
+| Milestone | Scope                                                                                                                                                                          | Status                                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)                                                                              |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)                                                                   |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)                                                                   |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance)                                                                  |
+| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**) |
+| M4B       | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                                                                                      |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). **Nothing drives a workflow past `ACCESS_PLANNING` yet. No agents, policy engine, resource catalog, per-resource access execution, integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds a **read-only** ServiceNow Table API adapter (see **ServiceNow adapter**), which nothing calls yet. **Nothing drives a workflow past `ACCESS_PLANNING` yet. No ServiceNow writes (tickets, approvals), agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -251,6 +252,134 @@ These are real systems. **Don't fake the final integrations.** Unit tests may us
 
 Credentials come from environment variables through the Zod config loader. Never commit them.
 
+### ServiceNow adapter (in place since M4A: read-only)
+
+`@aoo/servicenow` is a Table REST API client for the ServiceNow PDI. It doesn't depend on the workflow engine: its only dependency is `zod`, and it has no `@aoo/*` imports.
+
+**PDI and application:** the one-time manual setup is in `packages/servicenow/servicenow-app/SETUP.md`:
+
+- the PDI;
+- the scoped application **Autonomous Onboarding**;
+- the table;
+- a read role and ACL;
+- a web-service-only integration user.
+
+**Authoritative ServiceNow configuration:** `packages/servicenow/servicenow-app/update-sets/autonomous-onboarding-1.0.0.xml`. This is the published update set for the scoped application `x_2230066_autono_0` (Autonomous Onboarding, version 1.0.0), with 39 records:
+
+- the application metadata;
+- the table, extending Task;
+- 8 dictionary entries and field labels;
+- the `policy_decision` choice list;
+- the `OAR` number counter;
+- the roles `integration_reader`, `user` and `admin`;
+- 3 read ACLs, all requiring `integration_reader`;
+- the form layout.
+
+It was reviewed before being added and contains **no** users, role assignments, passwords, tokens, key material, email addresses or data records. To re-create the app on another instance, use **Retrieved Update Sets → Import Update Set from XML**, then preview and commit. The Fluent (code) table file from the Build Agent is optional and was not exported.
+
+**Table:** `<scope>_onboarding_access_request`, labelled **Onboarding Access Request**, which **extends `task`**. Its columns (scoped, no `u_` prefix) are defined in `src/table-spec.ts`, the single source of truth:
+
+| Column                  | Type         | Notes                                                                 |
+| ----------------------- | ------------ | --------------------------------------------------------------------- |
+| `employee_id`           | String(100)  | Mandatory                                                             |
+| `workflow_id`           | String(40)   | Mandatory                                                             |
+| `resource_id`           | String(255)  | Mandatory                                                             |
+| `requested_entitlement` | String(255)  | Mandatory                                                             |
+| `agent_reason`          | String(4000) |                                                                       |
+| `policy_decision`       | Choice(40)   | `pending` / `allow` / `deny` / `requires_approval`; default `pending` |
+| `correlation_key`       | String(255)  | Mandatory, **unique** (the external correlation key)                  |
+
+`number`, `state`, `short_description` and similar fields are inherited from Task.
+
+**Authentication:**
+
+- HTTP Basic over HTTPS, as a dedicated, least-privilege integration user with _web service access only_ and read access to the one table.
+- Credentials come only from `SERVICENOW_*` environment variables, loaded from the git-ignored `.env`.
+- OAuth may replace Basic when write access arrives; that's a later decision.
+
+**Client** (`createServiceNowClient(config, { fetch?, logger?, sleep? })`):
+
+- `verifyConnectivity()` authenticates and reads one row of the table.
+- `queryAccessRequests({ employeeId?, workflowId?, correlationKey?, limit?, offset? })` returns validated records. The encoded query rejects values containing `^` or line breaks, which blocks query injection.
+- `getAccessRequest(sysId)` returns the record, or `null` on 404.
+- `describeAccessRequestTable()` reads `sys_db_object` and `sys_dictionary`, and `checkAccessRequestTable()` compares the result with the spec.
+- **GET only.** There is no POST, PATCH or DELETE anywhere.
+
+**Resilience:**
+
+- Each attempt has its own timeout (`AbortSignal.timeout`).
+- Network errors, timeouts, 429 and 5xx get bounded retries (`SERVICENOW_MAX_RETRIES`) with jittered exponential backoff; `Retry-After` is honored, capped at 10 s.
+- 401 and 403 are never retried.
+- Redirects are not followed.
+
+**Error types** (`ServiceNowError` subclasses, each with `code`, `operation`, `status` and `retryable`):
+
+| Code                                                                                         | Error class                  | Cause                                                       |
+| -------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------- |
+| `CONFIG_INVALID`                                                                             | `ServiceNowConfigError`      | Bad configuration                                           |
+| `REQUEST_INVALID`                                                                            | `ServiceNowRequestError`     | Input rejected before sending                               |
+| `AUTHENTICATION_FAILED`                                                                      | `ServiceNowAuthError`        | 401                                                         |
+| `PERMISSION_DENIED`                                                                          | `ServiceNowPermissionError`  | 403                                                         |
+| `TIMEOUT`                                                                                    | `ServiceNowTimeoutError`     | Every attempt timed out                                     |
+| `UNAVAILABLE`                                                                                | `ServiceNowUnavailableError` | Network failure, 429 or 5xx                                 |
+| `INSTANCE_UNAVAILABLE`                                                                       | `ServiceNowUnavailableError` | Redirect or HTML page, e.g. a hibernating PDI               |
+| `BAD_REQUEST` / `NOT_FOUND` / `MALFORMED_RESPONSE` / `SCHEMA_MISMATCH` / `UNEXPECTED_STATUS` | `ServiceNowResponseError`    | 400, 404, unparseable body, schema mismatch, other statuses |
+
+**Redaction:**
+
+- Logs contain only operation, method, origin and path, status, attempt and duration. They never include headers, query strings (which can hold employee data) or bodies.
+- Error messages are built from safe parts and passed through `redactText()`, which masks `Basic`/`Bearer` tokens, URL userinfo and secret-like `key=value` pairs.
+- `redact()` masks sensitive keys at any depth.
+- Configuration errors name the variable but never echo its value.
+
+**Live test** (explicit only): `pnpm test:servicenow:live` runs `packages/servicenow/test/live/` with `vitest.live.config.ts`, loading `.env`. It is **never** part of `pnpm test` or `pnpm test:integration`. It checks, using GET requests only:
+
+- authentication;
+- a query of the custom table;
+- a by-`sys_id` read, and `null` for an unknown `sys_id`;
+- that the table extends Task with all spec columns (using the optional `SERVICENOW_SCHEMA_*` admin credentials);
+- that a wrong password gives `ServiceNowAuthError`.
+
+Without configuration it **fails** with `BLOCKED: …`. It never skips or passes silently.
+
+`pnpm servicenow:check [--schema]` prints the same checks as redacted JSON.
+
+**Schema-verification credentials are isolated:**
+
+- `SERVICENOW_SCHEMA_USERNAME` and `SERVICENOW_SCHEMA_PASSWORD` are read only by `src/schema-verification.ts` (`loadSchemaVerificationConfig`). That module is imported only by `src/bin/check.ts --schema` and the live test, and is **not exported** from `@aoo/servicenow`.
+- `loadServiceNowConfig()`, the runtime path, ignores `SERVICENOW_SCHEMA_*`.
+- Neither loader falls back to the other's credentials. Unit tests enforce all of this.
+- The account is a dedicated `aoo.schema.verifier` user with the `admin` role. On this PDI, the built-in `admin` account was rejected for Basic-auth API calls.
+
+**Choices query:** `sys_choice` is queried by table name, and inactive rows are filtered in code. An encoded `inactive=false` condition matched no rows on the real PDI.
+
+**Passwords in `.env` must be single-quoted.** Generated ServiceNow passwords contain `#` and `$`; an unquoted `#` truncated a 100-character password to 62 characters, causing 401s. A unit test also guards that `.env.example` never contains a ServiceNow password.
+
+#### M4A verification record
+
+Verified on PDI `https://dev225201.service-now.com`, 2026-09-24, with one synthetic record (`OAR0001002`: employee `TEST-EMP-0001`, correlation key `m4a-synthetic-0001`; no real employee data):
+
+- **Least-privilege access:** `aoo.integration` (role `x_2230066_autono_0.integration_reader` only) authenticates, queries the table, lists the synthetic record (also filtered by correlation key), and retrieves it by `sys_id`. The record validates against `AccessRequestRecordSchema`.
+- **Schema check** (`pnpm servicenow:check --schema`, as `aoo.schema.verifier`): the table extends `task` in scope `x_2230066_autono_0`, all 7 columns match the spec, `correlation_key` is unique, and `policy_decision` has exactly `pending`, `allow`, `deny` and `requires_approval`, with default `pending`. No problems.
+- **Wrong credentials** are rejected with `ServiceNowAuthError` (401).
+- **Test counts:**
+  - `pnpm check`: 204 unit tests, 47 of them ServiceNow;
+  - `pnpm test:integration`: 58;
+  - `pnpm test:servicenow:live`: 5 / 5;
+  - `pnpm build`: all 9 packages.
+- **No secrets exposed:** none in logs, errors or test output. None of the 160 committable files contains either real password.
+
+**Remaining limitations (accepted for M4A):**
+
+- **Read-only:** the adapter doesn't create tickets, write or approve; that's M4B+. Nothing in the workflow calls it yet.
+- **Authentication:** Basic auth. OAuth is a later decision.
+- **Instance lifecycle:** the PDI hibernates when idle (reported as `INSTANCE_UNAVAILABLE`) and can be reclaimed. The update-set XML is the recovery path.
+- **Accounts on the PDI:**
+  - `aoo.schema.verifier` holds `admin`. Its password lives only in the local `.env`.
+  - `aoo.integration` has **not** been set to _web service access only_: the field isn't on this release's default user form. Add it through **Configure → Form Layout** and check it to block interactive login. Its identity type is still Human.
+- **Duplicate ACL:** there are two identical table-level read ACLs, which is harmless.
+- **Synthetic record:** `OAR0001002` stays in the PDI as a live-test fixture.
+
 ### Workflow trigger and scope
 
 - **Trigger:** an HRIS event confirming that the employee has signed an offer and is cleared. The workflow starts only from this event.
@@ -284,6 +413,7 @@ packages/
   db/            @aoo/db            Drizzle schema, pg client, config loader, migrator. migrations/ = versioned SQL
   orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence)
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
+  servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
 ```
 
 Location decisions made in M2: the database schema, client and migrations live in `@aoo/db`. The orchestrator lives in `@aoo/orchestrator`, which depends on `@aoo/db` and `@aoo/shared`.
@@ -300,6 +430,11 @@ Location decisions made in M3B:
 - Event handlers (`src/events/`) and the outbox transport, store and runner (`src/outbox/`) live in `@aoo/orchestrator`, because they write workflow and outbox tables.
 - `apps/worker` is only the process shell: config, loop, health, logging and the admin CLI.
 
+Location decisions made in M4A:
+
+- The ServiceNow adapter is its own package, `@aoo/servicenow`, depending only on `zod`.
+- The PDI setup guide and update-set exports live in `packages/servicenow/servicenow-app/`.
+
 Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
@@ -315,6 +450,7 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - `@aoo/webhooks` has no workspace dependencies. It may use Node APIs (`node:crypto`), so it must not be imported by `@aoo/shared` or the web app.
 - In code, only `@aoo/orchestrator` writes `outbox_event_attempts` and outbox status and lease columns. `apps/worker` uses `@aoo/db` only to create the connection.
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
+- `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` may call adapters, and nothing calls `@aoo/servicenow` yet.
 
 ### Service endpoints
 
@@ -334,25 +470,30 @@ Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `api` only after `
 
 All env vars are read through Zod loaders. `.env.example` lists every variable.
 
-| Variable                                                             | Used by                                                                                               | Default                                                                                                            |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                  | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                                                                          |
-| `WEB_PORT` / `PORT`                                                  | web (dev / container)                                                                                 | `3000`                                                                                                             |
-| `API_BASE_URL`                                                       | web                                                                                                   | `http://localhost:4000`                                                                                            |
-| `DATABASE_URL`                                                       | `@aoo/db` (`pnpm db:migrate`, the `migrate` container), api (required since M3A)                      | required, `postgres://` URL                                                                                        |
-| `HRIS_WEBHOOK_SECRET`                                                | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only |
-| `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                      | api                                                                                                   | `65536`                                                                                                            |
-| `HRIS_WEBHOOK_URL`                                                   | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                              |
-| `WORKER_ID`                                                          | worker                                                                                                | `<hostname>-<pid>` (unique per container replica)                                                                  |
-| `WORKER_HEALTH_HOST`, `WORKER_HEALTH_PORT`                           | worker                                                                                                | `0.0.0.0`, `4100`                                                                                                  |
-| `WORKER_SHUTDOWN_TIMEOUT_MS`                                         | worker                                                                                                | `15000`                                                                                                            |
-| `OUTBOX_BATCH_SIZE`                                                  | worker (1–100)                                                                                        | `10`                                                                                                               |
-| `OUTBOX_POLL_INTERVAL_MS`                                            | worker (≥ 10)                                                                                         | `1000`                                                                                                             |
-| `OUTBOX_LEASE_MS`                                                    | worker; must exceed the poll interval, and should exceed the worst-case handler time                  | `30000`                                                                                                            |
-| `OUTBOX_MAX_ATTEMPTS`                                                | worker (claims per cycle before dead-lettering)                                                       | `5`                                                                                                                |
-| `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`                    | worker; max must be ≥ base                                                                            | `1000`, `300000`                                                                                                   |
-| `TEST_DATABASE_URL`                                                  | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
+| Variable                                                                      | Used by                                                                                               | Default                                                                                                            |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                           | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                                                                          |
+| `WEB_PORT` / `PORT`                                                           | web (dev / container)                                                                                 | `3000`                                                                                                             |
+| `API_BASE_URL`                                                                | web                                                                                                   | `http://localhost:4000`                                                                                            |
+| `DATABASE_URL`                                                                | `@aoo/db` (`pnpm db:migrate`, the `migrate` container), api (required since M3A)                      | required, `postgres://` URL                                                                                        |
+| `HRIS_WEBHOOK_SECRET`                                                         | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only |
+| `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                               | api                                                                                                   | `65536`                                                                                                            |
+| `HRIS_WEBHOOK_URL`                                                            | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                              |
+| `WORKER_ID`                                                                   | worker                                                                                                | `<hostname>-<pid>` (unique per container replica)                                                                  |
+| `WORKER_HEALTH_HOST`, `WORKER_HEALTH_PORT`                                    | worker                                                                                                | `0.0.0.0`, `4100`                                                                                                  |
+| `WORKER_SHUTDOWN_TIMEOUT_MS`                                                  | worker                                                                                                | `15000`                                                                                                            |
+| `OUTBOX_BATCH_SIZE`                                                           | worker (1–100)                                                                                        | `10`                                                                                                               |
+| `OUTBOX_POLL_INTERVAL_MS`                                                     | worker (≥ 10)                                                                                         | `1000`                                                                                                             |
+| `OUTBOX_LEASE_MS`                                                             | worker; must exceed the poll interval, and should exceed the worst-case handler time                  | `30000`                                                                                                            |
+| `OUTBOX_MAX_ATTEMPTS`                                                         | worker (claims per cycle before dead-lettering)                                                       | `5`                                                                                                                |
+| `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`                             | worker; max must be ≥ base                                                                            | `1000`, `300000`                                                                                                   |
+| `SERVICENOW_INSTANCE_URL`                                                     | servicenow adapter                                                                                    | required; `https://` origin only, e.g. `https://dev123456.service-now.com`                                         |
+| `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`                                  | servicenow adapter                                                                                    | required; integration user (web-service-only, read role). Only in `.env` or a secret store                         |
+| `SERVICENOW_ACCESS_REQUEST_TABLE`                                             | servicenow adapter                                                                                    | required; scoped table name, e.g. `x_1234567_autonomo_onboarding_access_request`                                   |
+| `SERVICENOW_TIMEOUT_MS`, `SERVICENOW_MAX_RETRIES`, `SERVICENOW_RETRY_BASE_MS` | servicenow adapter                                                                                    | `10000`, `2`, `250`                                                                                                |
+| `SERVICENOW_SCHEMA_USERNAME`, `SERVICENOW_SCHEMA_PASSWORD`                    | schema verification only (`pnpm servicenow:check --schema`, live test); never loaded at runtime       | optional; a dedicated verifier account, e.g. `aoo.schema.verifier`                                                 |
+| `TEST_DATABASE_URL`                                                           | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`          | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
 
 ## Coding conventions
 
@@ -366,6 +507,7 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 - **API dependencies:** `buildApp(config, overrides?)` wires real, database-backed services by default. Unit tests may override them with test doubles (for example, `hrisIntake`). The pg pool connects lazily, so building the app never touches the database.
 - **Event handlers:** keep them transport-independent (`EventEnvelope` in, `HandlerResult` out) and idempotent. Make at-most-once side effects idempotent with keys (for example, `transition({ idempotencyKey })`), not with pre-checks alone. Throw `PermanentEventError` only when retrying can never help.
 - **Integration tests:** put them in `test/integration/` and register them in the package's `vitest.integration.config.ts` (in `apps/*` or `packages/*`). `pnpm test` excludes them; run them with `pnpm test:integration`. Each project's global setup calls `createTestDatabase()` from `@aoo/db/testing`, which creates a fresh, migrated database per run and drops it afterwards. Don't mock the database in integration tests. Race tests should be deterministic: hold a transaction open with a test-only trigger (`pg_sleep`) instead of relying on bursts.
+- **Live tests** (external systems such as the ServiceNow PDI): put them in `test/live/*.live.test.ts`, with a dedicated `vitest.live.config.ts` and a root `test:<system>:live` script. Exclude them from the package's unit config. They run only when invoked explicitly, must fail with `BLOCKED` when not configured, and must never be replaced by mocks when reporting live results.
 - **Workspace package exports:** each package's `exports` has a `source` condition pointing at `src/index.ts`, before `types`/`default` (dist). Typecheck configs (`tsconfig.json`) set `customConditions: ["source"]`, so typechecking doesn't need a build. Build configs (`tsconfig.build.json`) don't. `tsx --conditions=source` runs workspace code from source.
 - **Side effects:** all external calls go through adapters and carry a correlation ID. External writes also carry a durable idempotency key. Domain code never calls ServiceNow, Okta or GitHub directly.
 - **Dependencies:** add them to the package that uses them, never to the root, except shared dev tooling. pnpm blocks dependency build scripts by default; approve one with `pnpm approve-builds <pkg>`, which records it under `allowBuilds` in `pnpm-workspace.yaml`.
@@ -387,6 +529,8 @@ pnpm --filter @aoo/worker dev      # run the outbox worker locally (needs DATABA
 pnpm worker:admin dead-letters     # list dead-lettered outbox events
 pnpm worker:admin redrive --id <uuid> --reason "<why>"   # redrive a dead letter (audited)
 docker compose up -d --scale worker=2   # full stack with two workers
+pnpm servicenow:check [--schema]        # read-only ServiceNow connectivity check (needs SERVICENOW_* in .env)
+pnpm test:servicenow:live               # explicit live ServiceNow PDI test (GET only)
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts
 pnpm db:migrate                    # apply migrations to DATABASE_URL
