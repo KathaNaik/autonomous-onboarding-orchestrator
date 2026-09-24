@@ -1,0 +1,128 @@
+{
+  "catalogVersion": "1.0.0",
+  "resources": [
+    {
+      "resourceId": "aws-dev",
+      "displayName": "AWS development account",
+      "description": "Developer role in the shared AWS development account.",
+      "category": "CLOUD_INFRASTRUCTURE",
+      "environment": "DEVELOPMENT",
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "MEDIUM",
+      "provider": "SERVICENOW",
+      "providerMetadata": { "assignmentGroup": "Cloud Platform" }
+    },
+    {
+      "resourceId": "aws-prod",
+      "displayName": "AWS production account",
+      "description": "Read-only engineer role in the AWS production account.",
+      "category": "CLOUD_INFRASTRUCTURE",
+      "environment": "PRODUCTION",
+      "enabled": true,
+      "dependsOn": ["aws-dev"],
+      "riskLevel": "HIGH",
+      "provider": "SERVICENOW",
+      "providerMetadata": { "assignmentGroup": "Cloud Platform" }
+    },
+    {
+      "resourceId": "aws-staging",
+      "displayName": "AWS staging account",
+      "description": "Developer role in the AWS staging account. Disabled until the staging account is migrated.",
+      "category": "CLOUD_INFRASTRUCTURE",
+      "environment": "STAGING",
+      "enabled": false,
+      "dependsOn": ["aws-dev"],
+      "riskLevel": "MEDIUM",
+      "provider": "SERVICENOW",
+      "providerMetadata": { "assignmentGroup": "Cloud Platform" }
+    },
+    {
+      "resourceId": "cursor-license",
+      "displayName": "Cursor license",
+      "description": "Cursor Business seat for AI-assisted development.",
+      "category": "DEVELOPER_TOOLS",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "LOW",
+      "provider": "MANUAL",
+      "providerMetadata": {
+        "fulfillmentTeam": "IT Software Licensing",
+        "instructions": "Assign a Cursor Business seat to the hire's work email address."
+      }
+    },
+    {
+      "resourceId": "github-org-membership",
+      "displayName": "GitHub engineering organization",
+      "description": "Membership of the company's GitHub engineering organization.",
+      "category": "SOURCE_CONTROL",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "LOW",
+      "provider": "GITHUB",
+      "providerMetadata": { "organization": "aoo-example", "team": null }
+    },
+    {
+      "resourceId": "github-team-backend",
+      "displayName": "GitHub backend team",
+      "description": "Membership of the backend team, with write access to backend repositories.",
+      "category": "SOURCE_CONTROL",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": ["github-org-membership"],
+      "riskLevel": "LOW",
+      "provider": "GITHUB",
+      "providerMetadata": { "organization": "aoo-example", "team": "backend" }
+    },
+    {
+      "resourceId": "github-team-frontend",
+      "displayName": "GitHub frontend team",
+      "description": "Membership of the frontend team, with write access to frontend repositories.",
+      "category": "SOURCE_CONTROL",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": ["github-org-membership"],
+      "riskLevel": "LOW",
+      "provider": "GITHUB",
+      "providerMetadata": { "organization": "aoo-example", "team": "frontend" }
+    },
+    {
+      "resourceId": "jira-engineering",
+      "displayName": "Jira engineering projects",
+      "description": "Access to the engineering Jira projects.",
+      "category": "PROJECT_MANAGEMENT",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "LOW",
+      "provider": "OKTA",
+      "providerMetadata": { "groupName": "Jira Engineering Users" }
+    },
+    {
+      "resourceId": "okta-engineering-group",
+      "displayName": "Okta engineering group",
+      "description": "Membership of the Engineering group in Okta.",
+      "category": "IDENTITY",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "LOW",
+      "provider": "OKTA",
+      "providerMetadata": { "groupName": "Engineering" }
+    },
+    {
+      "resourceId": "slack-engineering",
+      "displayName": "Slack engineering channels",
+      "description": "Membership of the engineering Slack user group and its channels.",
+      "category": "COLLABORATION",
+      "environment": null,
+      "enabled": true,
+      "dependsOn": [],
+      "riskLevel": "LOW",
+      "provider": "SERVICENOW",
+      "providerMetadata": { "assignmentGroup": "Collaboration Tools" }
+    }
+  ]
+}

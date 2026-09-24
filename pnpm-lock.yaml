@@ -181,6 +181,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@aoo/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
       '@aoo/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -275,6 +278,12 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+
+  packages/catalog:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/db:
     dependencies:

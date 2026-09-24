@@ -17,6 +17,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/orchestrator/package.json packages/orchestrator/
 COPY packages/webhooks/package.json packages/webhooks/
 COPY packages/servicenow/package.json packages/servicenow/
+COPY packages/catalog/package.json packages/catalog/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build

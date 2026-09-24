@@ -15,9 +15,10 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 | M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
 | M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
 | M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
-| M5        | Not yet defined; the user defines it when starting it                                                                                                                                          | Not started                                                                                                          |
+| M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                    | Complete (accepted)                                                                                                  |
+| M5B+      | Not yet defined; the user defines each when starting it                                                                                                                                        | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. **Nothing provisions access yet. No agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**); nothing uses it for decisions yet. **Nothing provisions access yet. No agents, policy engine, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -478,6 +479,107 @@ Verified 2026-09-24 against PDI `https://dev225201.service-now.com`, using synth
 - Basic auth; OAuth is still a later decision.
 - The host disk was at about 2 GiB free after the Compose rebuild; image builds can make Docker's VM read-only again.
 
+### Resource catalog (in place since M5A)
+
+`@aoo/catalog` defines every entitlement the future Role Access Agent may recommend. It is deterministic data plus a small read-only service: no LLM calls, no policy decisions, no provider calls, no database tables.
+
+**Ownership.** The catalog is released in code, through a reviewed change to `packages/catalog/src/versions/` and `src/released.ts`. There is no CMS, admin UI or write API. The package owns the data format (Zod schemas in `src/schema.ts`), validation (`src/validate.ts`), hashing (`src/hash.ts`), the service (`ResourceCatalog`, `src/catalog.ts`) and the release list (`CatalogRegistry`, `src/registry.ts` + `src/released.ts`).
+
+**Versioning (smallest model: immutable, hash-pinned releases).**
+
+- Each released version is one file, `src/versions/<MAJOR.MINOR.PATCH>.json` (strict semver, no leading zeros). `CURRENT_CATALOG_VERSION` names the version new recommendations use.
+- Each release is pinned in `CATALOG_RELEASES` with its content hash: `sha256:` over canonical JSON (keys sorted, resources sorted by id, each `dependsOn` sorted), covering every resource, enabled or not. File order and key order never change the hash; any content change does.
+- **Released versions are immutable.** If a released file no longer matches its pinned hash, loading fails (`INVALID_CATALOG`, "release a new version instead"). To change the catalog: add `src/versions/<next>.json`, append it to `CATALOG_RELEASES` with its hash (the load error prints the computed hash), and bump `CURRENT_CATALOG_VERSION`. Old versions stay loaded, so older recommendations stay resolvable. A unit test fails if a file in `src/versions/` isn't released, or a release has no file.
+- A recommendation or workflow records a `CatalogReference`: `{ catalogVersion, catalogHash }` (`CatalogReferenceSchema`). `registry.resolve(reference)` returns exactly that catalog. It throws `UNKNOWN_CATALOG_VERSION` for unreleased versions and `CATALOG_VERSION_MISMATCH` when the hash differs. That is how a catalog edit can never silently change the meaning of a recorded recommendation.
+- Each served resource carries the `catalogVersion` it came from. It is stamped at load and isn't part of the file.
+
+**Resource model** (`CatalogResourceDefinitionSchema`, strict objects: unknown keys are rejected):
+
+| Field              | Meaning                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `resourceId`       | Lowercase kebab-case, at most 64 characters, unique within a version                                           |
+| `displayName`      | Short name                                                                                                     |
+| `description`      | What the entitlement grants                                                                                    |
+| `category`         | `IDENTITY`, `SOURCE_CONTROL`, `COLLABORATION`, `PROJECT_MANAGEMENT`, `CLOUD_INFRASTRUCTURE`, `DEVELOPER_TOOLS` |
+| `environment`      | `DEVELOPMENT`, `STAGING`, `PRODUCTION`, or `null` when not environment-specific                                |
+| `enabled`          | Disabled resources stay in the version (readable) but can't be recommended or resolved                         |
+| `dependsOn`        | Explicit resource ids that must be provisioned first (at most 20, no repeats)                                  |
+| `riskLevel`        | `LOW` / `MEDIUM` / `HIGH`: an **input** for the future policy engine, never a decision                         |
+| `provider`         | `SERVICENOW`, `OKTA`, `GITHUB`, `MANUAL`, `NONE`                                                               |
+| `providerMetadata` | Validated per provider (see below)                                                                             |
+
+**Provider model.** Metadata for the future deterministic adapters; M5A calls no provider.
+
+- `SERVICENOW` `{ assignmentGroup }`: fulfilled through a ServiceNow request.
+- `OKTA` `{ groupName }`: an Okta group assignment.
+- `GITHUB` `{ organization, team | null }`: org membership, or a team when `team` is set.
+- `MANUAL` `{ fulfillmentTeam, instructions }`: a human task.
+- `NONE` `{}`: nothing to provision.
+
+Metadata of the wrong shape for its provider is rejected.
+
+**Dependency model.**
+
+- Dependencies are declared per resource. **There is no universal root**: Okta is not an implicit dependency of anything, and a resource depends on Okta only if its `dependsOn` says so.
+- Loading rejects: missing targets, self-dependencies, cycles (direct or indirect), repeated entries, and an enabled resource depending on a disabled one (it could never be provisioned).
+- `resolveDependencyOrder(ids)` returns the requested resources plus all transitive dependencies, dependencies first, with ties broken by id. The order is deterministic whatever the request order.
+
+**Validation.** Loading fails as a whole, with every issue listed (`CatalogError` code `INVALID_CATALOG`, `issues`). There are no partial catalogs. The API loads the registry in `buildApp`, so invalid or edited catalog data stops the API from starting. The unit tests load the real seed data too.
+
+**Service** (`ResourceCatalog`; instances and everything they return are deeply frozen, ordered by `resourceId`):
+
+- `catalogVersion`, `catalogHash`, `reference`: the version and hash (see Versioning).
+- `resources`: all resources, including disabled ones.
+- `listEnabledResources()`: enabled resources only.
+- `getResource(id)` / `hasResource(id)`: an unknown id throws `UNKNOWN_RESOURCE`.
+- `validateResourceIds(ids)`: returns `{ valid, unknown, disabled, duplicates }` and never throws.
+- `requireValidResourceIds(ids)`: throws `UNKNOWN_RESOURCE`, then `DISABLED_RESOURCE`, then `DUPLICATE_RESOURCE`.
+- `resolveDependencyOrder(ids)`: see Dependency model.
+- `snapshot()`: the frozen agent input `{ catalogVersion, catalogHash, resources: enabled }`; the same object on every call.
+- `assertReference(ref)`: checks a recorded reference against this catalog.
+
+`CatalogRegistry`: `current`, `versions`, `get(version)`, `resolve(reference)`. `loadCatalogRegistry()` loads the released data.
+
+**How future agents are constrained.** The Role Access Agent receives `registry.current.snapshot()` as its only resource input. Its structured output must carry the snapshot's `CatalogReference`. Before the policy engine sees a recommendation, the orchestrator must:
+
+1. `registry.resolve(reference)`.
+2. Validate the recommended ids with `requireValidResourceIds`: unknown, disabled and duplicate ids are rejected, never dropped silently.
+3. Compute the provisioning order with `resolveDependencyOrder`.
+
+Anything outside the referenced catalog version is rejected. The catalog never authorizes anything: allow, deny and approval-required stay with the policy engine.
+
+**Seed data: release `1.0.0`** (`sha256:e918abe1…93fa776`, 10 resources, 9 enabled). Seed data is data, not assumptions: no code outside the catalog tests refers to these ids.
+
+| Resource                 | Category             | Env         | Provider   | Risk   | Depends on              | Enabled |
+| ------------------------ | -------------------- | ----------- | ---------- | ------ | ----------------------- | ------- |
+| `aws-dev`                | CLOUD_INFRASTRUCTURE | DEVELOPMENT | SERVICENOW | MEDIUM | none                    | yes     |
+| `aws-prod`               | CLOUD_INFRASTRUCTURE | PRODUCTION  | SERVICENOW | HIGH   | `aws-dev`               | yes     |
+| `aws-staging`            | CLOUD_INFRASTRUCTURE | STAGING     | SERVICENOW | MEDIUM | `aws-dev`               | **no**  |
+| `cursor-license`         | DEVELOPER_TOOLS      | none        | MANUAL     | LOW    | none                    | yes     |
+| `github-org-membership`  | SOURCE_CONTROL       | none        | GITHUB     | LOW    | none                    | yes     |
+| `github-team-backend`    | SOURCE_CONTROL       | none        | GITHUB     | LOW    | `github-org-membership` | yes     |
+| `github-team-frontend`   | SOURCE_CONTROL       | none        | GITHUB     | LOW    | `github-org-membership` | yes     |
+| `jira-engineering`       | PROJECT_MANAGEMENT   | none        | OKTA       | LOW    | none                    | yes     |
+| `okta-engineering-group` | IDENTITY             | none        | OKTA       | LOW    | none                    | yes     |
+| `slack-engineering`      | COLLABORATION        | none        | SERVICENOW | LOW    | none                    | yes     |
+
+The GitHub organization `aoo-example` and the group and team names are placeholders. They get real values in the release that goes with the provisioning milestones.
+
+**Read-only API** (`apps/api/src/routes/resources.ts`). The web app reads the catalog only through these endpoints:
+
+- `GET /resources`: `{ catalogVersion, catalogHash, resources }`, enabled resources of the current version.
+- `GET /resources/:resourceId`: `{ catalogVersion, catalogHash, resource }`. Disabled resources are included, with `enabled: false`. Returns 404 `UNKNOWN_RESOURCE`, or 400 `INVALID_RESOURCE_ID` for a malformed id.
+
+There are no write methods.
+
+**Remaining limitations (M5A):**
+
+- Nothing records a `CatalogReference` yet: agents and recommendations come later. The API serves the current version only; older versions are available in code through `registry.get`.
+- The catalog isn't stored in PostgreSQL. A future milestone that needs SQL joins or foreign keys on resources can load releases into a table keyed by `(catalog_version, resource_id)`, but the repository stays the source of truth.
+- Provider metadata values are placeholders, and the future adapters decide how to use them.
+- API response types are TypeScript interfaces in the route, not `@aoo/shared` schemas. Move them there when the web app first consumes them.
+- **Docker Compose verification waived for M5A.** `docker compose up --build` (part of the definition of done) was not run: the host had only about 5.7 GiB free, and an earlier image build filled the disk and made Docker's VM read-only. `pnpm check`, `pnpm test:integration` and `pnpm build` passed. The Dockerfile now copies `packages/catalog/package.json` for the install layer; run the Compose check once disk space allows.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -658,6 +760,7 @@ packages/
   orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence)
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
   servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
+  catalog/       @aoo/catalog       Versioned resource catalog (M5A): src/versions/*.json releases, validation, ResourceCatalog + CatalogRegistry
 ```
 
 Location decisions made in M2: the database schema, client and migrations live in `@aoo/db`. The orchestrator lives in `@aoo/orchestrator`, which depends on `@aoo/db` and `@aoo/shared`.
@@ -693,7 +796,14 @@ Location decisions made in M4C:
 - The ServiceNow business-rule source is `packages/servicenow/servicenow-app/business-rules/`.
 - The PDI setup guide and update-set exports live in `packages/servicenow/servicenow-app/`.
 
-Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
+Location decisions made in M5A:
+
+- The resource catalog is its own package, `@aoo/catalog`, depending only on `zod` (plus `node:crypto` for hashing).
+- Released catalog data lives in the repository as JSON (`packages/catalog/src/versions/`), is compiled into `dist/` and is not stored in PostgreSQL. Git history plus hash pinning give immutable, reviewable versions without a migration or a sync job.
+- Catalog schemas live in `@aoo/catalog`, not `@aoo/shared`, because they describe the catalog's own data files and `@aoo/catalog` is Node-only (hashing). If the web app ever needs the resource types, move the schemas to `@aoo/shared`.
+- The read-only routes are in `apps/api/src/routes/resources.ts`. `buildApp` loads the registry at startup.
+
+Not yet created: company onboarding rules, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
 
@@ -709,6 +819,7 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - In code, only `@aoo/orchestrator` writes `outbox_event_attempts` and outbox status and lease columns. `apps/worker` uses `@aoo/db` only to create the connection.
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
 - `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` invokes adapters, through `ExternalOperationService` and a narrow gateway interface (`ServiceNowAccessRequestGateway`). The worker wires in the real client; tests wire in fakes.
+- `@aoo/catalog` has no workspace dependencies. It never calls providers, never writes the database and makes no policy decisions. It must not be imported by `@aoo/shared` or the web app. Agents get catalog data only as a `CatalogSnapshot` and may only reference resources from it.
 - Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
 ### Service endpoints

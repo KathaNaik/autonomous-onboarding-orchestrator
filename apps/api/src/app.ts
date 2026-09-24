@@ -1,3 +1,4 @@
+import { loadCatalogRegistry, type ResourceCatalog } from "@aoo/catalog";
 import { createDatabase } from "@aoo/db";
 import {
   createApprovalService,
@@ -10,12 +11,15 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { callbackConfig, type Config } from "./config.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
+import { resourceRoutes } from "./routes/resources.js";
 import { serviceNowApprovalWebhookRoutes } from "./routes/servicenow-approval-webhook.js";
 
 export interface AppDependencies {
   hrisIntake: HrisIntakeService;
   /** Records approval callbacks only; the API never reads ServiceNow or decides approvals. */
   approvals: ApprovalService;
+  /** Current resource catalog version (read-only). */
+  catalog: ResourceCatalog;
 }
 
 /**
@@ -31,6 +35,9 @@ export async function buildApp(
     logger: { level: config.LOG_LEVEL, ...(options.logStream && { stream: options.logStream }) },
   });
 
+  // Loaded before anything else: invalid or modified catalog data fails startup.
+  const catalog = overrides.catalog ?? loadCatalogRegistry().current;
+
   const database = createDatabase(config.DATABASE_URL, {
     onIdleClientError: (err) => app.log.warn({ err: err.message }, "database idle connection lost"),
   });
@@ -40,10 +47,12 @@ export async function buildApp(
     approvals: createApprovalService(database.db, {
       workflows: createWorkflowService(database.db),
     }),
+    catalog,
     ...overrides,
   };
 
   await app.register(healthRoutes);
+  await app.register(resourceRoutes, { catalog: deps.catalog });
   await app.register(hrisWebhookRoutes, {
     secret: config.HRIS_WEBHOOK_SECRET,
     bodyLimit: config.HRIS_WEBHOOK_BODY_LIMIT_BYTES,

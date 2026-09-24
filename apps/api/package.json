@@ -15,7 +15,8 @@
     "zod": "^4.6.5",
     "@aoo/db": "workspace:*",
     "@aoo/orchestrator": "workspace:*",
-    "@aoo/webhooks": "workspace:*"
+    "@aoo/webhooks": "workspace:*",
+    "@aoo/catalog": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

@@ -7,6 +7,7 @@ const src = (path: string) => fileURLToPath(new URL(path, import.meta.url));
  * Mirrors the "source" export condition in each package.json. Subpaths come before bare names.
  */
 export const workspaceAliases = [
+  { find: /^@aoo\/catalog$/, replacement: src("packages/catalog/src/index.ts") },
   { find: /^@aoo\/db\/testing$/, replacement: src("packages/db/src/testing.ts") },
   { find: /^@aoo\/db$/, replacement: src("packages/db/src/index.ts") },
   { find: /^@aoo\/orchestrator$/, replacement: src("packages/orchestrator/src/index.ts") },
