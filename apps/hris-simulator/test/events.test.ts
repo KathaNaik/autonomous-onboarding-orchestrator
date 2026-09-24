@@ -87,6 +87,7 @@ describe("canonical facts (M5C)", () => {
       saveEvent(file, event);
       const replayed = loadEvent(file);
       expect(replayed).toEqual(event);
+      expect(replayed.jobDescription).toBe(HIRE_PROFILES.contractor.jobDescription);
       expect(replayed).toMatchObject({
         employmentType: "CONTRACTOR",
         roleFamilyCode: "SOFTWARE_ENGINEER",

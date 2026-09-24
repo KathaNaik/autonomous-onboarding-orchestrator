@@ -25,6 +25,11 @@ export const HrisOfferSignedEventSchema = z
     }),
     role: Text,
     department: Text,
+    /**
+     * Optional job responsibilities (M6A): free text for the Role Access Agent's recommendations
+     * only. Untrusted content; never an authorization fact, never parsed into codes.
+     */
+    jobDescription: z.string().trim().min(1).max(4000).optional(),
     managerId: Text,
     offerStatus: z.enum(HRIS_OFFER_STATUSES),
     candidateStatus: z.enum(HRIS_CANDIDATE_STATUSES),

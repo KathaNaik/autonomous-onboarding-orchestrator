@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -459,7 +460,126 @@ export const approvalCallbackEvents = pgTable(
   ],
 );
 
+export const AGENT_RUN_STATUSES = ["RUNNING", "SUCCEEDED", "FAILED"] as const;
+export const agentRunStatusEnum = pgEnum("agent_run_status", AGENT_RUN_STATUSES);
+
+/**
+ * One logical recommendation attempt by an agent (M6A: the Role Access Agent). Unique by
+ * logical_run_key, so retries, duplicate deliveries and restarts reuse the same row. Written only
+ * by @aoo/orchestrator; agents never touch the database.
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    logicalRunKey: text("logical_run_key").notNull().unique(),
+    /** e.g. "role-access". */
+    agent: text("agent").notNull(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "restrict" }),
+    promptVersion: text("prompt_version").notNull(),
+    modelProvider: text("model_provider").notNull(),
+    model: text("model").notNull(),
+    /** Everything shaping model behavior besides the prompt (provider/model/sampling/limits). */
+    modelConfig: text("model_config").notNull(),
+    /** Model identifier the provider reported serving (may differ from the requested alias). */
+    servedModel: text("served_model"),
+    catalogVersion: text("catalog_version").notNull(),
+    catalogHash: text("catalog_hash").notNull(),
+    /** sha256 of the exact model-visible input (context + available resources). */
+    inputHash: text("input_hash").notNull(),
+    // Canonical employee-fact snapshot taken when the run started. Copied from HRIS-sourced
+    // employee columns; never produced or modified by the model.
+    departmentCode: text("department_code").notNull(),
+    roleFamilyCode: text("role_family_code").notNull(),
+    employmentType: text("employment_type").notNull(),
+    factsHrisEventId: text("facts_hris_event_id").notNull(),
+    status: agentRunStatusEnum("status").notNull(),
+    /** Claims of this logical run (first run, retries after transient failure or crash). */
+    attempts: integer("attempts").notNull().default(1),
+    /** Model calls in the last claim, including transient retries. */
+    modelCalls: integer("model_calls"),
+    ownerToken: uuid("owner_token"),
+    ownerId: text("owner_id"),
+    ownerExpiresAt: timestamp("owner_expires_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    latencyMs: integer("latency_ms"),
+    recommendationCount: integer("recommendation_count"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** Sanitized: category, message and optional ids only; never keys, headers or job text. */
+    errorCategory: text("error_category"),
+    errorMessage: text("error_message"),
+    errorRetryable: boolean("error_retryable"),
+    errorDetail: jsonb("error_detail").$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [
+    index("agent_runs_workflow_id_idx").on(t.workflowId),
+    check("agent_runs_attempts_positive", sql`${t.attempts} >= 1`),
+    check(
+      "agent_runs_owner_all_or_nothing",
+      sql`(${t.ownerToken} IS NULL) = (${t.ownerId} IS NULL) AND (${t.ownerToken} IS NULL) = (${t.ownerExpiresAt} IS NULL)`,
+    ),
+    check(
+      "agent_runs_owner_iff_running",
+      sql`(${t.status} = 'RUNNING') = (${t.ownerToken} IS NOT NULL)`,
+    ),
+    check(
+      "agent_runs_succeeded_complete",
+      sql`${t.status} <> 'SUCCEEDED' OR (${t.completedAt} IS NOT NULL AND ${t.recommendationCount} IS NOT NULL AND ${t.errorCategory} IS NULL)`,
+    ),
+    check(
+      "agent_runs_failed_has_error",
+      sql`${t.status} <> 'FAILED' OR (${t.completedAt} IS NOT NULL AND ${t.errorCategory} IS NOT NULL AND ${t.errorRetryable} IS NOT NULL)`,
+    ),
+    check(
+      "agent_runs_department_code_valid",
+      sql`${t.departmentCode} IN ${inList(DEPARTMENT_CODES)}`,
+    ),
+    check(
+      "agent_runs_role_family_code_valid",
+      sql`${t.roleFamilyCode} IN ${inList(ROLE_FAMILY_CODES)}`,
+    ),
+    check(
+      "agent_runs_employment_type_valid",
+      sql`${t.employmentType} IN ${inList(EMPLOYMENT_TYPE_CODES)}`,
+    ),
+  ],
+);
+
+/** Validated recommendations of a SUCCEEDED run, exactly as the agent produced them. */
+export const agentRecommendations = pgTable(
+  "agent_recommendations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentRunId: uuid("agent_run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "restrict" }),
+    /** A resource of the run's catalog version (validated before insert). */
+    resourceId: text("resource_id").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    reason: text("reason").notNull(),
+    confidence: doublePrecision("confidence").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("agent_recommendations_run_resource_idx").on(t.agentRunId, t.resourceId),
+    check(
+      "agent_recommendations_confidence_range",
+      sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`,
+    ),
+  ],
+);
+
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
+export type AgentRun = typeof agentRuns.$inferSelect;
+export type AgentRecommendation = typeof agentRecommendations.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type OutboxEventAttempt = typeof outboxEventAttempts.$inferSelect;
 export type ExternalOperation = typeof externalOperations.$inferSelect;

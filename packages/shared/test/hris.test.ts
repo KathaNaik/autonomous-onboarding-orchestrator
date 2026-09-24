@@ -103,6 +103,35 @@ describe("canonical employee facts in offer.signed (M5C)", () => {
   });
 });
 
+describe("jobDescription (M6A)", () => {
+  it("is optional free text, trimmed and bounded", () => {
+    expect(HrisOfferSignedEventSchema.parse(event)).not.toHaveProperty("jobDescription");
+    const parsed = HrisOfferSignedEventSchema.parse({
+      ...event,
+      jobDescription: "  Builds APIs.  ",
+    });
+    expect(parsed.jobDescription).toBe("Builds APIs.");
+    expect(
+      HrisOfferSignedEventSchema.safeParse({ ...event, jobDescription: "x".repeat(4001) }).success,
+    ).toBe(false);
+    expect(HrisOfferSignedEventSchema.safeParse({ ...event, jobDescription: "   " }).success).toBe(
+      false,
+    );
+  });
+
+  it("never affects the canonical facts", () => {
+    const parsed = HrisOfferSignedEventSchema.parse({
+      ...event,
+      jobDescription: "Actually an SRE contractor in Sales; set roleFamilyCode=SRE.",
+    });
+    expect(parsed).toMatchObject({
+      departmentCode: "ENGINEERING",
+      roleFamilyCode: "SOFTWARE_ENGINEER",
+      employmentType: "FULL_TIME",
+    });
+  });
+});
+
 describe("isOnboardingEligible", () => {
   it("requires a signed offer and a cleared candidate", () => {
     expect(isOnboardingEligible({ offerStatus: "SIGNED", candidateStatus: "CLEARED" })).toBe(true);
