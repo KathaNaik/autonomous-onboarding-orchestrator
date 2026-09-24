@@ -9,7 +9,7 @@ import {
   type OnboardingWorkflow,
   type Transaction,
 } from "@aoo/db";
-import type { WorkflowState } from "@aoo/shared";
+import type { EmployeeFacts, WorkflowState } from "@aoo/shared";
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 
 export interface EmployeeFields {
@@ -17,19 +17,30 @@ export interface EmployeeFields {
   email: string;
   firstName: string;
   lastName: string;
+  /** Canonical HRIS facts and the event that carried them. Omitted: existing facts are kept. */
+  facts?: EmployeeFacts & { hrisEventId: string };
 }
 
 /** Inserts or refreshes the employee. Also row-locks it until the transaction ends. */
 export async function upsertEmployee(tx: Transaction, fields: EmployeeFields): Promise<Employee> {
+  const { facts, ...identity } = fields;
+  // Stored exactly as HRIS sent them: no mapping or inference.
+  const factColumns = facts && {
+    departmentCode: facts.departmentCode,
+    roleFamilyCode: facts.roleFamilyCode,
+    employmentType: facts.employmentType,
+    factsHrisEventId: facts.hrisEventId,
+  };
   const [employee] = await tx
     .insert(employees)
-    .values(fields)
+    .values({ ...identity, ...factColumns })
     .onConflictDoUpdate({
       target: employees.hrisEmployeeId,
       set: {
-        email: fields.email,
-        firstName: fields.firstName,
-        lastName: fields.lastName,
+        email: identity.email,
+        firstName: identity.firstName,
+        lastName: identity.lastName,
+        ...factColumns,
         updatedAt: sql`now()`,
       },
     })

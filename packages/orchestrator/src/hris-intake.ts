@@ -79,6 +79,12 @@ export function createHrisIntakeService(db: Database): HrisIntakeService {
         const employee = await upsertEmployee(tx, {
           hrisEmployeeId: event.employeeId,
           ...event.employee,
+          facts: {
+            departmentCode: event.departmentCode,
+            roleFamilyCode: event.roleFamilyCode,
+            employmentType: event.employmentType,
+            hrisEventId: event.eventId,
+          },
         });
 
         const [active] = await tx

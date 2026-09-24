@@ -14,7 +14,7 @@ const decide = (resourceId: string, who: Partial<PolicySubject> = {}) =>
 
 const summary = (d: PolicyDecision) => [d.resourceId, d.decision, d.matchedRuleId, d.reasonCode];
 
-describe("released policy 1.0.0 (synthetic demo data)", () => {
+describe("current released policy (1.1.0, synthetic demo data)", () => {
   it("allows the engineering baseline with the exact rule and reason", () => {
     const d = decide("github-org-membership");
     expect(d).toEqual({
@@ -73,6 +73,29 @@ describe("released policy 1.0.0 (synthetic demo data)", () => {
       "DENY",
       "builtin.disabled-resource",
       "RESOURCE_DISABLED",
+    ]);
+  });
+
+  it("gives SREs (canonical code SRE) engineering team access", () => {
+    expect(summary(decide("github-team-backend", { roleFamily: "SRE" }))).toEqual([
+      "github-team-backend",
+      "ALLOW",
+      "engineering-source-teams",
+      "ENGINEERING_TEAM_ACCESS",
+    ]);
+  });
+
+  it("fails closed for employment types the policy doesn't declare", () => {
+    const d = decide("github-org-membership", { employmentType: "INTERN" });
+    expect(summary(d)).toEqual([
+      "github-org-membership",
+      "DENY",
+      "builtin.unknown-subject-attribute",
+      "UNKNOWN_SUBJECT_ATTRIBUTE",
+    ]);
+    expect(policy.snapshot().subjectAttributes.employmentTypes).toEqual([
+      "CONTRACTOR",
+      "FULL_TIME",
     ]);
   });
 
@@ -215,7 +238,7 @@ describe("requests", () => {
 describe("snapshot", () => {
   it("exposes frozen metadata for the version", () => {
     const snapshot = policy.snapshot();
-    expect(snapshot.policyVersion).toBe("1.0.0");
+    expect(snapshot.policyVersion).toBe("1.1.0");
     expect(snapshot.policyHash).toBe(policy.policyHash);
     expect(snapshot.catalog).toEqual(catalogRef);
     expect(snapshot.ruleCount).toBe(9);

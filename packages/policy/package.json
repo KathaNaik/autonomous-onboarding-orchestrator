@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@aoo/catalog": "workspace:*",
+    "@aoo/shared": "workspace:*",
     "zod": "^4.6.5"
   }
 }

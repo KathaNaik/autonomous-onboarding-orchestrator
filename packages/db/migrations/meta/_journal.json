@@ -50,6 +50,13 @@
       "when": 1790241681069,
       "tag": "0006_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790276469123,
+      "tag": "0007_employee_canonical_facts",
+      "breakpoints": true
     }
   ]
 }

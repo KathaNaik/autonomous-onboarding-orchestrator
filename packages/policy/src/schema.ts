@@ -6,6 +6,7 @@ import {
   CatalogVersionSchema,
   ResourceIdSchema,
 } from "@aoo/catalog";
+import { EMPLOYMENT_TYPE_CODES } from "@aoo/shared";
 import { z } from "zod";
 
 export const POLICY_DECISIONS = ["ALLOW", "DENY", "REQUIRES_APPROVAL"] as const;
@@ -18,7 +19,12 @@ export const DECISION_PRECEDENCE: readonly PolicyDecisionValue[] = Object.freeze
   "ALLOW",
 ]);
 
-export const EMPLOYMENT_TYPES = ["FULL_TIME", "CONTRACTOR", "INTERN"] as const;
+/**
+ * Employment types a released policy may name: the canonical HRIS values plus INTERN, which only
+ * the historical policy 1.0.0 references (kept so it stays loadable for replay). The current
+ * policy may only name canonical values (checked by loadPolicyRegistry).
+ */
+export const EMPLOYMENT_TYPES = [...EMPLOYMENT_TYPE_CODES, "INTERN"] as const;
 export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 
 /** Upper-snake codes: departments, role families and reason codes. */
@@ -96,6 +102,12 @@ export const PolicyDocumentSchema = z.strictObject({
   subjectAttributes: z.strictObject({
     departments: values(code),
     roleFamilies: values(code),
+    /**
+     * Declared employment types (since policy 1.1.0). When present, subjects with any other type
+     * are denied as unknown and rules may only name these. Absent (policy 1.0.0): every value of
+     * EMPLOYMENT_TYPES is accepted, as that version was released.
+     */
+    employmentTypes: values(z.enum(EMPLOYMENT_TYPES)).optional(),
   }),
   rules: z.array(PolicyRuleSchema).min(1).max(200),
 });

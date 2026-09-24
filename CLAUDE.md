@@ -6,20 +6,21 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                                                                                          | Status                                                                                                               |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                                         | Complete (accepted)                                                                                                  |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                                            | Complete (awaiting acceptance)                                                                                       |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                                            | Complete (awaiting acceptance)                                                                                       |
-| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING)                 | Verified (ready for acceptance)                                                                                      |
-| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
-| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
-| M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
-| M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                    | Complete (accepted)                                                                                                  |
-| M5B       | Versioned deterministic access policy engine (`@aoo/policy`): immutable, hash-pinned policy releases bound to a catalog release, per-resource ALLOW / DENY / REQUIRES_APPROVAL, replay         | Complete (accepted)                                                                                                  |
-| M5C+      | Not yet defined; the user defines each when starting it                                                                                                                                        | Not started                                                                                                          |
+| Milestone | Scope                                                                                                                                                                                              | Status                                                                                                               |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                                             | Complete (accepted)                                                                                                  |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                                                | Complete (awaiting acceptance)                                                                                       |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                                                | Complete (awaiting acceptance)                                                                                       |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING)                     | Verified (ready for acceptance)                                                                                      |
+| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                                   | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
+| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                           | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
+| M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING     | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
+| M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                        | Complete (accepted)                                                                                                  |
+| M5B       | Versioned deterministic access policy engine (`@aoo/policy`): immutable, hash-pinned policy releases bound to a catalog release, per-resource ALLOW / DENY / REQUIRES_APPROVAL, replay             | Complete (accepted)                                                                                                  |
+| M5C       | Canonical employee facts: HRIS `departmentCode` / `roleFamilyCode` / `employmentType`, validated at ingestion, persisted on `employees` (migration `0007`), policy-subject adapter, policy `1.1.0` | Verified (ready for acceptance)                                                                                      |
+| M5D+      | Not yet defined; the user defines each when starting it                                                                                                                                            | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. **Nothing provisions access yet. No agents, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. M5C adds canonical employee facts from HRIS (see **Canonical employee facts**). **Nothing provisions access yet. No agents, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -67,6 +68,8 @@ These decisions are fixed. Changing any of them needs an explicit decision from 
   - `0002_hris_receipts_and_outbox`: M3A. Adds `hris_event_receipts` and `outbox_events` and changes no existing table.
   - `0003_audit_occurred_at_clock_timestamp`: M3A. `audit_events.occurred_at` now defaults to `clock_timestamp()` instead of `now()`. `now()` is the transaction _start_ time, which misordered audit events written by concurrent transactions that commit in a different order than they began.
   - `0004_outbox_worker_leases_and_attempts`: M3B. Adds to `outbox_events`: `status`, `cycle_attempts`, lease columns, `dead_lettered_at`, `redrive_count`, integrity CHECKs, and a claimable index that replaces `outbox_events_unpublished_idx`. Also adds the `outbox_event_attempts` table and `audit_events.idempotency_key` (unique where not null). Additive; existing rows remain valid.
+  - `0005_external_operations` (M4B) and `0006_approvals` (M4C).
+  - `0007_employee_canonical_facts`: M5C. Adds nullable `department_code`, `role_family_code`, `employment_type` and `facts_hris_event_id` to `employees`, with CHECKs: all four set or all four NULL, and each code in its canonical list. Additive; existing rows keep NULL facts (see **Canonical employee facts**).
 
 ### Events
 
@@ -136,7 +139,7 @@ The transition table is `WORKFLOW_TRANSITIONS` in `packages/orchestrator/src/sta
 
 | Table                   | Purpose                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `employees`             | Hires, unique by `hris_employee_id`.                                                                                                                                                                                                                                                                               |
+| `employees`             | Hires, unique by `hris_employee_id`. Since M5C also the canonical facts (`department_code`, `role_family_code`, `employment_type`) and the HRIS event that set them.                                                                                                                                               |
 | `onboarding_workflows`  | One row per onboarding: `state`, `version` (concurrency token), `failure_reason`, `completed_at`. Foreign key to `employees`.                                                                                                                                                                                      |
 | `workflow_steps`        | Units of work: `step_key`, nullable `subject_key`, `status` (`RUNNING` / `SUCCEEDED` / `FAILED`), `attempt`, `error` and timing fields. Foreign key to `onboarding_workflows`.                                                                                                                                     |
 | `audit_events`          | Append-only history: actor, from/to state, resulting `workflow_version`, `correlation_id` and `payload` (jsonb). Foreign key to `onboarding_workflows` (nullable, for future non-workflow events).                                                                                                                 |
@@ -160,7 +163,7 @@ Every table has a UUID primary key and `timestamptz` timestamps. All foreign key
 
 - Header `X-HRIS-Signature: sha256=<hex>`: HMAC-SHA256 of the **exact raw request body**, keyed with `HRIS_WEBHOOK_SECRET`. The protocol lives in `@aoo/webhooks` (`signHrisPayload`, `verifyHrisSignature`, using a constant-time compare).
 - `Content-Type: application/json`. The body is capped at `HRIS_WEBHOOK_BODY_LIMIT_BYTES` (default 64 KiB).
-- Body: `HrisOfferSignedEventSchema` (`@aoo/shared`). Fields: `eventId`, `eventType: "offer.signed"`, `occurredAt` (ISO 8601), `employeeId`, `employee { firstName, lastName, email }`, `role`, `department`, `managerId`, `offerStatus` (`SIGNED|PENDING|DECLINED|RESCINDED`) and `candidateStatus` (`CLEARED|PENDING|NOT_CLEARED`). Unknown fields are stripped.
+- Body: `HrisOfferSignedEventSchema` (`@aoo/shared`). Fields: `eventId`, `eventType: "offer.signed"`, `occurredAt` (ISO 8601), `employeeId`, `employee { firstName, lastName, email }`, `role`, `department`, `managerId`, `offerStatus` (`SIGNED|PENDING|DECLINED|RESCINDED`) and `candidateStatus` (`CLEARED|PENDING|NOT_CLEARED`). Since M5C it also requires the canonical `departmentCode`, `roleFamilyCode` and `employmentType` (see **Canonical employee facts**); unknown values or a disallowed combination give 400 `INVALID_PAYLOAD`. Unknown fields are stripped.
 
 **Processing order:** raw-body HMAC check → content type → JSON parse → Zod validation → eligibility → one database transaction → response. Nothing is persisted for a request rejected before the transaction.
 
@@ -198,10 +201,113 @@ pnpm hris:simulate --save evt.json               # send and save the event...
 pnpm hris:simulate --from-file evt.json --repeat 5   # ...then redeliver it 5x concurrently (duplicates)
 pnpm hris:simulate --candidate-status PENDING    # expect 422
 pnpm hris:simulate --bad-signature               # expect 401
+pnpm hris:simulate --profile contractor         # canonical facts: engineering | sre | engineering-manager | contractor | product | sales
+pnpm hris:simulate --profile engineering --employment-type CONTRACTOR   # explicit codes override the profile
 pnpm hris:simulate --help
 ```
 
 Each run generates fresh random fields. Reusing `--event-id` from an earlier run therefore sends different content and returns 409, by design. Use `--from-file` to resend an event exactly. The simulator exits non-zero if any delivery is not 202.
+
+### Canonical employee facts (in place since M5C)
+
+**Display text vs. authorization facts.** An HRIS `offer.signed` event carries two kinds of employee data:
+
+- **Display fields:** `role` and `department`, free text such as `"Backend Software Engineer"` or `"Engineering"`. They are kept verbatim in the receipt for people to read, and **nothing decides anything from them**.
+- **Canonical facts:** `departmentCode`, `roleFamilyCode` and `employmentType`. These are the **only** employee attributes authorization may depend on.
+
+Display text may differ cosmetically from the codes (`"SRE II (contract)"` with `SRE`). The codes are authoritative; they are never inferred from, reconciled with or checked against the display text.
+
+**HRIS is authoritative for canonical facts.**
+
+- They enter the system only through a signed, validated HRIS event. Nothing else writes them.
+- **The Role Access Agent may never generate, infer or modify policy facts.** It may read display text to recommend resources, but it receives facts, if at all, as read-only context. No LLM derives authorization facts, anywhere.
+
+**Canonical values** (`packages/shared/src/employee-facts.ts`, the single source):
+
+| Fact             | Values                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `departmentCode` | `ENGINEERING`, `PRODUCT`, `SALES`                                                         |
+| `roleFamilyCode` | `SOFTWARE_ENGINEER`, `SRE`, `ENGINEERING_MANAGER`, `PRODUCT_MANAGER`, `ACCOUNT_EXECUTIVE` |
+| `employmentType` | `FULL_TIME`, `CONTRACTOR`                                                                 |
+
+The HRIS schema, the database CHECKs (`@aoo/db`), the simulator and `@aoo/policy` all import these lists. They are never retyped.
+
+**Allowed combinations** (`ROLE_FAMILY_DEPARTMENTS`): each role family belongs to one department.
+
+- `SOFTWARE_ENGINEER`, `SRE` and `ENGINEERING_MANAGER` → `ENGINEERING`;
+- `PRODUCT_MANAGER` → `PRODUCT`;
+- `ACCOUNT_EXECUTIVE` → `SALES`.
+
+Any other pairing is rejected at ingestion.
+
+**Validation at ingestion** (`HrisOfferSignedEventSchema`): exact string match only, with no trimming, case folding, aliases or fuzzy matching.
+
+- Rejected: unknown or missing codes, lower-case or padded codes, retired spellings (`SITE_RELIABILITY_ENGINEER`, `INTERN`), display text in a code field, and disallowed combinations.
+- The response is 400 `INVALID_PAYLOAD`, and nothing is persisted.
+
+**Persistence** (migration `0007`):
+
+- `employees.department_code`, `role_family_code`, `employment_type` and `facts_hris_event_id` (the event that supplied them).
+- They are written by `upsertEmployee` **inside the existing intake transaction**, so they commit or roll back with the receipt, workflow and outbox rows.
+- Each accepted event for an employee, whether it creates a workflow or is linked to the active one, stores that event's facts: HRIS's latest accepted statement wins.
+- Duplicates return before the upsert and never touch the row.
+- Database CHECKs enforce all-or-none and valid codes.
+
+M3A behavior is unchanged: duplicate and concurrent-duplicate handling, event-id conflicts, active-workflow reuse, rehire and the single-transaction rollback. The receipt hash now covers the codes too.
+
+**Policy subject adapter:** `policySubjectFromEmployee(row)` in `@aoo/policy` (`src/subject.ts`). It is pure and structurally typed, so it has no `@aoo/db` dependency. It **renames** fields only:
+
+- `hrisEmployeeId` → `employeeId`;
+- `departmentCode` → `department`;
+- `roleFamilyCode` → `roleFamily`;
+- `employmentType` → `employmentType`.
+
+It re-validates the values against the canonical lists and combinations, and never maps, defaults or reinterprets them. Missing facts throw `INCOMPLETE_SUBJECT`; invalid values throw `INVALID_REQUEST`. M5C does not evaluate policy anywhere.
+
+**Policy alignment (policy `1.1.0`).** The released policy `1.0.0` used `SITE_RELIABILITY_ENGINEER` and referenced `INTERN`, which aren't canonical values, and released policies are immutable.
+
+- M5C released policy **`1.1.0`** (bound to catalog `1.0.0`). It has the same 9 rules, with `SITE_RELIABILITY_ENGINEER` → `SRE`, and `non-employee-production-deny` narrowed to `CONTRACTOR`. It also **declares** its employment types, `subjectAttributes.employmentTypes: [FULL_TIME, CONTRACTOR]`, so it denies any other type (such as `INTERN`) as `UNKNOWN_SUBJECT_ATTRIBUTE`. It is now current.
+- `1.0.0` stays loadable and replayable, which is why `@aoo/policy`'s `EMPLOYMENT_TYPES` is the canonical list plus the historical `INTERN`. The declared list is optional in the policy format: `1.0.0` has none, so it keeps its hash and accepts every `EMPLOYMENT_TYPES` value, as released.
+- `loadPolicyRegistry()` fails unless the **current** policy declares exactly the canonical departments, role families and employment types, and its rules name only canonical employment types. This keeps HRIS facts and policy vocabulary from drifting apart.
+
+**Legacy rows (created before M5C, or outside HRIS intake).**
+
+- Strategy: **nullable facts**. Migration `0007` adds NULL columns and derives nothing from existing data: there is no backfill and no inference from names, emails or receipt display text.
+- Such employees cannot produce a policy subject (`INCOMPLETE_SUBJECT`), so later policy evaluation must refuse them.
+- The next accepted HRIS event for that employee fills the facts.
+- A clone of the development database (36 pre-M5C employees) was migrated as a check: all 36 have NULL facts and the constraints hold. The development database itself was not modified.
+- Development-only consequence: the HRIS contract now requires the codes, so an old saved simulator file (`--from-file`) without them is rejected with 400. Generate a new event.
+
+**Simulator** (`apps/hris-simulator`):
+
+- Profiles (`HIRE_PROFILES`): `engineering`, `sre`, `engineering-manager`, `contractor`, `product` and `sales`. Each has display text that deliberately differs from its codes. The default is a random profile.
+- `--profile` picks one; `--department-code`, `--role-family` and `--employment-type` override it explicitly. Invalid codes or combinations are refused before sending.
+- `--save` / `--from-file` (`saveEvent` / `loadEvent`) keep the canonical values byte for byte.
+
+**Remaining limitations (M5C):**
+
+- A later HRIS event can change an employee's facts while their workflow is active. Future policy evaluation must record the subject it used, and decide whether a change re-triggers evaluation.
+- No out-of-order protection: the latest _accepted_ event wins, not the latest `occurredAt`, matching the existing name and email behavior.
+- The value lists are closed. Adding a department or role family needs a shared-contract change, a new migration (for the CHECK) and a new policy release.
+- **Development-only:** the HRIS contract now requires the codes, so older saved simulator files are rejected (see Legacy rows).
+
+#### M5C verification record
+
+Verified 2026-09-24. The user freed disk space and restarted Docker; `docker compose up --build` then completed all 117 build steps. The Compose output ended with `unexpected EOF` after startup; that was the attached log stream closing, not a service failure.
+
+- **Compose:** `api`, `web`, `worker` and `postgres` are healthy, and `migrate` exited 0.
+- **Migrations:** 8 are applied, through `0007_employee_canonical_facts`. The last applied timestamp matches the journal entry. The `0007` columns and all four CHECK constraints exist, as does the `0006` table `approvals`.
+- **Containerized checks** (signed events to the Compose API on `:4000`, read back from the Compose database):
+  - a valid `contractor` event returns 202, and `ENGINEERING` / `SOFTWARE_ENGINEER` / `CONTRACTOR` plus `facts_hris_event_id` are persisted;
+  - the persisted row converts exactly to the policy input;
+  - the container worker moved the new workflow to `ACCESS_PLANNING`;
+  - an invalid department code, role-family code, employment type and department/role combination each return 400 `INVALID_PAYLOAD`, with no receipt and no employee row;
+  - all 36 legacy pre-M5C employees have NULL facts, and each fails `policySubjectFromEmployee` with `INCOMPLETE_SUBJECT`.
+- **Policy:** the released versions are `1.0.0` and `1.1.0`.
+  - `1.0.0` loads with its pinned hash, and a `1.0.0` decision (`SITE_RELIABILITY_ENGINEER`/`INTERN` subject, `non-employee-production-deny`) replays with `matches = true`.
+  - `1.1.0` is current and bound to catalog `1.0.0`. Its departments and role families equal the canonical lists exactly, and its rules name only `CONTRACTOR`.
+  - **Post-acceptance change (before commit, approved by the user):** `1.1.0` had no _declared_ employment-type list, so it inherited the global list including `INTERN`. `subjectAttributes.employmentTypes: [FULL_TIME, CONTRACTOR]` was added. This changed `1.1.0`'s hash (it was never committed) to `sha256:3e9e7804…44cbf9e`, while `1.0.0` is unchanged. `check`, `test:integration` and `build` were re-run, with 382 unit tests. The Compose containers are unaffected: no app loads `@aoo/policy` at runtime.
+- **Test counts:** `pnpm check` 378 unit tests (31 new in M5C); `pnpm test:integration` 117 (13 new); `pnpm build` passes (11 packages).
 
 ### Outbox worker (in place since M3B)
 
@@ -592,11 +698,11 @@ There are no write methods.
 - `subject`:
   - `employeeId`: attribution only; no rule matches on it.
   - `department` and `roleFamily`: `UPPER_SNAKE_CASE` codes.
-  - `employmentType`: `FULL_TIME`, `CONTRACTOR` or `INTERN`.
+  - `employmentType`: `FULL_TIME` or `CONTRACTOR` (canonical), plus the historical `INTERN` that only policy `1.0.0` names.
 - `catalog`: the `CatalogReference` the requested ids come from.
 - `resourceId`: the requested resource.
 
-Free text, such as a job description or the agent's reasoning, is rejected (`INVALID_REQUEST`); the future agent may read free text to _recommend_, but authorization never sees it. The HRIS event carries free-text `role` and `department` and no employment type. Mapping them to these codes is deterministic orchestrator work for a later milestone. The mapping must not be an LLM call.
+Free text, such as a job description or the agent's reasoning, is rejected (`INVALID_REQUEST`); the future agent may read free text to _recommend_, but authorization never sees it. Since M5C, HRIS supplies these as canonical codes. `policySubjectFromEmployee` converts a persisted employee without any mapping (see **Canonical employee facts**).
 
 **Output** (`PolicyDecisionSchema`, deeply frozen):
 
@@ -627,14 +733,14 @@ There's no timestamp. The engine is pure, and the orchestrator stamps the time w
 
 - Every present field must match (AND), and within a field any listed value matches (OR). An absent field matches anything, and `environments` never matches a resource whose environment is null.
 - Lists are non-empty and have no repeats. Enum values come from the catalog and policy enums.
-- Departments and role families must be declared in the policy's closed `subjectAttributes` vocabulary.
+- Departments and role families must be declared in the policy's closed `subjectAttributes` vocabulary. Employment types must be too when the policy declares `subjectAttributes.employmentTypes` (optional; `1.1.0` declares it, `1.0.0` doesn't).
 
 **Evaluation order and precedence (exact semantics):**
 
 1. Request validation: malformed input → `INVALID_REQUEST`; wrong catalog → `CATALOG_MISMATCH` (both throw).
 2. Resource not in the catalog → `DENY`, `builtin.unknown-resource`, `UNKNOWN_RESOURCE`.
 3. Resource disabled → `DENY`, `builtin.disabled-resource`, `RESOURCE_DISABLED`.
-4. Department or role family not in the policy vocabulary → `DENY`, `builtin.unknown-subject-attribute`, `UNKNOWN_SUBJECT_ATTRIBUTE`.
+4. Department, role family or (when declared) employment type not in the policy vocabulary → `DENY`, `builtin.unknown-subject-attribute`, `UNKNOWN_SUBJECT_ATTRIBUTE`.
 5. Policy rules, by effect: **explicit `DENY` > explicit `REQUIRES_APPROVAL` > explicit `ALLOW`**. The highest-precedence effect with a matching rule wins.
 6. No rule matched → **default `DENY`**, `builtin.default-deny`, `NO_MATCHING_ALLOW_RULE`.
 
@@ -680,6 +786,8 @@ No HTTP endpoint: the orchestrator uses the library directly, and nothing outsid
 
 **Reason codes and audit.** `matchedRuleId` and `reasonCode` are stable. Rule ids are unique within a version, and reason codes are policy data, so a new policy version may add codes but must not change what an existing code means. Built-in codes are `UNKNOWN_RESOURCE`, `RESOURCE_DISABLED`, `UNKNOWN_SUBJECT_ATTRIBUTE` and `NO_MATCHING_ALLOW_RULE`. Together with the policy and catalog version and hash, the recorded decision is fully explainable and replayable.
 
+**Released policies:** `1.0.0` (M5B) and `1.1.0` (M5C, **current**). `1.1.0` is identical to the table below except that role family `SITE_RELIABILITY_ENGINEER` is `SRE`, and `non-employee-production-deny` names only `CONTRACTOR`, and it declares employment types `FULL_TIME`, `CONTRACTOR` (`sha256:3e9e7804…44cbf9e`).
+
 **Released policy `1.0.0`** (synthetic demo data, not enterprise truth; `sha256:b6b9aac1…d83650f4`; bound to catalog `1.0.0`; vocabulary: departments `ENGINEERING`, `PRODUCT`, `SALES`; role families `SOFTWARE_ENGINEER`, `SITE_RELIABILITY_ENGINEER`, `ENGINEERING_MANAGER`, `PRODUCT_MANAGER`, `ACCOUNT_EXECUTIVE`). 9 rules:
 
 | Rule                            | Decision          | Reason code                             | When                                                                                            |
@@ -705,7 +813,7 @@ Examples:
 
 **Remaining limitations (M5B):**
 
-- Nothing calls the engine yet. Recording decisions, the HRIS-to-facts mapping, ServiceNow ticket creation for `REQUIRES_APPROVAL` and the rejection semantics are later milestones.
+- Nothing calls the engine yet. Recording decisions, ServiceNow ticket creation for `REQUIRES_APPROVAL` and the rejection semantics are later milestones.
 - Decisions aren't persisted; the durable decision/audit table comes with the orchestration milestone.
 - No time-based or quantity conditions, and no per-employee exceptions: only the listed fact fields.
 - The same-effect non-overlap rule is strict, so policy authors must split overlapping rules.
@@ -892,7 +1000,7 @@ packages/
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
   servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
   catalog/       @aoo/catalog       Versioned resource catalog (M5A): src/versions/*.json releases, validation, ResourceCatalog + CatalogRegistry
-  policy/        @aoo/policy        Pure access policy engine (M5B): src/releases/*.json policy releases, PolicyEngine + PolicyRegistry
+  policy/        @aoo/policy        Pure access policy engine (M5B): src/releases/*.json policy releases, PolicyEngine + PolicyRegistry, policySubjectFromEmployee (M5C)
 ```
 
 Location decisions made in M2: the database schema, client and migrations live in `@aoo/db`. The orchestrator lives in `@aoo/orchestrator`, which depends on `@aoo/db` and `@aoo/shared`.
@@ -942,6 +1050,12 @@ Location decisions made in M5B:
 - Policy schemas live in `@aoo/policy` for the same reason as the catalog's.
 - There's no HTTP endpoint: the orchestrator will call the library.
 
+Location decisions made in M5C:
+
+- The canonical fact values and `EmployeeFactsSchema` live in `@aoo/shared` (`src/employee-facts.ts`). It's the smallest shared contract layer: zod-only, importable by the HRIS schema, `@aoo/db`, the simulator and `@aoo/policy` without any of them depending on HRIS or webhook code.
+- Fact columns are on `employees` (`@aoo/db`, migration `0007`), written only by `@aoo/orchestrator`.
+- The subject adapter is in `@aoo/policy` (`src/subject.ts`), structurally typed, with no `@aoo/db` dependency.
+
 Not yet created: company onboarding rules, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
@@ -959,7 +1073,7 @@ Not yet created: company onboarding rules, the agents and the adapters. **Packag
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
 - `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` invokes adapters, through `ExternalOperationService` and a narrow gateway interface (`ServiceNowAccessRequestGateway`). The worker wires in the real client; tests wire in fakes.
 - `@aoo/catalog` has no workspace dependencies. It never calls providers, never writes the database and makes no policy decisions. It must not be imported by `@aoo/shared` or the web app. Agents get catalog data only as a `CatalogSnapshot` and may only reference resources from it.
-- `@aoo/policy` depends only on `@aoo/catalog` and `zod`. It is pure: no I/O, no database, no adapters, no LLM, no workflow writes. It must not be imported by `@aoo/shared`, the web app or agent code. Agents never see or call the policy engine; the orchestrator evaluates agent recommendations with it.
+- `@aoo/policy` depends only on `@aoo/catalog`, `@aoo/shared` (canonical fact values) and `zod`. It is pure: no I/O, no database, no adapters, no LLM, no workflow writes. It must not be imported by `@aoo/shared`, the web app or agent code. Agents never see or call the policy engine; the orchestrator evaluates agent recommendations with it.
 - Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
 ### Service endpoints

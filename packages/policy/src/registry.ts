@@ -31,6 +31,58 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** The canonical employee-fact values (from `@aoo/shared`) new decisions are made for. */
+export interface CanonicalFactValues {
+  readonly departments: readonly string[];
+  readonly roleFamilies: readonly string[];
+  readonly employmentTypes: readonly string[];
+}
+
+/**
+ * The current policy must declare exactly the canonical departments, role families and employment
+ * types (so every valid employee is evaluated by rules, not denied as unknown, and nothing else
+ * is accepted), and its rules may name no other employment type.
+ */
+function checkCanonicalVocabulary(policy: PolicyEngine, canonical: CanonicalFactValues): void {
+  const issues: string[] = [];
+  const { subjectAttributes, rules } = policy.snapshot();
+  const same = (a: readonly string[], b: readonly string[]) =>
+    [...a].sort().join(",") === [...b].sort().join(",");
+  if (!same(subjectAttributes.departments, canonical.departments)) {
+    issues.push(
+      `departments [${subjectAttributes.departments.join(", ")}] differ from the canonical [${canonical.departments.join(", ")}]`,
+    );
+  }
+  if (!same(subjectAttributes.roleFamilies, canonical.roleFamilies)) {
+    issues.push(
+      `role families [${subjectAttributes.roleFamilies.join(", ")}] differ from the canonical [${canonical.roleFamilies.join(", ")}]`,
+    );
+  }
+  if (!subjectAttributes.employmentTypes) {
+    issues.push(
+      `employment types are not declared (canonical [${canonical.employmentTypes.join(", ")}])`,
+    );
+  } else if (!same(subjectAttributes.employmentTypes, canonical.employmentTypes)) {
+    issues.push(
+      `employment types [${subjectAttributes.employmentTypes.join(", ")}] differ from the canonical [${canonical.employmentTypes.join(", ")}]`,
+    );
+  }
+  for (const rule of rules) {
+    for (const type of rule.when.employmentTypes ?? []) {
+      if (!canonical.employmentTypes.includes(type)) {
+        issues.push(`rule "${rule.ruleId}" names non-canonical employment type ${type}`);
+      }
+    }
+  }
+  if (issues.length > 0) {
+    throw new PolicyError(
+      "INVALID_POLICY",
+      `current policy ${policy.policyVersion} doesn't match the canonical employee facts: ${issues.join("; ")}`,
+      { issues },
+    );
+  }
+}
+
 /** Every released policy version, loaded and verified at once against the catalog releases. */
 export class PolicyRegistry {
   /** The version new decisions use. */
@@ -47,6 +99,8 @@ export class PolicyRegistry {
     releases: readonly PolicyRelease[];
     currentVersion: string;
     catalogs: CatalogRegistry;
+    /** When set, the current policy must use exactly these canonical employee-fact values. */
+    canonicalFacts?: CanonicalFactValues;
   }) {
     const engines = new Map<string, PolicyEngine>();
     for (const release of options.releases) {
@@ -81,6 +135,7 @@ export class PolicyRegistry {
           `${currentCatalog.catalogVersion}: release a policy for the current catalog`,
       );
     }
+    if (options.canonicalFacts) checkCanonicalVocabulary(current, options.canonicalFacts);
     this.current = current;
     this.versions = Object.freeze([...engines.keys()].sort(compareVersions));
     this.byVersion = engines;

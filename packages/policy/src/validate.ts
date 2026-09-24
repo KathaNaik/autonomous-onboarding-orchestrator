@@ -76,6 +76,10 @@ export function parsePolicyDocument(input: unknown): PolicyDocument {
     subjectAttributes: {
       departments: sortList(doc.subjectAttributes.departments)!,
       roleFamilies: sortList(doc.subjectAttributes.roleFamilies)!,
+      // Only present when declared, so policies without it (1.0.0) keep their hash.
+      ...(doc.subjectAttributes.employmentTypes && {
+        employmentTypes: sortList(doc.subjectAttributes.employmentTypes)!,
+      }),
     },
     rules: doc.rules
       .map((rule) => ({
@@ -95,6 +99,7 @@ export function parsePolicyDocument(input: unknown): PolicyDocument {
 export function validatePolicyAgainstCatalog(doc: PolicyDocument, catalog: ResourceCatalog): void {
   const issues: string[] = [];
   const { departments, roleFamilies } = doc.subjectAttributes;
+  const employmentTypes = doc.subjectAttributes.employmentTypes ?? EMPLOYMENT_TYPES;
   const seen = new Set<string>();
 
   for (const rule of doc.rules) {
@@ -114,6 +119,13 @@ export function validatePolicyAgainstCatalog(doc: PolicyDocument, catalog: Resou
     for (const department of w.departments ?? []) {
       if (!departments.includes(department)) {
         issues.push(`${at} names department ${department}, which is not in subjectAttributes`);
+      }
+    }
+    for (const employmentType of w.employmentTypes ?? []) {
+      if (!employmentTypes.includes(employmentType)) {
+        issues.push(
+          `${at} names employment type ${employmentType}, which is not in subjectAttributes`,
+        );
       }
     }
     for (const roleFamily of w.roleFamilies ?? []) {
@@ -144,7 +156,7 @@ export function validatePolicyAgainstCatalog(doc: PolicyDocument, catalog: Resou
   const ambiguous = new Map<string, string>();
   for (const department of representatives(departments, "departments")) {
     for (const roleFamily of representatives(roleFamilies, "roleFamilies")) {
-      for (const employmentType of EMPLOYMENT_TYPES) {
+      for (const employmentType of employmentTypes) {
         for (const resource of catalog.listEnabledResources()) {
           const winners = decidingRules(doc.rules, {
             department,

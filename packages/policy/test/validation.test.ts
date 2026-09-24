@@ -78,6 +78,18 @@ describe("policy load validation", () => {
     has(loadIssues(wrongHash), "does not match catalog");
   });
 
+  it("rejects rules naming an employment type the policy doesn't declare", () => {
+    const doc = policyDocument([
+      rule("baseline"),
+      rule("interns", {
+        decision: "DENY",
+        when: { employmentTypes: ["INTERN"], resourceIds: ["aws-dev"] },
+      }),
+    ]);
+    doc.subjectAttributes.employmentTypes = ["FULL_TIME", "CONTRACTOR"];
+    has(loadIssues(doc), "names employment type INTERN, which is not in subjectAttributes");
+  });
+
   it("rejects vocabulary violations, reserved reason codes and unscoped rules", () => {
     has(
       loadIssues(

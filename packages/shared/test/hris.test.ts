@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { HrisOfferSignedEventSchema, isOnboardingEligible } from "../src/index.js";
+import {
+  DEPARTMENT_CODES,
+  EMPLOYMENT_TYPE_CODES,
+  EmployeeFactsSchema,
+  HrisOfferSignedEventSchema,
+  ROLE_FAMILY_CODES,
+  ROLE_FAMILY_DEPARTMENTS,
+  isOnboardingEligible,
+} from "../src/index.js";
 
 const event = {
   eventId: "evt-1",
@@ -9,6 +17,9 @@ const event = {
   employee: { firstName: "Ada", lastName: "Lovelace", email: "ada@example.com" },
   role: "Software Engineer",
   department: "Engineering",
+  departmentCode: "ENGINEERING",
+  roleFamilyCode: "SOFTWARE_ENGINEER",
+  employmentType: "FULL_TIME",
   managerId: "E-001",
   offerStatus: "SIGNED",
   candidateStatus: "CLEARED",
@@ -28,6 +39,67 @@ describe("HrisOfferSignedEventSchema", () => {
     ["blank role", { ...event, role: "  " }],
   ])("rejects %s", (_, input) => {
     expect(HrisOfferSignedEventSchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("canonical employee facts in offer.signed (M5C)", () => {
+  const issuePaths = (input: unknown) => {
+    const result = HrisOfferSignedEventSchema.safeParse(input);
+    return result.success ? [] : result.error.issues.map((i) => i.path.join("."));
+  };
+
+  it("accepts display text that differs cosmetically from the codes", () => {
+    const parsed = HrisOfferSignedEventSchema.parse({
+      ...event,
+      role: "Staff Backend Engineer II",
+      department: "R&D / Platform",
+    });
+    expect(parsed).toMatchObject({
+      departmentCode: "ENGINEERING",
+      roleFamilyCode: "SOFTWARE_ENGINEER",
+    });
+  });
+
+  it.each([
+    ["unknown department code", { departmentCode: "LEGAL" }, "departmentCode"],
+    ["unknown role family code", { roleFamilyCode: "DATA_SCIENTIST" }, "roleFamilyCode"],
+    [
+      "retired role family spelling",
+      { roleFamilyCode: "SITE_RELIABILITY_ENGINEER" },
+      "roleFamilyCode",
+    ],
+    ["unknown employment type", { employmentType: "INTERN" }, "employmentType"],
+    ["lower-case code (no normalization)", { departmentCode: "engineering" }, "departmentCode"],
+    ["padded code (no trimming)", { employmentType: " FULL_TIME" }, "employmentType"],
+    ["missing department code", { departmentCode: undefined }, "departmentCode"],
+    ["missing role family code", { roleFamilyCode: undefined }, "roleFamilyCode"],
+    ["missing employment type", { employmentType: undefined }, "employmentType"],
+  ])("rejects %s", (_, patch, path) => {
+    expect(issuePaths({ ...event, ...patch })).toContain(path);
+  });
+
+  it("rejects combinations the domain disallows", () => {
+    expect(issuePaths({ ...event, departmentCode: "SALES" })).toEqual(["roleFamilyCode"]);
+    expect(
+      issuePaths({ ...event, departmentCode: "PRODUCT", roleFamilyCode: "ACCOUNT_EXECUTIVE" }),
+    ).toEqual(["roleFamilyCode"]);
+  });
+
+  it("allows every role family in its own department", () => {
+    for (const [roleFamilyCode, departments] of Object.entries(ROLE_FAMILY_DEPARTMENTS)) {
+      for (const departmentCode of departments) {
+        for (const employmentType of EMPLOYMENT_TYPE_CODES) {
+          const facts = { departmentCode, roleFamilyCode, employmentType };
+          expect(EmployeeFactsSchema.parse(facts)).toEqual(facts);
+        }
+      }
+    }
+  });
+
+  it("covers every role family and department in the combination table", () => {
+    expect(Object.keys(ROLE_FAMILY_DEPARTMENTS).sort()).toEqual([...ROLE_FAMILY_CODES].sort());
+    const used = new Set(Object.values(ROLE_FAMILY_DEPARTMENTS).flat());
+    expect([...used].sort()).toEqual([...DEPARTMENT_CODES].sort());
   });
 });
 

@@ -1,5 +1,6 @@
 import { readdirSync } from "node:fs";
 import { CATALOG_RELEASES, CatalogRegistry, ResourceCatalog } from "@aoo/catalog";
+import { DEPARTMENT_CODES, EMPLOYMENT_TYPE_CODES, ROLE_FAMILY_CODES } from "@aoo/shared";
 import { describe, expect, it } from "vitest";
 import { POLICY_RELEASES, PolicyEngine, PolicyRegistry, loadPolicyRegistry } from "../src/index.js";
 import { catalogRef, catalogs, policyDocument, policyError, rule, subject } from "./helpers.js";
@@ -104,9 +105,89 @@ describe("PolicyRegistry", () => {
 });
 
 describe("released policies", () => {
+  it("keep 1.0.0 loadable and replayable after 1.1.0 re-keyed the role families", () => {
+    const registry = loadPolicyRegistry();
+    const sreRequest = {
+      subject: subject({ roleFamily: "SITE_RELIABILITY_ENGINEER" }),
+      catalog: catalogRef,
+      resourceId: "github-team-backend",
+    };
+    const recorded = registry.get("1.0.0").evaluate(sreRequest);
+    expect(recorded.matchedRuleId).toBe("engineering-source-teams");
+    expect(registry.replay(recorded, sreRequest).matches).toBe(true);
+    // The retired spelling is unknown to the current policy: it fails closed.
+    expect(registry.current.evaluate(sreRequest).reasonCode).toBe("UNKNOWN_SUBJECT_ATTRIBUTE");
+  });
+
+  it("require the current policy to use exactly the canonical fact values", () => {
+    const releases = POLICY_RELEASES.filter(
+      (r) => (r.document as { policyVersion: string }).policyVersion === "1.0.0",
+    );
+    const err = policyError(
+      () =>
+        new PolicyRegistry({
+          releases,
+          currentVersion: "1.0.0",
+          catalogs,
+          canonicalFacts: {
+            departments: DEPARTMENT_CODES,
+            roleFamilies: ROLE_FAMILY_CODES,
+            employmentTypes: EMPLOYMENT_TYPE_CODES,
+          },
+        }),
+    );
+    expect(err.code).toBe("INVALID_POLICY");
+    expect(err.issues.some((i) => i.startsWith("role families"))).toBe(true);
+    expect(err.issues).toContain(
+      'rule "non-employee-production-deny" names non-canonical employment type INTERN',
+    );
+    expect(err.issues.some((i) => i.startsWith("employment types are not declared"))).toBe(true);
+  });
+
+  it("keep 1.0.0 without a declared employment-type list, accepting INTERN as released", () => {
+    const registry = loadPolicyRegistry();
+    const v1 = registry.get("1.0.0");
+    expect(v1.snapshot().subjectAttributes.employmentTypes).toBeUndefined();
+    const internRequest = {
+      subject: subject({ employmentType: "INTERN", roleFamily: "SITE_RELIABILITY_ENGINEER" }),
+      catalog: catalogRef,
+      resourceId: "aws-prod",
+    };
+    const recorded = v1.evaluate(internRequest);
+    expect(recorded.matchedRuleId).toBe("non-employee-production-deny");
+    expect(registry.replay(recorded, internRequest).matches).toBe(true);
+  });
+
+  it("require a declared employment-type list that equals the canonical one", () => {
+    const current = POLICY_RELEASES.find(
+      (r) => (r.document as { policyVersion: string }).policyVersion === "1.1.0",
+    )!;
+    const doc = structuredClone(current.document) as {
+      subjectAttributes: { employmentTypes?: string[] };
+    };
+    doc.subjectAttributes.employmentTypes = ["FULL_TIME", "CONTRACTOR", "INTERN"];
+    const err = policyError(
+      () =>
+        new PolicyRegistry({
+          releases: [release(doc)],
+          currentVersion: "1.1.0",
+          catalogs,
+          canonicalFacts: {
+            departments: DEPARTMENT_CODES,
+            roleFamilies: ROLE_FAMILY_CODES,
+            employmentTypes: EMPLOYMENT_TYPE_CODES,
+          },
+        }),
+    );
+    expect(
+      err.issues.some((i) => i.startsWith("employment types [CONTRACTOR, FULL_TIME, INTERN]")),
+    ).toBe(true);
+  });
+
   it("load, match their pinned hashes and ship exactly the released files", () => {
     const registry = loadPolicyRegistry();
-    expect(registry.versions).toEqual(["1.0.0"]);
+    expect(registry.versions).toEqual(["1.0.0", "1.1.0"]);
+    expect(registry.current.policyVersion).toBe("1.1.0");
     expect(registry.current.catalog.reference).toEqual(catalogRef);
     const files = readdirSync(new URL("../src/releases/", import.meta.url)).sort();
     const released = POLICY_RELEASES.map(

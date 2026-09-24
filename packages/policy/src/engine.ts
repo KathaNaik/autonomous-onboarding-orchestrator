@@ -30,6 +30,8 @@ export interface PolicySnapshot {
   readonly subjectAttributes: {
     readonly departments: readonly string[];
     readonly roleFamilies: readonly string[];
+    /** Absent for policies released without a declared list (1.0.0). */
+    readonly employmentTypes?: readonly string[] | undefined;
   };
   readonly ruleCount: number;
   readonly rules: readonly PolicyRule[];
@@ -212,6 +214,17 @@ export class PolicyEngine {
         "UNKNOWN_SUBJECT_ATTRIBUTE",
         `Department ${subject.department} or role family ${subject.roleFamily} is not defined in ` +
           `policy ${this.policyVersion}; unknown attributes are denied.`,
+        resource.dependsOn,
+      );
+    }
+    const { employmentTypes } = this.snapshotData.subjectAttributes;
+    if (employmentTypes && !employmentTypes.includes(subject.employmentType)) {
+      return result(
+        "DENY",
+        BUILTIN_RULES.UNKNOWN_SUBJECT_ATTRIBUTE,
+        "UNKNOWN_SUBJECT_ATTRIBUTE",
+        `Employment type ${subject.employmentType} is not defined in policy ` +
+          `${this.policyVersion}; unknown attributes are denied.`,
         resource.dependsOn,
       );
     }

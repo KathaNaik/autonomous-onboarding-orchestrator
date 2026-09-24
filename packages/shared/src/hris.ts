@@ -1,27 +1,36 @@
 import { z } from "zod";
+import { checkFactCombination, employeeFactsShape } from "./employee-facts.js";
 
 export const HRIS_OFFER_STATUSES = ["SIGNED", "PENDING", "DECLINED", "RESCINDED"] as const;
 export const HRIS_CANDIDATE_STATUSES = ["CLEARED", "PENDING", "NOT_CLEARED"] as const;
 
 const Text = z.string().trim().min(1).max(200);
 
-/** Body of POST /webhooks/hris. Unknown fields are stripped. */
-export const HrisOfferSignedEventSchema = z.object({
-  eventId: Text,
-  eventType: z.literal("offer.signed"),
-  occurredAt: z.iso.datetime({ offset: true }),
-  employeeId: Text,
-  employee: z.object({
-    firstName: Text,
-    lastName: Text,
-    email: z.email(),
-  }),
-  role: Text,
-  department: Text,
-  managerId: Text,
-  offerStatus: z.enum(HRIS_OFFER_STATUSES),
-  candidateStatus: z.enum(HRIS_CANDIDATE_STATUSES),
-});
+/**
+ * Body of POST /webhooks/hris. Unknown fields are stripped.
+ *
+ * `role` and `department` are display text only. The canonical codes (M5C) are the authoritative
+ * facts for authorization; they are validated exactly and never derived from the display text.
+ */
+export const HrisOfferSignedEventSchema = z
+  .object({
+    eventId: Text,
+    eventType: z.literal("offer.signed"),
+    occurredAt: z.iso.datetime({ offset: true }),
+    employeeId: Text,
+    employee: z.object({
+      firstName: Text,
+      lastName: Text,
+      email: z.email(),
+    }),
+    role: Text,
+    department: Text,
+    managerId: Text,
+    offerStatus: z.enum(HRIS_OFFER_STATUSES),
+    candidateStatus: z.enum(HRIS_CANDIDATE_STATUSES),
+    ...employeeFactsShape,
+  })
+  .superRefine(checkFactCombination);
 export type HrisOfferSignedEvent = z.infer<typeof HrisOfferSignedEventSchema>;
 
 /** Only signed offers for cleared candidates may start onboarding. */

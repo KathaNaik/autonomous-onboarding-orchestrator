@@ -203,6 +203,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@aoo/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@aoo/servicenow':
         specifier: workspace:*
         version: link:../../packages/servicenow
@@ -337,6 +340,9 @@ importers:
       '@aoo/catalog':
         specifier: workspace:*
         version: link:../catalog
+      '@aoo/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.6.5
         version: 4.6.5

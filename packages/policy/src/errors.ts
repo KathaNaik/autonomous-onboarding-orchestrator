@@ -5,6 +5,8 @@ export type PolicyErrorCode =
   | "INVALID_REQUEST"
   /** The request's catalog reference isn't the catalog release this policy is bound to. */
   | "CATALOG_MISMATCH"
+  /** An employee record lacks canonical facts (e.g. a pre-M5C row). No subject is produced. */
+  | "INCOMPLETE_SUBJECT"
   | "DUPLICATE_RESOURCE"
   | "UNKNOWN_POLICY_VERSION"
   /** A recorded {policyVersion, policyHash} doesn't match the policy it is checked against. */

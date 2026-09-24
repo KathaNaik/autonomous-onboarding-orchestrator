@@ -1,4 +1,10 @@
-import { APPROVAL_STATUSES, WORKFLOW_STATES } from "@aoo/shared";
+import {
+  APPROVAL_STATUSES,
+  DEPARTMENT_CODES,
+  EMPLOYMENT_TYPE_CODES,
+  ROLE_FAMILY_CODES,
+  WORKFLOW_STATES,
+} from "@aoo/shared";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -24,14 +30,45 @@ const timestamps = {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 };
 
-export const employees = pgTable("employees", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  hrisEmployeeId: text("hris_employee_id").notNull().unique(),
-  email: text("email").notNull(),
-  firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
-  ...timestamps,
-});
+const inList = (values: readonly string[]) =>
+  sql.raw(`(${values.map((v) => `'${v.replaceAll("'", "''")}'`).join(", ")})`);
+
+export const employees = pgTable(
+  "employees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hrisEmployeeId: text("hris_employee_id").notNull().unique(),
+    email: text("email").notNull(),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    // Canonical facts (M5C), authoritative from HRIS. NULL only on rows created before M5C (or
+    // outside HRIS intake); such employees can't produce a policy subject.
+    departmentCode: text("department_code"),
+    roleFamilyCode: text("role_family_code"),
+    employmentType: text("employment_type"),
+    /** The HRIS event whose facts are stored (the latest accepted event for this employee). */
+    factsHrisEventId: text("facts_hris_event_id"),
+    ...timestamps,
+  },
+  (t) => [
+    check(
+      "employees_canonical_facts_all_or_none",
+      sql`(${t.departmentCode} IS NULL AND ${t.roleFamilyCode} IS NULL AND ${t.employmentType} IS NULL AND ${t.factsHrisEventId} IS NULL) OR (${t.departmentCode} IS NOT NULL AND ${t.roleFamilyCode} IS NOT NULL AND ${t.employmentType} IS NOT NULL AND ${t.factsHrisEventId} IS NOT NULL)`,
+    ),
+    check(
+      "employees_department_code_valid",
+      sql`${t.departmentCode} IN ${inList(DEPARTMENT_CODES)}`,
+    ),
+    check(
+      "employees_role_family_code_valid",
+      sql`${t.roleFamilyCode} IN ${inList(ROLE_FAMILY_CODES)}`,
+    ),
+    check(
+      "employees_employment_type_valid",
+      sql`${t.employmentType} IN ${inList(EMPLOYMENT_TYPE_CODES)}`,
+    ),
+  ],
+);
 
 export const onboardingWorkflows = pgTable(
   "onboarding_workflows",
