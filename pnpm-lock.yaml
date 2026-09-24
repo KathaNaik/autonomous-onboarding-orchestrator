@@ -332,6 +332,15 @@ importers:
         specifier: ^4.23.15
         version: 4.23.15
 
+  packages/policy:
+    dependencies:
+      '@aoo/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
   packages/servicenow:
     dependencies:
       zod:

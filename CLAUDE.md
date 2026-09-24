@@ -16,9 +16,10 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 | M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
 | M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
 | M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                    | Complete (accepted)                                                                                                  |
-| M5B+      | Not yet defined; the user defines each when starting it                                                                                                                                        | Not started                                                                                                          |
+| M5B       | Versioned deterministic access policy engine (`@aoo/policy`): immutable, hash-pinned policy releases bound to a catalog release, per-resource ALLOW / DENY / REQUIRES_APPROVAL, replay         | Complete (accepted)                                                                                                  |
+| M5C+      | Not yet defined; the user defines each when starting it                                                                                                                                        | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**); nothing uses it for decisions yet. **Nothing provisions access yet. No agents, policy engine, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. **Nothing provisions access yet. No agents, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -580,6 +581,136 @@ There are no write methods.
 - API response types are TypeScript interfaces in the route, not `@aoo/shared` schemas. Move them there when the web app first consumes them.
 - **Docker Compose verification waived for M5A.** `docker compose up --build` (part of the definition of done) was not run: the host had only about 5.7 GiB free, and an earlier image build filled the disk and made Docker's VM read-only. `pnpm check`, `pnpm test:integration` and `pnpm build` passed. The Dockerfile now copies `packages/catalog/package.json` for the install layer; run the Compose check once disk space allows.
 
+### Access policy engine (in place since M5B)
+
+`@aoo/policy` decides, for one requested catalog resource at a time, `ALLOW`, `DENY` or `REQUIRES_APPROVAL`. It is pure and deterministic: no LLM, no I/O, no database, no ServiceNow, Okta or GitHub calls, no tickets, no email, no workflow writes. **The Role Access Agent recommends; the policy engine authorizes.** An agent's recommendation is only a request for evaluation. Only a policy decision (plus a ServiceNow approval when the decision is `REQUIRES_APPROVAL`) authorizes anything.
+
+**Ownership.** Policies are released in code, through a reviewed change to `packages/policy/src/releases/` and `src/released.ts`, like the catalog. There is no admin API or UI. The package owns the policy format (Zod, `src/schema.ts`), load-time validation and analysis (`src/validate.ts`), the engine (`PolicyEngine`, `src/engine.ts`) and the release list (`PolicyRegistry`, `src/registry.ts` + `src/released.ts`).
+
+**Input: explicit facts only** (`PolicyRequestSchema`, strict objects):
+
+- `subject`:
+  - `employeeId`: attribution only; no rule matches on it.
+  - `department` and `roleFamily`: `UPPER_SNAKE_CASE` codes.
+  - `employmentType`: `FULL_TIME`, `CONTRACTOR` or `INTERN`.
+- `catalog`: the `CatalogReference` the requested ids come from.
+- `resourceId`: the requested resource.
+
+Free text, such as a job description or the agent's reasoning, is rejected (`INVALID_REQUEST`); the future agent may read free text to _recommend_, but authorization never sees it. The HRIS event carries free-text `role` and `department` and no employment type. Mapping them to these codes is deterministic orchestrator work for a later milestone. The mapping must not be an LLM call.
+
+**Output** (`PolicyDecisionSchema`, deeply frozen):
+
+- `resourceId` and `decision`.
+- `matchedRuleId` and `reasonCode`: the **durable audit fields**.
+- `explanation`: human-readable text, fixed per rule.
+- `policyVersion`, `policyHash`, `catalogVersion`, `catalogHash`: the exact inputs to replay.
+- `dependsOn`: the resource's direct catalog dependencies, for information.
+
+There's no timestamp. The engine is pure, and the orchestrator stamps the time when it records the decision.
+
+**Versioning and storage (same model as the catalog).**
+
+- One immutable file per release, `src/releases/<MAJOR.MINOR.PATCH>.json`, pinned in `POLICY_RELEASES` with `sha256:` over canonical JSON. Rules are sorted by id and every list is sorted, so order never changes the hash. `CURRENT_POLICY_VERSION` names the version new decisions use.
+- If a released file no longer matches its pin, loading fails ("Released policies are immutable: release a new version"). A unit test fails if `src/releases/` and `POLICY_RELEASES` disagree.
+- **Why repository data:** policy changes need review, history and exact replay, not runtime editing. Git gives reviewed history, and hash pinning makes every released version addressable, tamper-evident and loadable forever. There's no migration, sync job or admin surface. The API, worker and tests all load identical data. A database copy can be added later for SQL reporting, but the repository stays the source of truth.
+- **Replay:** `registry.resolve({ policyVersion, policyHash })` returns that exact version and accepts any record carrying those fields, such as a stored decision. It throws `UNKNOWN_POLICY_VERSION` or `POLICY_VERSION_MISMATCH`. `registry.replay(recordedDecision, request)` re-evaluates with the **recorded** policy and catalog versions, never the current ones, and reports `matches`. A new policy version never reinterprets an old decision.
+
+**Catalog coupling.**
+
+- Each policy declares the catalog release it's written for, `catalog: { catalogVersion, catalogHash }`. Loading resolves it through `CatalogRegistry.resolve`, so an unknown catalog version or a hash mismatch fails the load.
+- Rules reference resources only by id. **Catalog definitions are never copied into policy files.** Environment and provider come from the catalog at evaluation time.
+- Load fails for unknown resource ids and for rule references to **disabled** resources. M5B permits no exception, because disabled resources are denied before any rule is consulted.
+- A request must carry exactly the policy's catalog reference, or it fails with `CATALOG_MISMATCH` and no decision.
+- The **current policy must be bound to the current catalog** (checked at registry load). Releasing a new catalog therefore requires a new policy release re-bound to it, even if the rules are unchanged, so decisions never silently switch catalog meaning.
+
+**Rule model** (not a general policy language). A rule has `ruleId` (kebab-case), `decision`, `reasonCode` (`UPPER_SNAKE_CASE`), `explanation` and `when`. `when` may contain `departments`, `roleFamilies`, `employmentTypes`, `resourceIds`, `environments` and `providers`.
+
+- Every present field must match (AND), and within a field any listed value matches (OR). An absent field matches anything, and `environments` never matches a resource whose environment is null.
+- Lists are non-empty and have no repeats. Enum values come from the catalog and policy enums.
+- Departments and role families must be declared in the policy's closed `subjectAttributes` vocabulary.
+
+**Evaluation order and precedence (exact semantics):**
+
+1. Request validation: malformed input → `INVALID_REQUEST`; wrong catalog → `CATALOG_MISMATCH` (both throw).
+2. Resource not in the catalog → `DENY`, `builtin.unknown-resource`, `UNKNOWN_RESOURCE`.
+3. Resource disabled → `DENY`, `builtin.disabled-resource`, `RESOURCE_DISABLED`.
+4. Department or role family not in the policy vocabulary → `DENY`, `builtin.unknown-subject-attribute`, `UNKNOWN_SUBJECT_ATTRIBUTE`.
+5. Policy rules, by effect: **explicit `DENY` > explicit `REQUIRES_APPROVAL` > explicit `ALLOW`**. The highest-precedence effect with a matching rule wins.
+6. No rule matched → **default `DENY`**, `builtin.default-deny`, `NO_MATCHING_ALLOW_RULE`.
+
+**Ambiguity is rejected at load, never resolved arbitrarily.** Rules of different effects may overlap, and precedence resolves them. Rules of the **same** effect must not overlap, so every decision is attributable to exactly one rule.
+
+Load-time analysis enumerates every distinguishable fact combination: each mentioned department and role family plus one unmentioned representative, × every employment type, × every enabled resource. It rejects:
+
+- same-effect overlaps, as ambiguous;
+- **unreachable** rules, which never decide any request because they match no enabled resource or higher-precedence rules always win.
+
+Load also rejects:
+
+- duplicate rule ids;
+- invalid decisions;
+- malformed or unknown condition keys;
+- conditions that name undeclared departments or role families;
+- reason codes that collide with built-in ones;
+- rules with no conditions;
+- `ALLOW` rules without a resource condition (`resourceIds`, `environments` or `providers`), so no blanket allow is possible.
+
+All issues are reported together (`PolicyError` `INVALID_POLICY`, `issues`).
+
+**Service:**
+
+- `PolicyEngine` (one version):
+  - `policyVersion`, `policyHash`, `reference`, `catalog`.
+  - `evaluate(request)`.
+  - `evaluateAll({ subject, catalog, resourceIds })`: a convenience around independent evaluations. It returns one decision per resource, sorted by id, rejects duplicates (`DUPLICATE_RESOURCE`), and no decision influences another.
+  - `snapshot()`: frozen metadata `{ policyVersion, policyHash, catalog, subjectAttributes, ruleCount, rules }`.
+  - `assertReference(ref)`.
+- `PolicyRegistry`: `current`, `versions`, `get`, `resolve`, `replay`.
+- `loadPolicyRegistry(catalogs?)` loads the released data.
+
+No HTTP endpoint: the orchestrator uses the library directly, and nothing outside the backend needs policy data yet.
+
+**Dependencies: authorization ≠ execution order.** Each requested resource gets its own decision. A decision for `github-team-backend` says nothing about `github-org-membership`: `dependsOn` is informational, and `evaluateAll` decides only what was requested. Later orchestration combines them per resource:
+
+1. `catalog.resolveDependencyOrder(requested)` gives the full set, including dependencies that weren't requested, plus the order.
+2. Every resource in that set, dependencies included, gets its **own** policy decision.
+3. A resource may execute only when its own decision is `ALLOW` (or `REQUIRES_APPROVAL` with a verified ServiceNow approval) **and** every dependency has been provisioned.
+4. A dependency that is `DENY` blocks its dependents: they wait and are reported, never provisioned.
+5. A dependency awaiting approval delays only its own dependents. Unrelated allowed resources proceed.
+
+**Reason codes and audit.** `matchedRuleId` and `reasonCode` are stable. Rule ids are unique within a version, and reason codes are policy data, so a new policy version may add codes but must not change what an existing code means. Built-in codes are `UNKNOWN_RESOURCE`, `RESOURCE_DISABLED`, `UNKNOWN_SUBJECT_ATTRIBUTE` and `NO_MATCHING_ALLOW_RULE`. Together with the policy and catalog version and hash, the recorded decision is fully explainable and replayable.
+
+**Released policy `1.0.0`** (synthetic demo data, not enterprise truth; `sha256:b6b9aac1…d83650f4`; bound to catalog `1.0.0`; vocabulary: departments `ENGINEERING`, `PRODUCT`, `SALES`; role families `SOFTWARE_ENGINEER`, `SITE_RELIABILITY_ENGINEER`, `ENGINEERING_MANAGER`, `PRODUCT_MANAGER`, `ACCOUNT_EXECUTIVE`). 9 rules:
+
+| Rule                            | Decision          | Reason code                             | When                                                                                            |
+| ------------------------------- | ----------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `engineering-baseline`          | ALLOW             | `ENGINEERING_BASELINE`                  | ENGINEERING; okta-engineering-group, github-org-membership, slack-engineering, jira-engineering |
+| `engineering-source-teams`      | ALLOW             | `ENGINEERING_TEAM_ACCESS`               | ENGINEERING; SWE, SRE or EM; github-team-backend, github-team-frontend                          |
+| `engineering-development-cloud` | ALLOW             | `ENGINEERING_DEVELOPMENT_CLOUD`         | ENGINEERING; environment DEVELOPMENT                                                            |
+| `engineering-developer-tools`   | ALLOW             | `ENGINEERING_DEVELOPER_TOOLS`           | ENGINEERING; cursor-license                                                                     |
+| `product-collaboration`         | ALLOW             | `PRODUCT_COLLABORATION`                 | PRODUCT; slack-engineering, jira-engineering                                                    |
+| `production-access-approval`    | REQUIRES_APPROVAL | `PRODUCTION_ACCESS_REQUIRES_APPROVAL`   | ENGINEERING; environment PRODUCTION                                                             |
+| `contractor-license-approval`   | REQUIRES_APPROVAL | `CONTRACTOR_LICENSE_REQUIRES_APPROVAL`  | ENGINEERING; CONTRACTOR; cursor-license                                                         |
+| `non-employee-production-deny`  | DENY              | `NON_EMPLOYEE_PRODUCTION_ACCESS_DENIED` | ENGINEERING; CONTRACTOR or INTERN; environment PRODUCTION                                       |
+| `non-engineering-cloud-deny`    | DENY              | `DEPARTMENT_NOT_AUTHORIZED`             | PRODUCT or SALES; environment DEVELOPMENT or PRODUCTION                                         |
+
+Examples:
+
+- A full-time Engineering SWE:
+  - gets ALLOW for the baseline, both GitHub teams, `aws-dev` and `cursor-license`;
+  - gets REQUIRES_APPROVAL for `aws-prod`;
+  - gets DENY for `aws-staging` (disabled).
+- An Engineering contractor gets DENY for `aws-prod` (DENY beats approval) and REQUIRES_APPROVAL for `cursor-license` (approval beats ALLOW).
+- A Sales AE gets DENY for `aws-dev` (`DEPARTMENT_NOT_AUTHORIZED`) and DENY for `slack-engineering` (`NO_MATCHING_ALLOW_RULE`).
+
+**Remaining limitations (M5B):**
+
+- Nothing calls the engine yet. Recording decisions, the HRIS-to-facts mapping, ServiceNow ticket creation for `REQUIRES_APPROVAL` and the rejection semantics are later milestones.
+- Decisions aren't persisted; the durable decision/audit table comes with the orchestration milestone.
+- No time-based or quantity conditions, and no per-employee exceptions: only the listed fact fields.
+- The same-effect non-overlap rule is strict, so policy authors must split overlapping rules.
+- **Docker Compose verification waived for M5B.** No runtime or container behavior changed: no app imports `@aoo/policy`. The Dockerfile only adds `packages/policy/package.json` to the install layer. The host still had only about 6.7 GiB free, below a safe margin for a full image rebuild. `pnpm check`, `pnpm test:integration` and `pnpm build` passed, and the compiled package was loaded from `dist/` and evaluated.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -761,6 +892,7 @@ packages/
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
   servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
   catalog/       @aoo/catalog       Versioned resource catalog (M5A): src/versions/*.json releases, validation, ResourceCatalog + CatalogRegistry
+  policy/        @aoo/policy        Pure access policy engine (M5B): src/releases/*.json policy releases, PolicyEngine + PolicyRegistry
 ```
 
 Location decisions made in M2: the database schema, client and migrations live in `@aoo/db`. The orchestrator lives in `@aoo/orchestrator`, which depends on `@aoo/db` and `@aoo/shared`.
@@ -803,7 +935,14 @@ Location decisions made in M5A:
 - Catalog schemas live in `@aoo/catalog`, not `@aoo/shared`, because they describe the catalog's own data files and `@aoo/catalog` is Node-only (hashing). If the web app ever needs the resource types, move the schemas to `@aoo/shared`.
 - The read-only routes are in `apps/api/src/routes/resources.ts`. `buildApp` loads the registry at startup.
 
-Not yet created: company onboarding rules, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
+Location decisions made in M5B:
+
+- The policy engine is its own package, `@aoo/policy`, depending only on `@aoo/catalog` and `zod` (plus `node:crypto` for hashing).
+- Released policies are repository JSON (`packages/policy/src/releases/`), compiled into `dist/`, not stored in PostgreSQL.
+- Policy schemas live in `@aoo/policy` for the same reason as the catalog's.
+- There's no HTTP endpoint: the orchestrator will call the library.
+
+Not yet created: company onboarding rules, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
 
@@ -820,6 +959,7 @@ Not yet created: company onboarding rules, the policy engine, the agents and the
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
 - `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` invokes adapters, through `ExternalOperationService` and a narrow gateway interface (`ServiceNowAccessRequestGateway`). The worker wires in the real client; tests wire in fakes.
 - `@aoo/catalog` has no workspace dependencies. It never calls providers, never writes the database and makes no policy decisions. It must not be imported by `@aoo/shared` or the web app. Agents get catalog data only as a `CatalogSnapshot` and may only reference resources from it.
+- `@aoo/policy` depends only on `@aoo/catalog` and `zod`. It is pure: no I/O, no database, no adapters, no LLM, no workflow writes. It must not be imported by `@aoo/shared`, the web app or agent code. Agents never see or call the policy engine; the orchestrator evaluates agent recommendations with it.
 - Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
 ### Service endpoints
