@@ -176,3 +176,53 @@ Leave **Local or Existing** on **Local** and leave Security Attribute empty.
 - short description `SYNTHETIC TEST RECORD – M4B …`.
 
 It never deletes them, and each run adds 2 records.
+
+## 10. M4C: approval state and the outbound approval callback
+
+When a human approves or rejects an access request in ServiceNow, ServiceNow **notifies** the backend. The backend then **reads the ticket back** with the integration account and decides from that authoritative state. It never acts on the callback's own claims.
+
+**1. Column.** Stay in the Autonomous Onboarding scope. Add a column to the Onboarding Access Request table:
+
+| Label          | Name             | Type   | Max length | Mandatory | Default        | Choices (value: label)                                                                       |
+| -------------- | ---------------- | ------ | ---------- | --------- | -------------- | -------------------------------------------------------------------------------------------- |
+| Approval State | `approval_state` | Choice | 40         | yes       | `not_required` | `not_required`: Not required, `pending`: Pending, `approved`: Approved, `rejected`: Rejected |
+
+Then add it to the form layout. It's separate from `policy_decision` and from Task's built-in `approval` field. The existing create and read ACLs (`table.*`) already cover the new column.
+
+**2. Private GLOBAL properties.** These hold the callback secret. **They must be in the Global scope.** Application-scope properties are exported _with their values_ when the app is published, and the **Private** flag doesn't prevent that. This leaked the first secret in the first 1.2.0 export, and the secret was rotated.
+
+Switch the application picker to **Global**, then create at `sys_properties_list.do` → **New**:
+
+| Name                             | Type   | Value                                                                                    | Private |
+| -------------------------------- | ------ | ---------------------------------------------------------------------------------------- | ------- |
+| `aoo.approval_callback.url`      | string | `https://<your tunnel host>/webhooks/servicenow/approvals`                               | ✅      |
+| `aoo.approval_callback.secret`   | string | a new random value of 32+ characters, the same as `SERVICENOW_CALLBACK_SECRET` in `.env` | ✅      |
+| `aoo.approval_callback.instance` | string | `dev225201`                                                                              | ✅      |
+
+- **Generate the secret** with `openssl rand -base64 36`. Don't reuse the HRIS secret or any password.
+- **Scope:** switch back to **Autonomous Onboarding** afterwards.
+- **No properties in the app:** there must be **no** `x_2230066_autono_0.aoo.approval_callback.*` properties. Delete any that exist.
+
+**3. Business rule.** In the Autonomous Onboarding scope, go to **System Definition → Business Rules → New**. Configure it as the header of `servicenow-app/business-rules/aoo-approval-callback.js` describes:
+
+- **Name:** AOO approval callback
+- **Table:** Onboarding Access Request
+- **Advanced:** ✅; **When:** async; **Update:** ✅
+- **Filter:** Approval State **changes**, AND Approval State **is one of** approved, rejected
+- **Script:** paste the file's script.
+
+**4. Who approves.** In M4C the approver is a human (or `admin`) editing **Approval State** on the record's form. The integration account still has **no** write permission.
+
+**5. Backend `.env`:**
+
+```sh
+SERVICENOW_CALLBACK_SECRET='<same value as aoo.approval_callback.secret>'
+SERVICENOW_CALLBACK_INSTANCE=dev225201
+SERVICENOW_CALLBACK_TABLE=x_2230066_autono_0_onboarding_access_request
+```
+
+**6. Tunnel.** ServiceNow must reach the backend over public HTTPS. For the live test, run a temporary tunnel to the test's local port (default 4810), for example `cloudflared tunnel --url http://localhost:4810`. Put its `https://…` host in `aoo.approval_callback.url`, then stop the tunnel after the test.
+
+**7. Export** the application (M4C: version `1.2.2`) to `update-sets/autonomous-onboarding-1.2.2.xml`. **Before publishing**, run the read-only pre-export check: the app must have no property records (live or deleted) and no secrets or tunnel URLs in any update record. After exporting, inspect the file with flag-only output. Versions 1.2.0 and 1.2.1 were withdrawn because they contained secrets.
+
+**8. Live test:** `pnpm test:servicenow:approval:live`. See CLAUDE.md for what it proves.

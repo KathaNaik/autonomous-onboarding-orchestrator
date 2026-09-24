@@ -67,6 +67,7 @@ describe("successful authenticated reads", () => {
       requestedEntitlement: "member",
       agentReason: "Role requires platform repo access",
       policyDecision: "requires_approval",
+      approvalState: "pending",
       correlationKey: "wf-7c9e6679:github:team:platform",
     });
     expect(rows[1]?.policyDecision).toBeNull();

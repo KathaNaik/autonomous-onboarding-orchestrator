@@ -1,12 +1,21 @@
 import { createDatabase } from "@aoo/db";
-import { createHrisIntakeService, type HrisIntakeService } from "@aoo/orchestrator";
+import {
+  createApprovalService,
+  createHrisIntakeService,
+  createWorkflowService,
+  type ApprovalService,
+  type HrisIntakeService,
+} from "@aoo/orchestrator";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { Config } from "./config.js";
+import { callbackConfig, type Config } from "./config.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
+import { serviceNowApprovalWebhookRoutes } from "./routes/servicenow-approval-webhook.js";
 
 export interface AppDependencies {
   hrisIntake: HrisIntakeService;
+  /** Records approval callbacks only; the API never reads ServiceNow or decides approvals. */
+  approvals: ApprovalService;
 }
 
 /**
@@ -16,13 +25,21 @@ export interface AppDependencies {
 export async function buildApp(
   config: Config,
   overrides: Partial<AppDependencies> = {},
+  options: { logStream?: { write(line: string): void } } = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: config.LOG_LEVEL } });
+  const app = Fastify({
+    logger: { level: config.LOG_LEVEL, ...(options.logStream && { stream: options.logStream }) },
+  });
 
-  const database = createDatabase(config.DATABASE_URL);
+  const database = createDatabase(config.DATABASE_URL, {
+    onIdleClientError: (err) => app.log.warn({ err: err.message }, "database idle connection lost"),
+  });
   app.addHook("onClose", () => database.close());
   const deps: AppDependencies = {
     hrisIntake: createHrisIntakeService(database.db),
+    approvals: createApprovalService(database.db, {
+      workflows: createWorkflowService(database.db),
+    }),
     ...overrides,
   };
 
@@ -32,6 +49,15 @@ export async function buildApp(
     bodyLimit: config.HRIS_WEBHOOK_BODY_LIMIT_BYTES,
     intake: deps.hrisIntake,
   });
+
+  const callbacks = callbackConfig(config);
+  if (callbacks) {
+    await app.register(serviceNowApprovalWebhookRoutes, {
+      ...callbacks,
+      bodyLimit: 16_384,
+      approvals: deps.approvals,
+    });
+  }
 
   return app;
 }

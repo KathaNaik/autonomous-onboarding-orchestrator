@@ -43,6 +43,13 @@
       "when": 1790238594181,
       "tag": "0005_external_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790241681069,
+      "tag": "0006_approvals",
+      "breakpoints": true
     }
   ]
 }

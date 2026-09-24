@@ -518,6 +518,7 @@ export function createServiceNowClient(
           requested_entitlement: i.requestedEntitlement,
           agent_reason: i.agentReason,
           policy_decision: i.policyDecision,
+          approval_state: i.approvalState,
           correlation_key: i.correlationKey,
         },
         options.signal,

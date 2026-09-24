@@ -1,4 +1,4 @@
-import { WORKFLOW_STATES } from "@aoo/shared";
+import { APPROVAL_STATUSES, WORKFLOW_STATES } from "@aoo/shared";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -339,7 +339,92 @@ export const externalOperations = pgTable(
   ],
 );
 
+export const approvalStatusEnum = pgEnum("approval_status", APPROVAL_STATUSES);
+
+/**
+ * One human approval per external operation (i.e. per requested resource). Decided exactly once:
+ * PENDING → APPROVED | REJECTED, only after the provider record was read back and verified.
+ */
+export const approvals = pgTable(
+  "approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    externalOperationId: uuid("external_operation_id")
+      .notNull()
+      .unique()
+      .references(() => externalOperations.id, { onDelete: "restrict" }),
+    provider: externalProviderEnum("provider").notNull(),
+    correlationKey: text("correlation_key").notNull(),
+    /** Provider record id (ServiceNow sys_id). */
+    externalId: text("external_id").notNull(),
+    externalReference: text("external_reference").notNull(),
+    status: approvalStatusEnum("status").notNull().default("PENDING"),
+    /** Raw provider value last verified by read-back (e.g. "approved"). */
+    providerState: text("provider_state"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The callback event whose verification decided this approval. */
+    decidedByEventId: text("decided_by_event_id"),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("approvals_provider_correlation_idx").on(t.provider, t.correlationKey),
+    index("approvals_workflow_id_idx").on(t.workflowId),
+    check(
+      "approvals_decided_consistency",
+      sql`(${t.status} = 'PENDING') = (${t.decidedAt} IS NULL) AND (${t.status} = 'PENDING') = (${t.decidedByEventId} IS NULL)`,
+    ),
+    check("approvals_version_positive", sql`${t.version} >= 1`),
+  ],
+);
+
+export const CALLBACK_EVENT_STATUSES = ["RECEIVED", "PROCESSED", "REJECTED"] as const;
+export const callbackEventStatusEnum = pgEnum("callback_event_status", CALLBACK_EVENT_STATUSES);
+
+/**
+ * Durable inbox of provider approval callbacks. (provider, event_id) is unique: a replayed or
+ * retried delivery can never be applied twice. Stores identifiers only (no raw body, headers or
+ * employee data); `outcome` records what verification concluded.
+ */
+export const approvalCallbackEvents = pgTable(
+  "approval_callback_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: externalProviderEnum("provider").notNull(),
+    eventId: text("event_id").notNull(),
+    externalId: text("external_id").notNull(),
+    externalReference: text("external_reference").notNull(),
+    correlationKey: text("correlation_key").notNull(),
+    /** Sender's claim; diagnostic only, never used for decisions. */
+    claimedState: text("claimed_state"),
+    payloadSha256: text("payload_sha256").notNull(),
+    status: callbackEventStatusEnum("status").notNull().default("RECEIVED"),
+    /** e.g. APPLIED_APPROVED, ALREADY_APPLIED, STILL_PENDING, UNKNOWN_TICKET, IDENTITY_MISMATCH. */
+    outcome: text("outcome"),
+    outcomeDetail: jsonb("outcome_detail").$type<Record<string, unknown>>(),
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "restrict" }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("approval_callback_events_provider_event_idx").on(t.provider, t.eventId),
+    index("approval_callback_events_correlation_idx").on(t.provider, t.correlationKey),
+    check(
+      "approval_callback_events_processed_consistency",
+      sql`(${t.status} = 'RECEIVED') = (${t.processedAt} IS NULL)`,
+    ),
+  ],
+);
+
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type OutboxEventAttempt = typeof outboxEventAttempts.$inferSelect;
 export type ExternalOperation = typeof externalOperations.$inferSelect;
+export type Approval = typeof approvals.$inferSelect;
+export type ApprovalCallbackEvent = typeof approvalCallbackEvents.$inferSelect;

@@ -69,6 +69,7 @@ describe("createAccessRequest", () => {
       requested_entitlement: input.requestedEntitlement,
       agent_reason: input.agentReason,
       policy_decision: "pending",
+      approval_state: "not_required",
       correlation_key: input.correlationKey,
     });
   });

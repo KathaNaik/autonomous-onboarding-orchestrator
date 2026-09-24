@@ -109,7 +109,10 @@ describe("checkAccessRequestTable", () => {
       unique: "unique" in c ? c.unique : false,
       defaultValue: "defaultValue" in c ? c.defaultValue : "",
     })),
-    choices: { policy_decision: ["pending", "allow", "deny", "requires_approval"] },
+    choices: {
+      policy_decision: ["pending", "allow", "deny", "requires_approval"],
+      approval_state: ["not_required", "pending", "approved", "rejected"],
+    },
   };
 
   it("accepts a table that matches the spec", () => {
@@ -161,13 +164,21 @@ describe("checkAccessRequestTable: choices and defaults", () => {
     expect(
       checkAccessRequestTable({
         ...base,
-        choices: { policy_decision: ["pending", "allow", "maybe"] },
+        choices: {
+          policy_decision: ["pending", "allow", "maybe"],
+          approval_state: ["not_required", "pending", "approved", "rejected"],
+        },
       }),
     ).toEqual([
       "column policy_decision is missing choices: deny, requires_approval",
       "column policy_decision has unexpected choices: maybe",
     ]);
-    expect(checkAccessRequestTable({ ...base, choices: {} })).toEqual([
+    expect(
+      checkAccessRequestTable({
+        ...base,
+        choices: { approval_state: ["not_required", "pending", "approved", "rejected"] },
+      }),
+    ).toEqual([
       "column policy_decision is missing choices: pending, allow, deny, requires_approval",
     ]);
   });
@@ -180,7 +191,10 @@ describe("checkAccessRequestTable: choices and defaults", () => {
       checkAccessRequestTable({
         ...base,
         columns,
-        choices: { policy_decision: ["pending", "allow", "deny", "requires_approval"] },
+        choices: {
+          policy_decision: ["pending", "allow", "deny", "requires_approval"],
+          approval_state: ["not_required", "pending", "approved", "rejected"],
+        },
       }),
     ).toEqual(['column policy_decision default is "allow", expected "pending"']);
   });

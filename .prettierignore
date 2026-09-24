@@ -3,3 +3,5 @@ dist/
 .next/
 coverage/
 packages/db/migrations/
+# ServiceNow server scripts are pasted verbatim into the instance (ES5-compatible); do not reformat.
+packages/servicenow/servicenow-app/business-rules/

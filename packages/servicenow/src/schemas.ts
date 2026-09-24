@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { POLICY_DECISIONS } from "./table-spec.js";
+import { APPROVAL_STATES, POLICY_DECISIONS } from "./table-spec.js";
 
 /** ServiceNow sys_id: 32 lowercase hex characters. */
 export const SysIdSchema = z.string().regex(/^[0-9a-f]{32}$/, "must be a 32-character hex sys_id");
@@ -19,6 +19,7 @@ export const ACCESS_REQUEST_FIELDS = [
   "requested_entitlement",
   "agent_reason",
   "policy_decision",
+  "approval_state",
   "correlation_key",
 ] as const;
 
@@ -40,6 +41,7 @@ export const AccessRequestRecordSchema = z
     requested_entitlement: Field,
     agent_reason: Field,
     policy_decision: z.union([z.enum(POLICY_DECISIONS), z.literal("")]),
+    approval_state: z.union([z.enum(APPROVAL_STATES), z.literal("")]),
     correlation_key: Field,
   })
   .transform((r) => ({
@@ -56,6 +58,7 @@ export const AccessRequestRecordSchema = z
     requestedEntitlement: r.requested_entitlement,
     agentReason: r.agent_reason,
     policyDecision: r.policy_decision === "" ? null : r.policy_decision,
+    approvalState: r.approval_state === "" ? null : r.approval_state,
     correlationKey: r.correlation_key,
   }));
 export type AccessRequestRecord = z.output<typeof AccessRequestRecordSchema>;
@@ -106,6 +109,8 @@ export const CreateAccessRequestInputSchema = z.object({
   requestedEntitlement: z.string().trim().min(1).max(255),
   agentReason: z.string().trim().max(4000).default(""),
   policyDecision: z.enum(POLICY_DECISIONS),
+  /** Initial human-approval state: "pending" when policy requires approval. */
+  approvalState: z.enum(["not_required", "pending"]).default("not_required"),
   // Deterministic, query-safe provider-side idempotency key (unique in the table).
   correlationKey: z
     .string()

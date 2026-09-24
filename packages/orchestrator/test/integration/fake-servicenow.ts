@@ -54,6 +54,7 @@ export class FakeServiceNow implements ServiceNowAccessRequestGateway {
       requestedEntitlement: input.requestedEntitlement,
       agentReason: input.agentReason ?? "",
       policyDecision: input.policyDecision,
+      approvalState: input.approvalState ?? "not_required",
       correlationKey: input.correlationKey,
       ...overrides,
     };
@@ -71,6 +72,16 @@ export class FakeServiceNow implements ServiceNowAccessRequestGateway {
     return this.insert(input, overrides);
   }
 
+  /** Simulates the human approver changing the authoritative record in ServiceNow. */
+  setApprovalState(sysId: string, state: AccessRequestRecord["approvalState"]) {
+    const record = this.records.find((r) => r.sysId === sysId);
+    if (!record) throw new Error(`no record ${sysId}`);
+    record.approvalState = state;
+  }
+
+  /** Makes the next N getAccessRequest calls fail like a transient outage. */
+  failNextReads = 0;
+
   byKey(correlationKey: string) {
     return this.records.filter((r) => r.correlationKey === correlationKey);
   }
@@ -84,8 +95,18 @@ export class FakeServiceNow implements ServiceNowAccessRequestGateway {
     return this.records.filter((r) => r.correlationKey === query.correlationKey).slice(0, 2);
   }
 
+  reads = 0;
+
   async getAccessRequest(sysId: string) {
-    return this.records.find((r) => r.sysId === sysId) ?? null;
+    this.reads++;
+    if (this.failNextReads > 0) {
+      this.failNextReads--;
+      throw new ServiceNowUnavailableError("getAccessRequest", "instance returned 503", {
+        status: 503,
+      });
+    }
+    const found = this.records.find((r) => r.sysId === sysId);
+    return found ? { ...found } : null;
   }
 
   async createAccessRequest(

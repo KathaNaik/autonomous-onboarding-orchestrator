@@ -10,5 +10,6 @@ export default defineProject({
   test: {
     name: "db",
     environment: "node",
+    exclude: ["test/integration/**", "node_modules/**"],
   },
 });

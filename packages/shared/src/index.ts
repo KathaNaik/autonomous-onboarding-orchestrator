@@ -1,3 +1,4 @@
+export * from "./approvals.js";
 export * from "./health.js";
 export * from "./hris.js";
 export * from "./outbox.js";

@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { createDatabase } from "@aoo/db";
 import {
+  createApprovalService,
   createEventHandlers,
   createExternalOperationService,
   createOutboxRunner,
@@ -18,14 +19,21 @@ const logger = createLogger(config.LOG_LEVEL, config.WORKER_ID);
 
 const database = createDatabase(config.DATABASE_URL, {
   maxConnections: Math.min(50, config.OUTBOX_BATCH_SIZE * 2 + 2),
+  onIdleClientError: (err) => logger.warn({ err: err.message }, "database idle connection lost"),
 });
 const servicenowConfig = loadWorkerServiceNowConfig(config);
+const servicenow = servicenowConfig
+  ? createServiceNowClient(servicenowConfig, { logger: logger.child({ provider: "servicenow" }) })
+  : undefined;
+const workflows = createWorkflowService(database.db);
+// Approval callbacks are verified by reading the ticket back with the integration account.
+const approvals = createApprovalService(database.db, {
+  ...(servicenow && { servicenow }),
+  workflows,
+  logger,
+});
 const externalOperations = createExternalOperationService(database.db, {
-  ...(servicenowConfig && {
-    servicenow: createServiceNowClient(servicenowConfig, {
-      logger: logger.child({ provider: "servicenow" }),
-    }),
-  }),
+  ...(servicenow && { servicenow }),
   reconcile: {
     attempts: config.EXTERNAL_OP_RECONCILE_ATTEMPTS,
     delayMs: config.EXTERNAL_OP_RECONCILE_DELAY_MS,
@@ -42,7 +50,8 @@ const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
     backoffMaxMs: config.OUTBOX_BACKOFF_MAX_MS,
   },
   handlers: createEventHandlers({
-    workflows: createWorkflowService(database.db),
+    workflows,
+    approvals,
     externalOperations: {
       service: externalOperations,
       ownerId: config.WORKER_ID,

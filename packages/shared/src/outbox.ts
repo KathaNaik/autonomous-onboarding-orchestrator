@@ -14,6 +14,7 @@ export type HrisOfferSignedAcceptedPayload = z.infer<typeof HrisOfferSignedAccep
 export const OUTBOX_EVENT_TYPES = {
   hrisOfferSignedAccepted: "hris.offer_signed.accepted",
   externalOperationExecute: "external_operation.execute",
+  approvalCallbackReceived: "servicenow.approval_callback.received",
 } as const;
 
 /** Asks a worker to execute (or resume/reconcile) one durable external operation. */

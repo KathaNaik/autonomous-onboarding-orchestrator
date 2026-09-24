@@ -6,17 +6,18 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                                                                          | Status                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                         | Complete (accepted)                                                                               |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                            | Complete (awaiting acceptance)                                                                    |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                            | Complete (awaiting acceptance)                                                                    |
-| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING) | Verified (ready for acceptance)                                                                   |
-| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)  |
-| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**) |
-| M5        | Not yet defined; the user defines it when starting it                                                                                                                          | Not started                                                                                       |
+| Milestone | Scope                                                                                                                                                                                          | Status                                                                                                               |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                                         | Complete (accepted)                                                                                                  |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                                            | Complete (awaiting acceptance)                                                                                       |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                                            | Complete (awaiting acceptance)                                                                                       |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING)                 | Verified (ready for acceptance)                                                                                      |
+| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                               | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
+| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                       | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
+| M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
+| M5        | Not yet defined; the user defines it when starting it                                                                                                                                          | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. **Nothing drives a workflow past `ACCESS_PLANNING` yet. No approval callbacks, agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. **Nothing provisions access yet. No agents, policy engine, resource catalog, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -326,6 +327,118 @@ Both are deterministic and query-safe, and contain no employee data. ServiceNow'
 - `pnpm worker:admin external-ops [--status S]` lists operations without the request payload.
 - `pnpm worker:admin reopen-operation --id <uuid> --reason "…"` reopens a FAILED operation only; it's audited and re-enqueued.
 
+### Approvals (in place since M4C)
+
+A human approves or rejects an access request **in ServiceNow**. ServiceNow sends a signed **notification**. The backend then **reads the ticket back** and decides from the authoritative ServiceNow state. The callback is never trusted as the decision.
+
+**Where the approval lives:**
+
+- **ServiceNow** (the authority): the `approval_state` choice column on the access-request table, with values `not_required`, `pending`, `approved` and `rejected`. It's set to `pending` at creation when `policy_decision = requires_approval`. It's separate from `policy_decision` and from Task's `approval` field.
+- **Ours:** the `approvals` table (migration `0006`), holding one row per external operation, i.e. per resource.
+  - **Columns:** `workflow_id`, `external_operation_id` (unique), `provider`, `correlation_key`, `external_id` (sys_id), `external_reference` (number), `status`, `provider_state`, `verified_at`, `decided_at`, `decided_by_event_id`, `version` and timestamps.
+  - **Lifecycle:** `PENDING` → `APPROVED` | `REJECTED`, decided **once**.
+  - **Creation:** the PENDING row is created in the **same transaction** that marks the ticket-creation operation SUCCEEDED.
+  - It is not a workflow state and not an external-operation status.
+
+**Callback endpoint** (API): `POST /webhooks/servicenow/approvals`, registered only when all three `SERVICENOW_CALLBACK_*` settings are set.
+
+- **Authentication:**
+  - `X-AOO-Timestamp: <ms>`
+  - `X-AOO-Signature: v1=<base64 HMAC-SHA256(secret, "<ts>.<raw body>")>` (`@aoo/webhooks`, constant-time compare).
+  - The secret is **dedicated**: config rejects reuse of the HRIS secret or a ServiceNow password.
+  - The timestamp window is `SERVICENOW_CALLBACK_MAX_SKEW_MS` (default 5 min).
+- **Body** (`ServiceNowApprovalCallbackSchema`): identifiers only: `eventId`, `instance`, `table`, `sysId`, `number`, `correlationKey`, plus an optional `claimedApprovalState` hint. Unknown fields, such as employee data, are stripped.
+- **Responses:**
+
+| Status        | Meaning                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| `401`         | Missing, invalid or stale authentication                                                              |
+| `415` / `400` | Wrong content type / malformed or invalid payload (field names only, never values)                    |
+| `422`         | Unexpected instance or table                                                                          |
+| `409`         | Event id reused with different content                                                                |
+| `500`         | Nothing recorded; ServiceNow may retry                                                                |
+| `202`         | Accepted, **only after** the event and its verification outbox event are committed in one transaction |
+
+The API makes **no decision** and holds **no ServiceNow credentials**.
+
+**Replay protection:** the signed timestamp window, plus the durable inbox `approval_callback_events`. It's unique on `(provider, event_id)`, where `event_id = "<sys_id>:<sys_mod_count>"` is stable per change, so a re-send of the same change deduplicates while a new change is a new event. It stores identifiers, a hash, status (`RECEIVED` / `PROCESSED` / `REJECTED`), outcome and sanitized `last_error`, but no raw body or headers.
+
+**Verification** (worker, `servicenow.approval_callback.received` → `ApprovalService.processCallback`):
+
+1. The callback's correlation key must match one of **our** ticket-creation operations, and its sys_id and number must match that operation. Otherwise it's `REJECTED` as `UNKNOWN_TICKET` or `IDENTITY_MISMATCH`.
+2. **Authoritative read-back** with the integration account (`getAccessRequest(sys_id)`), verifying the sys_id, number and correlation key. A temporary failure keeps the event `RECEIVED` and retries through the outbox.
+3. The decision comes **only** from the read-back `approval_state`. The claim is used for diagnostics (`claimMismatch`) and nothing else. Under a row lock on the event and the approval:
+   - still `pending` → `STILL_PENDING` (nothing granted);
+   - approval still PENDING → set APPROVED or REJECTED, record `decided_by_event_id`, audit → `APPLIED_APPROVED` / `APPLIED_REJECTED`;
+   - same decision already applied → `ALREADY_APPLIED`;
+   - a _different_ decision already applied → `DECISION_CONFLICT` plus an `approval.conflict` audit event. It's **never flipped automatically**.
+4. **Resumption:** on APPROVED, if the workflow is `AWAITING_APPROVAL` and **no other approval for it is PENDING**, transition to `PROVISIONING`, using idempotency key `approval-resume:<workflow>:<approval>` so it happens at most once. A version conflict is retried. Workflows that never entered AWAITING_APPROVAL aren't touched. **REJECTED doesn't move the workflow:** the approval path is terminal, and what a rejection means for the onboarding is a policy decision for a later milestone. Nothing is provisioned.
+
+**ServiceNow side (SETUP.md §10):**
+
+- the `approval_state` column;
+- the async business rule `AOO approval callback` (`servicenow-app/business-rules/aoo-approval-callback.js`), firing when `approval_state` changes to approved or rejected. **Scoped apps may not use `GlideCertificateEncryption` or `GlideStringUtil.base64Encode`**, as the real PDI confirmed, so the script ships its own **ES5 HMAC-SHA256**. A unit test (`packages/servicenow/test/business-rule.test.ts`) runs the exact file in a sandbox with ServiceNow's scoped globals and checks 420 signatures against Node's crypto. Paste the file verbatim; Prettier ignores it;
+- three **private GLOBAL** properties `aoo.approval_callback.{url,secret,instance}`. They must not be application-scope properties: those are published _with their values_ even when Private. That leaked the first callback secret in the first 1.2.0 export; the export was deleted and never committed, and the secret was rotated. Every export is checked for the secret before commit;
+- a public tunnel for local development.
+
+**Live test:** `pnpm test:servicenow:approval:live` (`apps/api/test/live/`, explicit only). It runs the API in-process on `APPROVAL_LIVE_PORT` behind the tunnel:
+
+1. creates a synthetic approval-required ticket;
+2. the "human approver" (the schema-verifier account, via a test-only PATCH) approves it in ServiceNow;
+3. waits for the **real** callback, runs the worker verification, and asserts the approval is APPROVED by read-back and the workflow is `PROVISIONING` exactly once;
+4. replays the captured callback bytes and asserts `duplicate: true` with no second transition.
+
+**Authoritative M4C export:** `packages/servicenow/servicenow-app/update-sets/autonomous-onboarding-1.2.2.xml` (60 records). Inspected with flag-only output:
+
+- **Contains:** header version 1.2.2 and scope `x_2230066_autono_0`; the `approval_state` column with exactly the four choices; one business rule identical to the tested repo script, reading **global** properties; ACLs limited to read, create and execute.
+- **Contains no:** callback secret (current or first-leaked), passwords, HRIS secret, tunnel URLs, property records, users, synthetic data, data rows, auth headers, emails or keys.
+- **Withdrawn:** 1.2.0 and 1.2.1 contained secrets and were never committed.
+
+#### M4C verification record
+
+Verified 2026-09-24 on PDI `dev225201` with synthetic data, through a temporary Cloudflare quick tunnel (`cloudflared`, stopped afterwards):
+
+- **Configuration:**
+  - The `approval_state` column has 4 choices and default `not_required`; the schema check passes.
+  - The business rule's installed script matches the repo file.
+  - The three private application properties hold the right values; the secret was compared without printing.
+  - The integration account is still least-privilege (read and create only).
+- **`pnpm test:servicenow:approval:live`: 1/1, twice**, on `OAR0001007` and `OAR0001008`:
+  1. The ticket is created with `approval_state: pending`, and its PENDING approval row is created with it.
+  2. The approver sets it to approved in ServiceNow.
+  3. The **real signed callback** `<sys_id>:1` arrives through the tunnel, and the HMAC verifies.
+  4. The worker **reads it back** with the integration account, and the approval becomes APPROVED (`provider_state: approved`, `decided_by_event_id` set).
+  5. The workflow moves to **PROVISIONING exactly once**.
+  6. Replaying the captured request byte for byte returns `202 duplicate: true`; reprocessing reports `alreadyProcessed`, and there's still one transition.
+- **Earlier suites:** `pnpm test:servicenow:live` (M4A 6/6, M4B 2/2) still passes against the extended table.
+- **Issues found and fixed during live runs:**
+  - The properties were created in the app scope, so their names are prefixed.
+  - `GlideStringUtil.base64Encode` and `GlideCertificateEncryption` are forbidden in scoped apps, which led to the ES5 HMAC.
+  - `pg` pools had no `error` listener: an idle connection killed server-side (DB restart, forced drop) crashed the process. `createDatabase({ onIdleClientError })` now handles it; the API and worker log it, and an integration test covers it.
+- **Test counts:** `pnpm check` 261 unit tests (26 new); `pnpm test:integration` 104 (25 new); build passes.
+- **Mutation checks:**
+  - Trusting the callback's claim instead of the read-back fails 3 tests.
+  - Re-applying already-decided approvals fails 3.
+  - Corrupting one SHA-256 constant fails 2.
+  - Removing the pool error listener fails the resilience test.
+
+**Remaining limitations (M4C):**
+
+- **REJECTED doesn't move the workflow;** what a rejection means for the onboarding is policy, a later milestone.
+- **A decision is never flipped automatically.** A later contradicting ServiceNow change is surfaced as `DECISION_CONFLICT`.
+- **Delivery:** ServiceNow's `RESTMessageV2.execute()` in an async rule is not retried automatically. A lost callback leaves the approval PENDING until the record changes again. There's no periodic reconciliation poller yet.
+- **Tunnel:** local callbacks need a public tunnel, and the quick-tunnel URL changes on every restart (update `x_2230066_autono_0.aoo.approval_callback.url`). The tunnel is currently stopped, so callbacks fail harmlessly until a new URL is set.
+- **Test approver:** the live test's approver is the schema-verifier (admin) account, through a test-only PATCH. The adapter has no update capability.
+- **Synthetic records:** `OAR0001005`–`OAR0001008` remain in the PDI. 1005 and 1006 were approved while the business rule was failing, so their callbacks were never delivered.
+- **Callback-secret leak and cleanup (2026-09-24):**
+  - **What happened:** app-scope properties are published _with their values_ (Private doesn't prevent it), and ServiceNow keeps deleted application files, contents included, for publishing. As a result, the first 1.2.0 export and the 1.2.1 export contained callback secrets and tunnel URLs, and one secret was also printed in a tool output. None of these exports was committed; the local and Downloads copies were deleted.
+  - **Remediation:** the secret was rotated twice. The current one lives only in the git-ignored `.env` and the GLOBAL private property `aoo.approval_callback.secret`. A live check confirmed the new secret gets 202 and the previous one gets 401.
+  - **Deleted in ServiceNow:** 21 `sys_update_xml` and 6 `sys_metadata_delete` records for the six former app-scope property IDs. The pre-export check (all publish sources) then showed 0 property records, 0 secret matches and 0 tunnel-URL matches.
+  - **Refused by ServiceNow (HTTP 403 through the API):**
+    - deleting the 12 `sys_update_version` history rows for those IDs. They still contain rotated, **cryptographically invalid** secret values and dead tunnel URLs. They're historical residue, not a publish source.
+    - deleting the stale published update sets 1.2.0 and 1.2.1 (×2). Checked: their 180 child records contain no property records, secrets or URLs.
+  - **Rule going forward:** secrets never go in app-scope records; run the read-only pre-export check _before_ every publish.
+
 #### M4B verification record
 
 Verified 2026-09-24 against PDI `https://dev225201.service-now.com`, using synthetic data only.
@@ -570,6 +683,14 @@ Location decisions made in M4B:
 - `external_operations` lives in `@aoo/db`.
 - The executor, keys and sanitizer live in `@aoo/orchestrator/src/external-operations`; it depends on `@aoo/servicenow`, since only the orchestrator invokes adapters.
 - The worker constructs the ServiceNow client (integration account only) and injects it.
+
+Location decisions made in M4C:
+
+- `approvals` and `approval_callback_events` live in `@aoo/db`.
+- `ApprovalService` lives in `@aoo/orchestrator/src/approvals`.
+- The callback route is `apps/api/src/routes/servicenow-approval-webhook.ts`.
+- The signing protocol is in `@aoo/webhooks`.
+- The ServiceNow business-rule source is `packages/servicenow/servicenow-app/business-rules/`.
 - The PDI setup guide and update-set exports live in `packages/servicenow/servicenow-app/`.
 
 Not yet created: the resource catalog, company onboarding rules, the outbox worker, the policy engine, the agents and the adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
@@ -588,7 +709,7 @@ Not yet created: the resource catalog, company onboarding rules, the outbox work
 - In code, only `@aoo/orchestrator` writes `outbox_event_attempts` and outbox status and lease columns. `apps/worker` uses `@aoo/db` only to create the connection.
 - Event handlers depend on services (`WorkflowService`), never on the outbox store or transport types.
 - `@aoo/servicenow` (and future Okta and GitHub adapters) must not import `@aoo/orchestrator`, `@aoo/db` or any workflow code. Only `@aoo/orchestrator` invokes adapters, through `ExternalOperationService` and a narrow gateway interface (`ServiceNowAccessRequestGateway`). The worker wires in the real client; tests wire in fakes.
-- Only `@aoo/orchestrator` writes `external_operations`.
+- Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
 ### Service endpoints
 
@@ -608,32 +729,36 @@ Docker `HEALTHCHECK`s poll the HTTP endpoints. Compose starts `api` only after `
 
 All env vars are read through Zod loaders. `.env.example` lists every variable.
 
-| Variable                                                                      | Used by                                                                                               | Default                                                                                                            |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                           | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                                                                          |
-| `WEB_PORT` / `PORT`                                                           | web (dev / container)                                                                                 | `3000`                                                                                                             |
-| `API_BASE_URL`                                                                | web                                                                                                   | `http://localhost:4000`                                                                                            |
-| `DATABASE_URL`                                                                | `@aoo/db` (`pnpm db:migrate`, the `migrate` container), api (required since M3A)                      | required, `postgres://` URL                                                                                        |
-| `HRIS_WEBHOOK_SECRET`                                                         | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only |
-| `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                               | api                                                                                                   | `65536`                                                                                                            |
-| `HRIS_WEBHOOK_URL`                                                            | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                              |
-| `WORKER_ID`                                                                   | worker                                                                                                | `<hostname>-<pid>` (unique per container replica)                                                                  |
-| `WORKER_HEALTH_HOST`, `WORKER_HEALTH_PORT`                                    | worker                                                                                                | `0.0.0.0`, `4100`                                                                                                  |
-| `WORKER_SHUTDOWN_TIMEOUT_MS`                                                  | worker                                                                                                | `15000`                                                                                                            |
-| `OUTBOX_BATCH_SIZE`                                                           | worker (1–100)                                                                                        | `10`                                                                                                               |
-| `OUTBOX_POLL_INTERVAL_MS`                                                     | worker (≥ 10)                                                                                         | `1000`                                                                                                             |
-| `OUTBOX_LEASE_MS`                                                             | worker; must exceed the poll interval, and should exceed the worst-case handler time                  | `30000`                                                                                                            |
-| `OUTBOX_MAX_ATTEMPTS`                                                         | worker (claims per cycle before dead-lettering)                                                       | `5`                                                                                                                |
-| `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`                             | worker; max must be ≥ base                                                                            | `1000`, `300000`                                                                                                   |
-| `SERVICENOW_INSTANCE_URL`                                                     | servicenow adapter                                                                                    | required; `https://` origin only, e.g. `https://dev123456.service-now.com`                                         |
-| `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`                                  | servicenow adapter                                                                                    | required; integration user (web-service-only, read role). Only in `.env` or a secret store                         |
-| `SERVICENOW_ACCESS_REQUEST_TABLE`                                             | servicenow adapter                                                                                    | required; scoped table name, e.g. `x_1234567_autonomo_onboarding_access_request`                                   |
-| `SERVICENOW_TIMEOUT_MS`, `SERVICENOW_MAX_RETRIES`, `SERVICENOW_RETRY_BASE_MS` | servicenow adapter                                                                                    | `10000`, `2`, `250`                                                                                                |
-| `SERVICENOW_SCHEMA_USERNAME`, `SERVICENOW_SCHEMA_PASSWORD`                    | schema verification only (`pnpm servicenow:check --schema`, live test); never loaded at runtime       | optional; a dedicated verifier account, e.g. `aoo.schema.verifier`                                                 |
-| `EXTERNAL_OP_RECONCILE_ATTEMPTS`, `EXTERNAL_OP_RECONCILE_DELAY_MS`            | worker: bounded reconciliation after an uncertain write                                               | `3`, `1000`                                                                                                        |
-| `WORKER_SERVICENOW_TIMEOUT_MS`                                                | compose → worker `SERVICENOW_TIMEOUT_MS` (3 × timeout ≤ 0.8 × `OUTBOX_LEASE_MS`)                      | `5000`                                                                                                             |
-| `TEST_DATABASE_URL`                                                           | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                            |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`          | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                         |
+| Variable                                                                      | Used by                                                                                               | Default                                                                                                                               |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_HOST`, `API_PORT`, `LOG_LEVEL`                                           | api                                                                                                   | `0.0.0.0`, `4000`, `info`                                                                                                             |
+| `WEB_PORT` / `PORT`                                                           | web (dev / container)                                                                                 | `3000`                                                                                                                                |
+| `API_BASE_URL`                                                                | web                                                                                                   | `http://localhost:4000`                                                                                                               |
+| `DATABASE_URL`                                                                | `@aoo/db` (`pnpm db:migrate`, the `migrate` container), api (required since M3A)                      | required, `postgres://` URL                                                                                                           |
+| `HRIS_WEBHOOK_SECRET`                                                         | api (verifies), hris-simulator (signs)                                                                | required, at least 32 characters. Compose default `dev-only-hris-webhook-secret-change-me` is for development only                    |
+| `HRIS_WEBHOOK_BODY_LIMIT_BYTES`                                               | api                                                                                                   | `65536`                                                                                                                               |
+| `HRIS_WEBHOOK_URL`                                                            | hris-simulator                                                                                        | `http://localhost:4000/webhooks/hris`                                                                                                 |
+| `WORKER_ID`                                                                   | worker                                                                                                | `<hostname>-<pid>` (unique per container replica)                                                                                     |
+| `WORKER_HEALTH_HOST`, `WORKER_HEALTH_PORT`                                    | worker                                                                                                | `0.0.0.0`, `4100`                                                                                                                     |
+| `WORKER_SHUTDOWN_TIMEOUT_MS`                                                  | worker                                                                                                | `15000`                                                                                                                               |
+| `OUTBOX_BATCH_SIZE`                                                           | worker (1–100)                                                                                        | `10`                                                                                                                                  |
+| `OUTBOX_POLL_INTERVAL_MS`                                                     | worker (≥ 10)                                                                                         | `1000`                                                                                                                                |
+| `OUTBOX_LEASE_MS`                                                             | worker; must exceed the poll interval, and should exceed the worst-case handler time                  | `30000`                                                                                                                               |
+| `OUTBOX_MAX_ATTEMPTS`                                                         | worker (claims per cycle before dead-lettering)                                                       | `5`                                                                                                                                   |
+| `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`                             | worker; max must be ≥ base                                                                            | `1000`, `300000`                                                                                                                      |
+| `SERVICENOW_INSTANCE_URL`                                                     | servicenow adapter                                                                                    | required; `https://` origin only, e.g. `https://dev123456.service-now.com`                                                            |
+| `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`                                  | servicenow adapter                                                                                    | required; integration user (web-service-only, read role). Only in `.env` or a secret store                                            |
+| `SERVICENOW_ACCESS_REQUEST_TABLE`                                             | servicenow adapter                                                                                    | required; scoped table name, e.g. `x_1234567_autonomo_onboarding_access_request`                                                      |
+| `SERVICENOW_TIMEOUT_MS`, `SERVICENOW_MAX_RETRIES`, `SERVICENOW_RETRY_BASE_MS` | servicenow adapter                                                                                    | `10000`, `2`, `250`                                                                                                                   |
+| `SERVICENOW_SCHEMA_USERNAME`, `SERVICENOW_SCHEMA_PASSWORD`                    | schema verification only (`pnpm servicenow:check --schema`, live test); never loaded at runtime       | optional; a dedicated verifier account, e.g. `aoo.schema.verifier`                                                                    |
+| `EXTERNAL_OP_RECONCILE_ATTEMPTS`, `EXTERNAL_OP_RECONCILE_DELAY_MS`            | worker: bounded reconciliation after an uncertain write                                               | `3`, `1000`                                                                                                                           |
+| `WORKER_SERVICENOW_TIMEOUT_MS`                                                | compose → worker `SERVICENOW_TIMEOUT_MS` (3 × timeout ≤ 0.8 × `OUTBOX_LEASE_MS`)                      | `5000`                                                                                                                                |
+| `SERVICENOW_CALLBACK_SECRET`                                                  | api: approval-callback HMAC secret                                                                    | unset (endpoint disabled). At least 32 characters, dedicated, equal to the private ServiceNow property `aoo.approval_callback.secret` |
+| `SERVICENOW_CALLBACK_INSTANCE`, `SERVICENOW_CALLBACK_TABLE`                   | api: expected callback source                                                                         | set together with the secret                                                                                                          |
+| `SERVICENOW_CALLBACK_MAX_SKEW_MS`                                             | api: timestamp window                                                                                 | `300000`                                                                                                                              |
+| `APPROVAL_LIVE_PORT`                                                          | live approval test: local port behind the tunnel                                                      | `4810`                                                                                                                                |
+| `TEST_DATABASE_URL`                                                           | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                                               |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`          | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                                            |
 
 ## Coding conventions
 
@@ -674,6 +799,7 @@ pnpm servicenow:check [--schema]        # read-only ServiceNow connectivity chec
 pnpm test:servicenow:live               # explicit live ServiceNow tests: read-only suite, then the M4B WRITE suite (synthetic records)
 pnpm worker:admin external-ops [--status FAILED]           # list durable external operations
 pnpm worker:admin reopen-operation --id <uuid> --reason "…" # reopen a FAILED operation (audited)
+pnpm test:servicenow:approval:live     # explicit live approval round trip (needs SETUP.md §10 + a public tunnel)
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts
 pnpm db:migrate                    # apply migrations to DATABASE_URL

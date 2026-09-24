@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "tsx": "^4.23.15",
-    "drizzle-orm": "^0.45.3"
+    "drizzle-orm": "^0.45.3",
+    "@aoo/servicenow": "workspace:*"
   }
 }

@@ -200,6 +200,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@aoo/servicenow':
+        specifier: workspace:*
+        version: link:../../packages/servicenow
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.0)
@@ -326,6 +329,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@aoo/webhooks':
+        specifier: workspace:*
+        version: link:../webhooks
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

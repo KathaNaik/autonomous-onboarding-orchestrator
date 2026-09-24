@@ -29,6 +29,7 @@ export function record(overrides: Record<string, string> = {}) {
     requested_entitlement: "member",
     agent_reason: "Role requires platform repo access",
     policy_decision: "requires_approval",
+    approval_state: "pending",
     correlation_key: "wf-7c9e6679:github:team:platform",
     ...overrides,
   };

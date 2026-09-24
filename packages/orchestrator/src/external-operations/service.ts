@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  approvals,
   auditEvents,
   externalOperations,
   outboxEvents,
   type Database,
   type ExternalOperation,
+  type Transaction,
 } from "@aoo/db";
 import {
   CreateAccessRequestInputSchema,
@@ -186,6 +188,7 @@ export function createExternalOperationService(
       eventType: string;
       payload: Record<string, unknown>;
     },
+    within?: (tx: Transaction, row: ExternalOperation) => Promise<void>,
   ): Promise<ExternalOperation> {
     return db.transaction(async (tx) => {
       const [row] = await tx
@@ -194,6 +197,7 @@ export function createExternalOperationService(
         .where(holdsFence(f))
         .returning();
       if (!row) throw ownershipLost(f);
+      if (within) await within(tx, row);
       if (audit) {
         await tx.insert(auditEvents).values({
           workflowId: f.workflowId,
@@ -320,6 +324,23 @@ export function createExternalOperationService(
           eventType: "external_operation.succeeded",
           payload: { externalId: record.sysId, externalReference: record.number, via },
         },
+        // A request that needs human approval gets its PENDING approval in the same transaction
+        // that records the verified ticket, so an approval never exists without its ticket.
+        async (tx, row) => {
+          if (f.request.approvalState !== "pending") return;
+          await tx
+            .insert(approvals)
+            .values({
+              workflowId: row.workflowId,
+              externalOperationId: row.id,
+              provider: row.provider,
+              correlationKey: row.correlationKey,
+              externalId: record.sysId,
+              externalReference: record.number,
+              providerState: record.approvalState ?? null,
+            })
+            .onConflictDoNothing({ target: approvals.externalOperationId });
+        },
       );
     } catch (err) {
       // A competing owner may have already recorded the same verified outcome.
@@ -411,6 +432,7 @@ export function createExternalOperationService(
         requestedEntitlement: input.requestedEntitlement,
         agentReason: input.agentReason,
         policyDecision: input.policyDecision,
+        approvalState: input.policyDecision === "requires_approval" ? "pending" : "not_required",
         correlationKey: keys.correlationKey,
       });
       const requestSha256 = sha256(request);

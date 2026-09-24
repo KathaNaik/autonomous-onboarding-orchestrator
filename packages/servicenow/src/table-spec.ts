@@ -6,6 +6,13 @@
 export const POLICY_DECISIONS = ["pending", "allow", "deny", "requires_approval"] as const;
 export type PolicyDecision = (typeof POLICY_DECISIONS)[number];
 
+/**
+ * Human approval of the request in ServiceNow (M4C). Separate from policy_decision (what our
+ * policy concluded) and from Task's built-in approval engine. Only an approver changes it.
+ */
+export const APPROVAL_STATES = ["not_required", "pending", "approved", "rejected"] as const;
+export type ApprovalState = (typeof APPROVAL_STATES)[number];
+
 export interface ColumnSpec {
   name: string;
   label: string;
@@ -50,6 +57,15 @@ export const ACCESS_REQUEST_TABLE_SPEC = {
       mandatory: true,
       choices: POLICY_DECISIONS,
       defaultValue: "pending",
+    },
+    {
+      name: "approval_state",
+      label: "Approval State",
+      type: "choice",
+      maxLength: 40,
+      mandatory: true,
+      choices: APPROVAL_STATES,
+      defaultValue: "not_required",
     },
     {
       name: "correlation_key",
