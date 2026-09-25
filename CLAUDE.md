@@ -20,9 +20,10 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 | M5C       | Canonical employee facts: HRIS `departmentCode` / `roleFamilyCode` / `employmentType`, validated at ingestion, persisted on `employees` (migration `0007`), policy-subject adapter, policy `1.1.0`                                                                         | Verified (ready for acceptance)                                                                                      |
 | M6A       | Role Access Agent (`@aoo/agents`): versioned prompt, Zod output contract, post-model catalog validation, provider abstraction (OpenAI Responses API, Structured Outputs), durable idempotent agent runs (migrations `0008`, `0009`), eval dataset + live runner            | **Complete (accepted).** Live evaluation on `gpt-5.6-sol` passed every threshold (see **M6A live evaluation**)       |
 | M6B       | Recommendation-to-policy orchestration: one append-only `access_decisions` row per recommended resource (run's fact snapshot, catalog and policy versions), per-resource `access_requests` lifecycle, REQUIRES_APPROVAL routed through M4B/M4C (migrations `0010`, `0011`) | **Complete (accepted).** Live PDI test passed (`OAR0001012`); Compose verified with migrations through `0011`        |
-| M6C+      | Not yet defined; the user defines each when starting it                                                                                                                                                                                                                    | Not started                                                                                                          |
+| M7A       | Durable Okta identity + group provisioning for one authorized access request: `@aoo/okta` adapter, generic handler-based durable operations (M4B reuse), `external_identities`, access-request provisioning lifecycle (migration `0012`)                                   | **Complete (accepted).** Live Okta sandbox test passed twice (created, then reused the fixture)                      |
+| M7B+      | Not yet defined; the user defines each when starting it                                                                                                                                                                                                                    | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. M5C adds canonical employee facts from HRIS (see **Canonical employee facts**). M6A adds the Role Access Agent and its durable recommendation runs (see **Role Access Agent**). M6B authorizes a completed agent run with the policy engine, persists one decision and one per-resource lifecycle record per recommended resource, and routes approval-required resources to ServiceNow (see **Recommendation-to-policy authorization**). Nothing triggers the agent or the authorization automatically yet, and nothing is provisioned. **Nothing provisions access yet. No Onboarding Plan Agent, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. M5C adds canonical employee facts from HRIS (see **Canonical employee facts**). M6A adds the Role Access Agent and its durable recommendation runs (see **Role Access Agent**). M6B authorizes a completed agent run with the policy engine, persists one decision and one per-resource lifecycle record per recommended resource, and routes approval-required resources to ServiceNow (see **Recommendation-to-policy authorization**). M7A provisions **one** authorized Okta access request on demand (see **Okta provisioning**). Nothing triggers the agent, the authorization or provisioning automatically yet, and nothing but Okta group membership is provisioned. **Nothing provisions access yet. No Onboarding Plan Agent, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -72,6 +73,9 @@ These decisions are fixed. Changing any of them needs an explicit decision from 
   - `0004_outbox_worker_leases_and_attempts`: M3B. Adds to `outbox_events`: `status`, `cycle_attempts`, lease columns, `dead_lettered_at`, `redrive_count`, integrity CHECKs, and a claimable index that replaces `outbox_events_unpublished_idx`. Also adds the `outbox_event_attempts` table and `audit_events.idempotency_key` (unique where not null). Additive; existing rows remain valid.
   - `0005_external_operations` (M4B) and `0006_approvals` (M4C).
   - `0010_access_decisions_and_requests`: M6B. Adds the `access_decision` and `access_request_status` enums and the `access_decisions` and `access_requests` tables. Additive.
+  - `0012_okta_provisioning`: M7A. Adds `PROVISIONING`, `PROVISIONED` and `PROVISIONING_FAILED` to `access_request_status`; the provisioning evidence columns on `access_requests` (`provisioning_operation_id` (unique), `provider_subject_id`, `provider_target_id`, `provisioned_at`, `provisioning_error_code`) with CHECKs; and the `external_identities` table.
+    - The new enum values are compared as `status::text` in the CHECKs, because PostgreSQL forbids using a new enum value in the transaction that adds it, and the migrator runs pending migrations in one transaction.
+    - Verified on a populated Compose database.
   - `0011_access_decisions_append_only`: M6B, hand-written. Triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `access_decisions`.
   - `0009_agent_run_served_model`: M6A provider migration. Adds nullable `agent_runs.served_model` (the model the provider reports serving). Additive.
   - `0008_agent_runs`: M6A. Adds the `agent_run_status` enum and the `agent_runs` and `agent_recommendations` tables (see **Role Access Agent**). Additive.
@@ -1168,6 +1172,159 @@ Verified 2026-09-24.
 - The workflow reaches PROVISIONING when no approval is pending, even if everything was denied or rejected; the per-resource records show there is nothing to provision.
 - The live test's `console.log` of the ticket is suppressed by Vitest in non-TTY runs; the ticket was identified by a read-only query instead.
 
+### Okta provisioning (in place since M7A)
+
+> **Agents recommend. Policies authorize. Adapters execute. The orchestrator owns state.**
+
+`createOktaProvisioningService(db, { catalogs, externalOperations, okta, targets })` (`@aoo/orchestrator`, `src/provisioning/`) exposes `provisionOktaAccess({ accessRequestId })`. It provisions **exactly one** authorized OKTA access request:
+
+1. ensure the employee's Okta identity;
+2. add the configured group membership;
+3. read Okta back;
+4. persist `PROVISIONED`.
+
+It does **not** provision all ready resources, resolve dependencies, touch GitHub or AWS, call a model, change policy decisions or complete the workflow; the workflow stays `PROVISIONING`. Nothing invokes it automatically yet; M7C will own multi-resource orchestration.
+
+**Eligibility** (fail-closed, validated before any Okta call; **the workflow state is never authorization**). All of these must hold:
+
+- **The access request is authorized for provisioning.** Its status is `READY_FOR_PROVISIONING` (or `PROVISIONING` when resuming). `DENIED`, `REJECTED` and `AWAITING_APPROVAL` → `NOT_ELIGIBLE`.
+- **Request and decision agree.** They match on workflow, employee, agent run and resource.
+- **The decision authorizes it:**
+  - `ALLOW` with `authorized_via = POLICY`; or
+  - `REQUIRES_APPROVAL` with `authorized_via = APPROVAL` and an `approval_id` whose approval is verified `APPROVED`, for the same ticket operation and workflow.
+  - Anything else → `AUTHORIZATION_CHAIN_INVALID`.
+- **The resource resolves exactly.** The decision's catalog version and hash resolve (`CATALOG_UNAVAILABLE` otherwise), the resource exists in that snapshot (`RESOURCE_NOT_IN_CATALOG` otherwise), and its provider is `OKTA` (`PROVIDER_MISMATCH` otherwise).
+- **A group target is configured** (`OKTA_TARGET_NOT_CONFIGURED` otherwise).
+- **Declared catalog dependencies are already `PROVISIONED`** in the same workflow (`DEPENDENCIES_NOT_READY` otherwise). There's no graph execution: dependencies are never created, recommended, authorized or provisioned here. Both current OKTA resources have no dependencies, so today this check is trivial; it is tested with a catalog release that adds one.
+- **The authoritative HRIS identity is complete** (`MISSING_IDENTITY_ATTRIBUTE` otherwise, before any write).
+
+The access request and decision are the authority. `PROVISIONED` and `PROVISIONING_FAILED` requests return immediately without any provider call (replay or terminal).
+
+**Per-resource lifecycle** (`access_requests`; M6B states unchanged):
+
+```
+READY_FOR_PROVISIONING → PROVISIONING → PROVISIONED
+                                     ↘ PROVISIONING_FAILED  (terminal: provider conflict or deterministic failure)
+```
+
+- `PROVISIONING` is claimed in a short transaction (`READY → PROVISIONING`, audit `resource.provisioning_started`).
+- Transient failures keep `PROVISIONING` and return `RETRY_LATER`; the durable operation owns retries.
+- `PROVISIONED` is written only after verified Okta read-back, with evidence: `provisioning_operation_id` (the membership operation), `provider_subject_id` (Okta user id), `provider_target_id` (Okta group id) and `provisioned_at`. No response bodies are stored.
+- `PROVISIONING_FAILED` stores a stable `provisioning_error_code`, such as:
+  - `AMBIGUOUS_OKTA_IDENTITY`, `OKTA_IDENTITY_CONFLICT`, `OKTA_LINKED_USER_MISSING`, `OKTA_SUBJECT_LINK_CONFLICT`;
+  - `OKTA_GROUP_NOT_FOUND`, `OKTA_GROUP_MISMATCH`, `OKTA_USER_NOT_FOUND`;
+  - `AUTHENTICATION_FAILED`, `IDENTITY_ATTRIBUTES_CHANGED`.
+- `authorized_via` is kept through the whole provisioning lifecycle (CHECK).
+
+**Identity data and linkage.**
+
+- **HRIS is authoritative.** Okta login and email = `employees.email` (the HRIS work email), `employeeNumber` = the HRIS employee id, names = the HRIS names. Nothing is invented or inferred, and no schema or HRIS change was needed.
+- A user is created **STAGED** (`activate=false`): no activation email and no credentials. It has the minimum identifying profile only.
+- **`external_identities`** records `employee_id`, `provider`, `provider_subject_id` (the immutable Okta user id), `provider_login`, `linked_by_operation_id`, `created_at` and `verified_at`. It is unique on `(employee_id, provider)` and on `(provider, provider_subject_id)`, and holds no credentials.
+- Once linked, provisioning uses the stored user id and re-verifies it by `getUser`. It never searches by email again.
+
+**First-time resolution** (the `okta.ensure_user` operation):
+
+1. **Exact lookup, two ways:** by login (a direct, strongly consistent `GET /api/v1/users/{login}`), and by an exact `profile.employeeNumber eq "…"` search. Search values containing quotes, backslashes or newlines are rejected.
+2. **Exactly one candidate with matching identifiers** (login, email, employeeNumber; not DEPROVISIONED) → adopted (`RESOLVED`).
+3. **None** → create, then read back by id, then verify (`CREATED`).
+4. **More than one** (`AMBIGUOUS_OKTA_IDENTITY`) or **conflicting attributes** (`OKTA_IDENTITY_CONFLICT`) → CONFLICT. Automation stops: no guessing and no adopting a vaguely matching account.
+
+**Group targets** (deployment configuration, **not** in the immutable catalog):
+
+- `OKTA_GROUP_TARGET_ENV` maps `okta-engineering-group` → `OKTA_ENGINEERING_GROUP_ID` / `_NAME`, and `jira-engineering` → `OKTA_JIRA_ENGINEERING_GROUP_ID` / `_NAME`. Ids are validated (`00g…`).
+- Before any membership change the executor verifies that the group exists and that its **exact name** equals the configured name, or the catalog `groupName` when no name is configured. It is not a `BUILT_IN` group. Groups are never discovered by name.
+- An OKTA resource without a configured id is refused (`OKTA_TARGET_NOT_CONFIGURED`), with no provider call.
+
+**Adapter** (`@aoo/okta`; zod-only; mirrors `@aoo/servicenow`):
+
+- `createOktaClient(config)` exposes only `verifyCredentials`, `getUser`, `findUsersByExactIdentity`, `createUser` (STAGED), `getGroup`, `isUserInGroup` (Link-header paging, same origin only) and `addUserToGroup` (idempotent PUT).
+- There is no generic request method, delete, deactivate, membership removal, password or admin-role operation, and no group creation.
+- **Reads** get bounded retries: network, timeout, 429 (honors `Retry-After`, then `X-Rate-Limit-Reset`, capped at 10 s) and 5xx.
+- **Writes are sent once and never retried by the client.** They are classified `notSent` (429, connection refused) or `OUTCOME_UNKNOWN` (timeout, 5xx, unreadable 2xx). 401 and 403 are never retried.
+- Errors carry `code`, `status` and Okta's `errorCode` only: never the token, headers, profile values or response text. `redactOktaText` scrubs `SSWS`, Bearer and Basic tokens, URL userinfo, URL query strings and given values.
+- `pnpm okta:check` is a read-only preflight: base URL, credentials, and each configured target (exists, type, name match). It prints ids, names and booleans only.
+
+**Authentication.** Sandbox API token (`Authorization: SSWS …`) via `OKTA_BASE_URL` (an https origin) and `OKTA_API_TOKEN`. **Known limitation:** production should use a scoped OAuth 2.0 service app (private-key JWT, `okta.users.manage` / `okta.groups.manage`), which is not implemented.
+
+**Durable execution (M4B reused, not duplicated).** `ExternalOperationService` gained a provider-neutral path:
+
+- `requestOperation(...)`: the same idempotent enqueue (unique `idempotency_key`, request hash with `IDEMPOTENCY_CONFLICT`, audit, and an optional outbox event).
+- `ExternalOperationHandler`s (`reconcile` → `perform` → `verify` → `classify`), executed by the **same** claim, lease, fence, release and stop machinery as ServiceNow tickets:
+  - reconcile before any write;
+  - one write per attempt;
+  - on uncertainty, persist `OUTCOME_UNKNOWN` **before** bounded reconciliation;
+  - `SUCCEEDED` only after read-back;
+  - every write fenced by the owner token and a live lease;
+  - sanitized errors (the central sanitizer now maps `OktaError` and redacts `SSWS` tokens);
+  - `attempts` and audit history.
+- The ServiceNow path is unchanged, and all M4B, M4C and M6B tests pass on it.
+- Okta operations are enqueued **without** an outbox event (`enqueueExecution: false`). `provisionOktaAccess` drives execution and is the idempotent resume point after a crash; worker-driven execution is left to M7C.
+
+**Logical operation keys:**
+
+- **Identity:** `okta.ensure_user:employee=<employee uuid>`, shared by every Okta resource of the employee, so concurrent resources never create two users. The operation row records the originating workflow.
+- **Membership:** `okta.add_group_membership:decision=<id>:request=<id>:provider=okta:group=<id>`, one per authorized request and target.
+- Correlation keys are `okta-user:` / `okta-membership:` + 40 hex characters of sha256.
+
+**Reconciliation:**
+
+- **User create:** exact lookup before create. A lost response, 5xx or timeout becomes `OUTCOME_UNKNOWN`, then bounded reconciliation:
+  - one verified user → success (the executor's via is `reconciled_after_unknown`, reported as `CREATED`);
+  - none → retry later, and the next attempt still reconciles first;
+  - more than one, or a conflict → CONFLICT.
+  - Okta `E0000001` ("already exists") on create is also reconciled, never failed blindly. **No blind re-POST.**
+- **Membership:** group and user verified, then membership read. An existing membership is satisfied without a write (`ALREADY_PRESENT`); otherwise PUT, then read back. A lost response is reconciled. Success is never inferred from the attempted write.
+
+**Transaction boundary.** No PostgreSQL transaction spans an Okta call: claim intent (short tx) → durable operation (its own fenced transactions) → link identity (short tx, unique constraints) → `PROVISIONED`, evidence and audit (short tx, guarded by `status = PROVISIONING`). A crash between any two steps is recovered by re-invoking. A stale owner is fenced out: its late success write is refused, and it converges to the recorded outcome without writing.
+
+**Audit events** (ids only; no tokens, headers, bodies or profile data):
+
+- `resource.provisioning_started`;
+- `okta.identity_created` / `okta.identity_resolved`;
+- `okta.group_membership_provisioned` / `okta.group_membership_already_present`;
+- `resource.provisioned` / `resource.provisioning_failed`;
+- plus the generic `external_operation.*` events.
+
+Structured logs carry `provider=OKTA`, `workflowId`, `employeeId`, `resourceId`, `accessRequestId`, `accessDecisionId`, `externalOperationId`, `providerOperation`, identity and membership outcome, reconciliation `via`, `outcome` and latency.
+
+#### M7A verification record
+
+Verified 2026-09-24.
+
+- `pnpm check`: 467 unit tests (26 new: 21 Okta adapter tests with a fake HTTP transport, plus Okta sanitization).
+  - The adapter tests cover: exact lookup, ambiguity candidates, search-injection guard, STAGED create, write classification (503, 429, 401, 400) never retried, timeout → unknown, idempotent PUT, id validation, 429 with `Retry-After` and `X-Rate-Limit-Reset`, 5xx bounded retries, no retry on 401, 404 → null, same-origin paging, config and target validation, and redaction.
+- `pnpm test:integration`: 179 (25 new Okta provisioning PostgreSQL tests with a fake Okta):
+  - create, link and PROVISIONED with evidence; reuse of an existing user and membership; link reuse; replay;
+  - ambiguous and conflicting identities → PROVISIONING_FAILED; a missing identity attribute;
+  - group missing or mismatched; target not configured;
+  - authorization boundary: DENIED, AWAITING_APPROVAL, REJECTED, wrong provider, forged READY rows (DENY decision, unverified approval, mismatched chain) and catalog hash mismatch, all with **0 Okta calls**;
+  - dependencies not ready, then ready;
+  - lost create and lost membership reconciled; 429 and 5xx released and resumed; authentication failure not retried, with a sanitized error;
+  - 2 and 6 concurrent provisions; two resources for one new employee (1 user);
+  - crash after create and crash after membership (the stale owner converges without writes).
+  - Every test ends with one identity, one link, one membership operation per request and one `resource.provisioned`.
+- Existing suites (M4B, M4C and M6B) are unchanged and pass on the generalized executor.
+- `pnpm build`: 13 packages.
+- **Mutation checks:** skipping reconcile-before-write fails 6 tests; skipping the verified-approval check fails the forged-chain test.
+- **Compose:** `docker compose up --build -d` succeeded. All services are healthy, `migrate` exited 0 and 13 migrations are applied through `0012` on the existing populated database. `external_identities` exists, and `access_request_status` has the three new values.
+- **Live Okta sandbox:** `pnpm test:okta:live`, 1/1 **twice**. The org is `integrator-5278657-admin.okta.com` and the dedicated group is `AOO Engineering Test` (`00g180drnqqszFaRV698`, type `OKTA_GROUP`).
+  - **Preflight first** (`pnpm okta:check`, read-only): credentials accepted, the group exists and its name matches.
+  - **Run 1:** fixture **created**. It got the synthetic STAGED user `00u180dozmpYiodlH698` (login `aoo.m7a.fixture@example.com`, employeeNumber `TEST-EMP-M7A-OKTA-FIXTURE`), with `identity CREATED` and `membership ADDED`. Okta read-back confirmed the profile and the membership, and the access request is `PROVISIONED` with that user and group.
+  - **Run 1 replay:** `replayed: true`, with no provider writes.
+  - **Run 2:** fixture **reused**, on a fresh test database. The exact lookup found the same single user (`identity RESOLVED`), and the membership was already present (`ALREADY_PRESENT`, no write).
+  - **Both runs:** 1 Okta user for the fixture identity, 1 identity operation, 1 membership operation, 1 identity link, 0 duplicates.
+  - The policy chain was verified in the run: `ALLOW` by `engineering-baseline`, then `READY_FOR_PROVISIONING`. No model or ServiceNow call was made, and nothing was deleted.
+
+**Remaining limitations (M7A):**
+
+- `OKTA_BASE_URL` currently points at the admin hostname (`…-admin.okta.com`). The API calls used here work on it, but the org hostname (without `-admin`) is the conventional API endpoint; switch it before any broader use.
+- Only group membership on OKTA resources is supported. No automatic trigger, no multi-resource or dependency orchestration (M7C), no worker-driven Okta execution.
+- Users are created STAGED. Activation or lifecycle (start date) is out of scope.
+- API-token auth, not OAuth (see Authentication).
+- The identity operation's `workflow_id` is the first workflow that needed it (the operation is employee-scoped).
+- If HRIS later changes the employee's email or names, the existing identity operation's request no longer matches (`IDENTITY_ATTRIBUTES_CHANGED`, terminal for that resource). A link-based path uses the stored Okta user id instead. Identity updates are out of scope.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -1347,6 +1504,7 @@ packages/
   db/            @aoo/db            Drizzle schema, pg client, config loader, migrator. migrations/ = versioned SQL
   orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence); src/agents (M6A run service), src/authorization (M6B recommendation-to-policy)
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
+  okta/          @aoo/okta          Okta adapter (M7A): narrow additive client (users, groups, membership), config + group targets, redaction, `pnpm okta:check`
   servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
   catalog/       @aoo/catalog       Versioned resource catalog (M5A): src/versions/*.json releases, validation, ResourceCatalog + CatalogRegistry
   agents/        @aoo/agents        Role Access Agent (M6A): versioned prompt, output contract, validation, model provider (OpenAI Responses API), eval dataset + live runner
@@ -1419,7 +1577,14 @@ Location decisions made in M6B:
 - The approval effect on resources lives in the existing `ApprovalService` transaction.
 - The ServiceNow link reuses M4B (`accessDecisionId` in the keys).
 
-Not yet created: company onboarding rules, the Onboarding Plan Agent and the Okta/GitHub adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
+Location decisions made in M7A:
+
+- The Okta adapter is its own package, `@aoo/okta` (zod only, no `@aoo/*` imports).
+- The Okta operation handlers and the provisioning service live in `@aoo/orchestrator/src/provisioning`. The generic handler contract lives in `src/external-operations/handler.ts`.
+- `external_identities` lives in `@aoo/db`.
+- Group targets are environment configuration in `@aoo/okta` (`OKTA_GROUP_TARGET_ENV`).
+
+Not yet created: company onboarding rules, the Onboarding Plan Agent and the GitHub adapter. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
 
@@ -1438,6 +1603,7 @@ Not yet created: company onboarding rules, the Onboarding Plan Agent and the Okt
 - `@aoo/catalog` has no workspace dependencies. It never calls providers, never writes the database and makes no policy decisions. It must not be imported by `@aoo/shared` or the web app. Agents get catalog data only as a `CatalogSnapshot` and may only reference resources from it.
 - `@aoo/agents` depends only on `@aoo/catalog` and `zod` (a unit test enforces this). It must not import `@aoo/db`, `@aoo/policy`, `@aoo/servicenow`, `@aoo/orchestrator` or any adapter, and it never writes the database. The model is offered no tools or functions: only a strict structured-output schema. The orchestrator persists runs and passes the agent only human-readable context and the enabled catalog snapshot.
 - `@aoo/policy` depends only on `@aoo/catalog`, `@aoo/shared` (canonical fact values) and `zod`. It is pure: no I/O, no database, no adapters, no LLM, no workflow writes. It must not be imported by `@aoo/shared`, the web app or agent code. Agents never see or call the policy engine; the orchestrator evaluates agent recommendations with it.
+- `@aoo/okta` must not import `@aoo/orchestrator`, `@aoo/db` or workflow code. Only `@aoo/orchestrator` invokes it, through `OktaGateway` and the durable executor. Only `@aoo/orchestrator` writes `external_identities`.
 - Only `@aoo/orchestrator` writes `access_decisions` (append-only) and `access_requests`. The authorization service takes policy, catalog, workflow and external-operation dependencies, and **no agent or model provider**.
 - Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
@@ -1490,6 +1656,10 @@ All env vars are read through Zod loaders. `.env.example` lists every variable.
 | `OPENAI_MODEL`                                                                                   | Role Access Agent                                                                                     | `gpt-5.6-sol`                                                                                                                         |
 | `OPENAI_BASE_URL`                                                                                | Role Access Agent                                                                                     | `https://api.openai.com` (https only)                                                                                                 |
 | `ROLE_ACCESS_AGENT_TIMEOUT_MS`, `ROLE_ACCESS_AGENT_MAX_ATTEMPTS`, `ROLE_ACCESS_AGENT_MAX_TOKENS` | Role Access Agent                                                                                     | `60000`, `3`, `8192`                                                                                                                  |
+| `OKTA_BASE_URL`, `OKTA_API_TOKEN`                                                                | Okta adapter (M7A)                                                                                    | unset (live test reports LIVE_OKTA_BLOCKED). https origin; SSWS API token only in `.env`; never logged                                |
+| `OKTA_ENGINEERING_GROUP_ID`, `OKTA_ENGINEERING_GROUP_NAME`                                       | Okta group target for `okta-engineering-group`                                                        | unset (resource refused). Name = exact Okta group name (else the catalog groupName)                                                   |
+| `OKTA_JIRA_ENGINEERING_GROUP_ID`, `OKTA_JIRA_ENGINEERING_GROUP_NAME`                             | Okta group target for `jira-engineering`                                                              | unset (resource refused)                                                                                                              |
+| `OKTA_TIMEOUT_MS`, `OKTA_MAX_RETRIES`, `OKTA_RETRY_BASE_MS`                                      | Okta adapter                                                                                          | `10000`, `2`, `250`                                                                                                                   |
 | `APPROVAL_LIVE_PORT`                                                                             | live approval test: local port behind the tunnel                                                      | `4810`                                                                                                                                |
 | `TEST_DATABASE_URL`                                                                              | integration tests: admin connection used to create and drop a throwaway `aoo_test_*` database per run | `postgres://aoo:aoo@localhost:5432/aoo`                                                                                               |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`                             | compose `postgres` / `migrate`                                                                        | `aoo`, `aoo`, `aoo`, `5432` (development-only credentials)                                                                            |
@@ -1534,6 +1704,8 @@ pnpm test:servicenow:live               # explicit live ServiceNow tests: read-o
 pnpm worker:admin external-ops [--status FAILED]           # list durable external operations
 pnpm worker:admin reopen-operation --id <uuid> --reason "…" # reopen a FAILED operation (audited)
 pnpm test:servicenow:approval:live     # explicit live approval round trip (needs SETUP.md §10 + a public tunnel)
+pnpm okta:check                        # read-only Okta preflight: base URL, credentials, configured group targets (no writes)
+pnpm test:okta:live                    # explicit live M7A test against the Okta sandbox (synthetic fixture; LIVE_OKTA_BLOCKED without config)
 pnpm test:m6b:live                     # explicit live M6B test: authorization → real ServiceNow ticket → approval → per-resource state (synthetic)
 pnpm agent:eval:live                   # explicit live Role Access Agent evaluation (needs OPENAI_API_KEY in .env; BLOCKED otherwise)
 pnpm check            # format:check + typecheck + unit tests

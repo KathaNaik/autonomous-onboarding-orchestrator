@@ -20,6 +20,7 @@ COPY packages/servicenow/package.json packages/servicenow/
 COPY packages/catalog/package.json packages/catalog/
 COPY packages/policy/package.json packages/policy/
 COPY packages/agents/package.json packages/agents/
+COPY packages/okta/package.json packages/okta/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build

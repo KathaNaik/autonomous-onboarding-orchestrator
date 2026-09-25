@@ -1,3 +1,4 @@
+import { OktaError } from "@aoo/okta";
 import { ServiceNowAuthError, ServiceNowOutcomeUnknownError } from "@aoo/servicenow";
 import { describe, expect, it } from "vitest";
 import { serviceNowAccessRequestKeys } from "../src/external-operations/keys.js";
@@ -118,5 +119,49 @@ describe("sanitizeExternalError", () => {
 
   it("scrubText handles non-string sensitive values safely", () => {
     expect(scrubText("value ab kept", ["ab"])).toBe("value ab kept"); // <3 chars ignored
+  });
+});
+
+describe("Okta error sanitization (M7A)", () => {
+  const token = "00OktaApiToken_SECRETSECRETSECRETSECRET01";
+
+  it("never persists an Okta API token, Authorization header or bearer value", () => {
+    const fromOkta = sanitizeExternalError(
+      new OktaError(
+        "AUTHENTICATION_FAILED",
+        "getUser",
+        `HTTP 401 Authorization: SSWS ${token} bearer eyJhbGciOi.abc.def`,
+        { status: 401, oktaErrorCode: "E0000011" },
+      ),
+      { provider: "okta", sensitiveValues: [token] },
+    );
+    expect(fromOkta).toMatchObject({
+      provider: "okta",
+      category: "AUTHENTICATION",
+      code: "AUTHENTICATION_FAILED:E0000011",
+      httpStatus: 401,
+      retryable: false,
+    });
+    const unexpected = sanitizeExternalError(
+      new Error(`socket closed; request had header SSWS ${token} and body {"secret":"x"}`),
+      { provider: "okta" },
+    );
+    for (const e of [fromOkta, unexpected]) {
+      const text = JSON.stringify(e) + formatSanitizedError(e);
+      expect(text).not.toContain(token);
+      expect(text).not.toContain("eyJhbGciOi");
+    }
+    expect(unexpected.message).toContain("SSWS [REDACTED]");
+  });
+
+  it.each([
+    ["RATE_LIMITED", "PROVIDER_UNAVAILABLE"],
+    ["OUTCOME_UNKNOWN", "OUTCOME_UNKNOWN"],
+    ["PERMISSION_DENIED", "PERMISSION"],
+    ["BAD_REQUEST", "VALIDATION"],
+  ] as const)("maps Okta %s to category %s", (code, category) => {
+    expect(
+      sanitizeExternalError(new OktaError(code, "op", "x"), { provider: "okta" }).category,
+    ).toBe(category);
   });
 });

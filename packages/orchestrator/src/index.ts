@@ -6,6 +6,7 @@ export * from "./events/index.js";
 export * from "./external-operations/index.js";
 export * from "./hris-intake.js";
 export * from "./outbox/index.js";
+export * from "./provisioning/index.js";
 export * from "./schemas.js";
 export * from "./state-machine.js";
 export * from "./workflow-service.js";

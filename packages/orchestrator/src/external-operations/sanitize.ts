@@ -1,3 +1,4 @@
+import { OktaError } from "@aoo/okta";
 import { ServiceNowError, redactText } from "@aoo/servicenow";
 
 export type ErrorCategory =
@@ -41,6 +42,21 @@ const SERVICENOW_CATEGORY: Record<string, ErrorCategory> = {
   NOT_FOUND: "RESPONSE_INVALID",
 };
 
+const OKTA_CATEGORY: Record<string, ErrorCategory> = {
+  AUTHENTICATION_FAILED: "AUTHENTICATION",
+  PERMISSION_DENIED: "PERMISSION",
+  CONFIG_INVALID: "VALIDATION",
+  REQUEST_INVALID: "VALIDATION",
+  BAD_REQUEST: "VALIDATION",
+  RATE_LIMITED: "PROVIDER_UNAVAILABLE",
+  TIMEOUT: "TIMEOUT",
+  UNAVAILABLE: "NETWORK",
+  OUTCOME_UNKNOWN: "OUTCOME_UNKNOWN",
+  NOT_FOUND: "RESPONSE_INVALID",
+  MALFORMED_RESPONSE: "RESPONSE_INVALID",
+  UNEXPECTED_REDIRECT: "RESPONSE_INVALID",
+};
+
 const MAX_MESSAGE = 300;
 
 /**
@@ -50,6 +66,8 @@ const MAX_MESSAGE = 300;
  */
 export function scrubText(text: string, sensitiveValues: readonly string[] = []): string {
   let out = redactText(text)
+    // Okta API tokens use the SSWS scheme (not covered by the Basic/Bearer rule).
+    .replace(/\bSSWS\s+[A-Za-z0-9._~+/=-]+/gi, "SSWS [REDACTED]")
     .replace(/\bparams:[\s\S]*$/i, "params: [REDACTED]")
     .replace(/\b(set-cookie|cookie)\s*[:=]\s*[^\n;]+/gi, "$1: [REDACTED]")
     .replace(/(https?:\/\/[^\s?#]+)\?[^\s#]*/gi, "$1?[REDACTED]")
@@ -76,6 +94,17 @@ export function sanitizeExternalError(
       ...base,
       category: SERVICENOW_CATEGORY[err.code] ?? "INTERNAL",
       code: err.code,
+      ...(err.status !== undefined && { httpStatus: err.status }),
+      operation: err.operation,
+      retryable: err.retryable,
+      message: scrub(err.message),
+    };
+  }
+  if (err instanceof OktaError) {
+    return {
+      ...base,
+      category: OKTA_CATEGORY[err.code] ?? "INTERNAL",
+      code: err.oktaErrorCode ? `${err.code}:${err.oktaErrorCode}` : err.code,
       ...(err.status !== undefined && { httpStatus: err.status }),
       operation: err.operation,
       retryable: err.retryable,

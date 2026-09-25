@@ -25,7 +25,8 @@
     "@aoo/servicenow": "workspace:*",
     "@aoo/agents": "workspace:*",
     "@aoo/catalog": "workspace:*",
-    "@aoo/policy": "workspace:*"
+    "@aoo/policy": "workspace:*",
+    "@aoo/okta": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15"

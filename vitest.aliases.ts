@@ -12,6 +12,7 @@ export const workspaceAliases = [
   { find: /^@aoo\/catalog$/, replacement: src("packages/catalog/src/index.ts") },
   { find: /^@aoo\/db\/testing$/, replacement: src("packages/db/src/testing.ts") },
   { find: /^@aoo\/db$/, replacement: src("packages/db/src/index.ts") },
+  { find: /^@aoo\/okta$/, replacement: src("packages/okta/src/index.ts") },
   { find: /^@aoo\/orchestrator$/, replacement: src("packages/orchestrator/src/index.ts") },
   { find: /^@aoo\/policy$/, replacement: src("packages/policy/src/index.ts") },
   { find: /^@aoo\/servicenow$/, replacement: src("packages/servicenow/src/index.ts") },

@@ -326,6 +326,16 @@ importers:
         specifier: ^4.23.15
         version: 4.23.15
 
+  packages/okta:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+
   packages/orchestrator:
     dependencies:
       '@aoo/agents':
@@ -337,6 +347,9 @@ importers:
       '@aoo/db':
         specifier: workspace:*
         version: link:../db
+      '@aoo/okta':
+        specifier: workspace:*
+        version: link:../okta
       '@aoo/policy':
         specifier: workspace:*
         version: link:../policy

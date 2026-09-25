@@ -629,6 +629,10 @@ export const ACCESS_REQUEST_STATUSES = [
   "DENIED",
   "AWAITING_APPROVAL",
   "REJECTED",
+  // M7A provisioning lifecycle.
+  "PROVISIONING",
+  "PROVISIONED",
+  "PROVISIONING_FAILED",
 ] as const;
 export const accessRequestStatusEnum = pgEnum("access_request_status", ACCESS_REQUEST_STATUSES);
 export const ACCESS_AUTHORIZED_VIA = ["POLICY", "APPROVAL"] as const;
@@ -664,14 +668,37 @@ export const accessRequests = pgTable(
       .references(() => externalOperations.id, { onDelete: "restrict" }),
     /** The M4C approval that decided this resource, once verified. */
     approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "restrict" }),
+    // M7A: verified provisioning evidence (provider ids only, no response bodies).
+    /** The external operation that applied the entitlement (e.g. Okta group membership). */
+    provisioningOperationId: uuid("provisioning_operation_id")
+      .unique()
+      .references(() => externalOperations.id, { onDelete: "restrict" }),
+    /** Provider subject the entitlement was applied to (e.g. Okta user id). */
+    providerSubjectId: text("provider_subject_id"),
+    /** Provider target (e.g. Okta group id). */
+    providerTargetId: text("provider_target_id"),
+    provisionedAt: timestamp("provisioned_at", { withTimezone: true }),
+    /** Stable error code for PROVISIONING_FAILED (never provider text). */
+    provisioningErrorCode: text("provisioning_error_code"),
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
   (t) => [
     index("access_requests_workflow_id_idx").on(t.workflowId),
+    // Authorized resources keep their authorization through the provisioning lifecycle. The M7A
+    // enum values are compared as text: PostgreSQL forbids using a new enum value in the
+    // transaction that adds it, and migrations run in one transaction.
     check(
-      "access_requests_authorized_via_iff_ready",
-      sql`(${t.status} = 'READY_FOR_PROVISIONING') = (${t.authorizedVia} IS NOT NULL)`,
+      "access_requests_authorized_via_iff_authorized",
+      sql`(${t.status}::text IN ('READY_FOR_PROVISIONING', 'PROVISIONING', 'PROVISIONED', 'PROVISIONING_FAILED')) = (${t.authorizedVia} IS NOT NULL)`,
+    ),
+    check(
+      "access_requests_provisioned_has_evidence",
+      sql`${t.status}::text <> 'PROVISIONED' OR (${t.provisionedAt} IS NOT NULL AND ${t.provisioningOperationId} IS NOT NULL AND ${t.providerSubjectId} IS NOT NULL AND ${t.providerTargetId} IS NOT NULL)`,
+    ),
+    check(
+      "access_requests_failed_has_code",
+      sql`(${t.status}::text = 'PROVISIONING_FAILED') = (${t.provisioningErrorCode} IS NOT NULL)`,
     ),
     check(
       "access_requests_authorized_via_valid",
@@ -688,6 +715,37 @@ export const accessRequests = pgTable(
   ],
 );
 
+/**
+ * Provider identity links (M7A). One verified provider account per employee per provider, and a
+ * provider account can belong to only one employee. Once linked, the immutable provider subject
+ * id is used instead of searching again. Holds no credentials.
+ */
+export const externalIdentities = pgTable(
+  "external_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "restrict" }),
+    provider: externalProviderEnum("provider").notNull(),
+    /** Immutable provider id (Okta user id). */
+    providerSubjectId: text("provider_subject_id").notNull(),
+    /** Safe provider identifier for humans (Okta login). */
+    providerLogin: text("provider_login").notNull(),
+    /** The external operation whose verified result established the link. */
+    linkedByOperationId: uuid("linked_by_operation_id").references(() => externalOperations.id, {
+      onDelete: "restrict",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("external_identities_employee_provider_idx").on(t.employeeId, t.provider),
+    uniqueIndex("external_identities_provider_subject_idx").on(t.provider, t.providerSubjectId),
+  ],
+);
+
+export type ExternalIdentity = typeof externalIdentities.$inferSelect;
 export type AccessDecision = typeof accessDecisions.$inferSelect;
 export type AccessRequest = typeof accessRequests.$inferSelect;
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
