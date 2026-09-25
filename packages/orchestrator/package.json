@@ -24,7 +24,8 @@
     "zod": "^4.6.5",
     "@aoo/servicenow": "workspace:*",
     "@aoo/agents": "workspace:*",
-    "@aoo/catalog": "workspace:*"
+    "@aoo/catalog": "workspace:*",
+    "@aoo/policy": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15"

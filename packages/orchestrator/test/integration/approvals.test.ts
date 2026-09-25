@@ -159,17 +159,34 @@ describe("approval lifecycle", () => {
     expect(audit).toHaveLength(1);
   });
 
-  it("a verified rejection is recorded; the workflow is NOT resumed (stays AWAITING_APPROVAL)", async () => {
+  it("a verified rejection is recorded and ends the approval phase once nothing is pending (M6B)", async () => {
+    // M4C left the workflow in AWAITING_APPROVAL on rejection. Since M6B the rejected resource is
+    // REJECTED in its own per-resource record, and the workflow moves on when no approval is
+    // pending, whatever the outcomes (otherwise approve-then-reject would strand it forever).
     const { fake, ticket, workflowId } = await awaitingApproval();
     fake.setApprovalState(ticket.sysId, "rejected");
     const result = await deliver(service(fake), callback(ticket, "5", "rejected"));
     expect(result).toMatchObject({
       outcome: "APPLIED_REJECTED",
       approvalStatus: "REJECTED",
-      workflowResumed: false,
+      workflowResumed: true,
     });
     expect(await approvalOf(ticket.operation.id)).toMatchObject({ status: "REJECTED" });
-    expect(await workflowState(workflowId)).toMatchObject({ state: "AWAITING_APPROVAL" });
+    expect(await workflowState(workflowId)).toMatchObject({ state: "PROVISIONING" });
+  });
+
+  it("approve one resource, then reject the last pending one: the workflow still moves on (M6B)", async () => {
+    const { fake, tickets, workflowId } = await awaitingApproval(new FakeServiceNow(), {
+      resources: ["test:resource:a", "test:resource:b"],
+    });
+    const [a, b] = tickets as [(typeof tickets)[0], (typeof tickets)[0]];
+    fake.setApprovalState(a.sysId, "approved");
+    expect(await deliver(service(fake), callback(a, "5"))).toMatchObject({
+      workflowResumed: false,
+    });
+    fake.setApprovalState(b.sysId, "rejected");
+    expect(await deliver(service(fake), callback(b, "5"))).toMatchObject({ workflowResumed: true });
+    expect(await workflowState(workflowId)).toMatchObject({ state: "PROVISIONING" });
   });
 
   it("does not require every workflow to pass through AWAITING_APPROVAL", async () => {
@@ -233,7 +250,10 @@ describe("the callback is never authoritative", () => {
     fake.setApprovalState(ticket.sysId, "rejected");
     const result = await deliver(service(fake), callback(ticket, "5", "approved"));
     expect(result).toMatchObject({ outcome: "APPLIED_REJECTED", approvalStatus: "REJECTED" });
-    expect(await workflowState(workflowId)).toMatchObject({ state: "AWAITING_APPROVAL" });
+    // The claimed approval granted nothing: the approval is REJECTED. (Since M6B a decided
+    // rejection ends the approval phase, so the workflow moves on with nothing approved.)
+    expect(await approvalOf(ticket.operation.id)).toMatchObject({ status: "REJECTED" });
+    expect(await workflowState(workflowId)).toMatchObject({ state: "PROVISIONING" });
   });
 
   it("unknown ticket, mismatched sys_id / number, and a provider record with another correlation key are rejected", async () => {
@@ -378,7 +398,8 @@ describe("duplicates, replays and races", () => {
       approvalStatus: "REJECTED",
     });
     expect(await approvalOf(ticket.operation.id)).toMatchObject({ status: "REJECTED" });
-    expect(await workflowState(workflowId)).toMatchObject({ state: "AWAITING_APPROVAL" });
+    // Never flipped to APPROVED; the rejection ended the approval phase (M6B).
+    expect(await workflowState(workflowId)).toMatchObject({ state: "PROVISIONING" });
     const conflict = await handle.db
       .select()
       .from(auditEvents)

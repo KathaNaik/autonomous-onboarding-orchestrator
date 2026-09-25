@@ -1,5 +1,6 @@
 export * from "./agents/index.js";
 export * from "./approvals/index.js";
+export * from "./authorization/index.js";
 export * from "./errors.js";
 export * from "./events/index.js";
 export * from "./external-operations/index.js";

@@ -6,22 +6,23 @@ It is a pnpm + TypeScript monorepo, built in milestones (see **Milestone workflo
 
 ## Current status
 
-| Milestone | Scope                                                                                                                                                                                                                                                           | Status                                                                                                               |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                                                                                                          | Complete (accepted)                                                                                                  |
-| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                                                                                                             | Complete (awaiting acceptance)                                                                                       |
-| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                                                                                                             | Complete (awaiting acceptance)                                                                                       |
-| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING)                                                                                  | Verified (ready for acceptance)                                                                                      |
-| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                                                                                                | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
-| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                                                                                        | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
-| M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING                                                                  | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
-| M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                                                                                     | Complete (accepted)                                                                                                  |
-| M5B       | Versioned deterministic access policy engine (`@aoo/policy`): immutable, hash-pinned policy releases bound to a catalog release, per-resource ALLOW / DENY / REQUIRES_APPROVAL, replay                                                                          | Complete (accepted)                                                                                                  |
-| M5C       | Canonical employee facts: HRIS `departmentCode` / `roleFamilyCode` / `employmentType`, validated at ingestion, persisted on `employees` (migration `0007`), policy-subject adapter, policy `1.1.0`                                                              | Verified (ready for acceptance)                                                                                      |
-| M6A       | Role Access Agent (`@aoo/agents`): versioned prompt, Zod output contract, post-model catalog validation, provider abstraction (OpenAI Responses API, Structured Outputs), durable idempotent agent runs (migrations `0008`, `0009`), eval dataset + live runner | **Complete (accepted).** Live evaluation on `gpt-5.6-sol` passed every threshold (see **M6A live evaluation**)       |
-| M6B+      | Not yet defined; the user defines each when starting it                                                                                                                                                                                                         | Not started                                                                                                          |
+| Milestone | Scope                                                                                                                                                                                                                                                                      | Status                                                                                                               |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| M1        | Monorepo scaffold: Fastify API, Next.js web, shared Zod schemas, Vitest, Docker Compose, health endpoints, smoke tests                                                                                                                                                     | Complete (accepted)                                                                                                  |
+| M2        | Persistent workflow engine: PostgreSQL, Drizzle, versioned migrations, workflow state machine, `WorkflowService`, append-only audit                                                                                                                                        | Complete (awaiting acceptance)                                                                                       |
+| M3A       | Signed HRIS webhook (`POST /webhooks/hris`), HMAC auth, HRIS simulator, event receipts, transactional outbox writes                                                                                                                                                        | Complete (awaiting acceptance)                                                                                       |
+| M3B       | Durable local outbox worker: SKIP LOCKED claiming, leases with fencing, retries with backoff and jitter, dead-letter plus redrive, workflow start (RECEIVED → ACCESS_PLANNING)                                                                                             | Verified (ready for acceptance)                                                                                      |
+| M4A       | ServiceNow PDI setup, scoped app + table, read-only Table API adapter (`@aoo/servicenow`), explicit live test, update-set export                                                                                                                                           | **Complete (accepted).** Verified live against PDI `dev225201` (see **M4A verification record**)                     |
+| M4B       | Durable ServiceNow ticket creation: generic `external_operations`, reconcile-before-create, fenced owners, uncertain-outcome reconciliation, create-only ServiceNow role                                                                                                   | **Complete (accepted).** Live write verified on PDI `dev225201` (see **M4B verification record**)                    |
+| M4C       | Bidirectional ServiceNow approvals: `approval_state` field, signed outbound callback, durable callback inbox, authoritative read-back, decide-once approvals, AWAITING_APPROVAL → PROVISIONING                                                                             | **Complete (accepted).** Live round trip verified on PDI `dev225201`; clean export `autonomous-onboarding-1.2.2.xml` |
+| M5A       | Versioned enterprise resource catalog (`@aoo/catalog`): immutable, hash-pinned JSON releases, Zod + graph validation, catalog service, read-only `GET /resources` endpoints                                                                                                | Complete (accepted)                                                                                                  |
+| M5B       | Versioned deterministic access policy engine (`@aoo/policy`): immutable, hash-pinned policy releases bound to a catalog release, per-resource ALLOW / DENY / REQUIRES_APPROVAL, replay                                                                                     | Complete (accepted)                                                                                                  |
+| M5C       | Canonical employee facts: HRIS `departmentCode` / `roleFamilyCode` / `employmentType`, validated at ingestion, persisted on `employees` (migration `0007`), policy-subject adapter, policy `1.1.0`                                                                         | Verified (ready for acceptance)                                                                                      |
+| M6A       | Role Access Agent (`@aoo/agents`): versioned prompt, Zod output contract, post-model catalog validation, provider abstraction (OpenAI Responses API, Structured Outputs), durable idempotent agent runs (migrations `0008`, `0009`), eval dataset + live runner            | **Complete (accepted).** Live evaluation on `gpt-5.6-sol` passed every threshold (see **M6A live evaluation**)       |
+| M6B       | Recommendation-to-policy orchestration: one append-only `access_decisions` row per recommended resource (run's fact snapshot, catalog and policy versions), per-resource `access_requests` lifecycle, REQUIRES_APPROVAL routed through M4B/M4C (migrations `0010`, `0011`) | **Complete (accepted).** Live PDI test passed (`OAR0001012`); Compose verified with migrations through `0011`        |
+| M6C+      | Not yet defined; the user defines each when starting it                                                                                                                                                                                                                    | Not started                                                                                                          |
 
-What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. M5C adds canonical employee facts from HRIS (see **Canonical employee facts**). M6A adds the Role Access Agent and its durable recommendation runs (see **Role Access Agent**); nothing in the workflow invokes it yet. **Nothing provisions access yet. No Onboarding Plan Agent, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
+What exists today: the M1 scaffold, the M2 database and workflow engine (see **Workflow engine**), the M3A signed HRIS webhook (see **HRIS webhook**), and the M3B outbox worker (see **Outbox worker**). The worker is a separate process that starts each newly created workflow (`RECEIVED → ACCESS_PLANNING`). M4A adds the ServiceNow Table API adapter (see **ServiceNow adapter**). M4B adds durable, idempotent ServiceNow ticket creation (see **External operations**), executed by the worker when something enqueues it; nothing in the workflow enqueues it yet. M4C adds ServiceNow approval callbacks (see **Approvals**): a verified approval resumes `AWAITING_APPROVAL → PROVISIONING`. M5A adds the versioned resource catalog (see **Resource catalog**). M5B adds the pure policy engine (see **Access policy engine**); nothing in the workflow calls it yet. M5C adds canonical employee facts from HRIS (see **Canonical employee facts**). M6A adds the Role Access Agent and its durable recommendation runs (see **Role Access Agent**). M6B authorizes a completed agent run with the policy engine, persists one decision and one per-resource lifecycle record per recommended resource, and routes approval-required resources to ServiceNow (see **Recommendation-to-policy authorization**). Nothing triggers the agent or the authorization automatically yet, and nothing is provisioned. **Nothing provisions access yet. No Onboarding Plan Agent, per-resource access execution, Okta or GitHub integrations, AWS infrastructure or frontend features exist yet.** Everything under **Confirmed architecture** below is decided but, unless marked "in place", not built. Build each piece only when a milestone asks for it.
 
 ## Confirmed architecture
 
@@ -70,6 +71,8 @@ These decisions are fixed. Changing any of them needs an explicit decision from 
   - `0003_audit_occurred_at_clock_timestamp`: M3A. `audit_events.occurred_at` now defaults to `clock_timestamp()` instead of `now()`. `now()` is the transaction _start_ time, which misordered audit events written by concurrent transactions that commit in a different order than they began.
   - `0004_outbox_worker_leases_and_attempts`: M3B. Adds to `outbox_events`: `status`, `cycle_attempts`, lease columns, `dead_lettered_at`, `redrive_count`, integrity CHECKs, and a claimable index that replaces `outbox_events_unpublished_idx`. Also adds the `outbox_event_attempts` table and `audit_events.idempotency_key` (unique where not null). Additive; existing rows remain valid.
   - `0005_external_operations` (M4B) and `0006_approvals` (M4C).
+  - `0010_access_decisions_and_requests`: M6B. Adds the `access_decision` and `access_request_status` enums and the `access_decisions` and `access_requests` tables. Additive.
+  - `0011_access_decisions_append_only`: M6B, hand-written. Triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `access_decisions`.
   - `0009_agent_run_served_model`: M6A provider migration. Adds nullable `agent_runs.served_model` (the model the provider reports serving). Additive.
   - `0008_agent_runs`: M6A. Adds the `agent_run_status` enum and the `agent_runs` and `agent_recommendations` tables (see **Role Access Agent**). Additive.
   - `0007_employee_canonical_facts`: M5C. Adds nullable `department_code`, `role_family_code`, `employment_type` and `facts_hris_event_id` to `employees`, with CHECKs: all four set or all four NULL, and each code in its canonical list. Additive; existing rows keep NULL facts (see **Canonical employee facts**).
@@ -485,7 +488,9 @@ The API makes **no decision** and holds **no ServiceNow credentials**.
    - approval still PENDING → set APPROVED or REJECTED, record `decided_by_event_id`, audit → `APPLIED_APPROVED` / `APPLIED_REJECTED`;
    - same decision already applied → `ALREADY_APPLIED`;
    - a _different_ decision already applied → `DECISION_CONFLICT` plus an `approval.conflict` audit event. It's **never flipped automatically**.
-4. **Resumption:** on APPROVED, if the workflow is `AWAITING_APPROVAL` and **no other approval for it is PENDING**, transition to `PROVISIONING`, using idempotency key `approval-resume:<workflow>:<approval>` so it happens at most once. A version conflict is retried. Workflows that never entered AWAITING_APPROVAL aren't touched. **REJECTED doesn't move the workflow:** the approval path is terminal, and what a rejection means for the onboarding is a policy decision for a later milestone. Nothing is provisioned.
+4. **Resumption:** when a verified decision (APPROVED or, since M6B, REJECTED) leaves **no approval of the workflow PENDING**, and the workflow is `AWAITING_APPROVAL`, transition to `PROVISIONING`. This uses idempotency key `approval-resume:<workflow>:<approval>`, so it happens at most once, and a version conflict is retried. Workflows that never entered AWAITING_APPROVAL aren't touched.
+   - The approval itself is terminal, and what it means for each resource lives in the per-resource `access_requests` record (M6B): APPROVED → `READY_FOR_PROVISIONING`, REJECTED → `REJECTED`. A rejected resource is never provisioned.
+   - M4C originally left the workflow in AWAITING_APPROVAL on rejection. M6B changed that, because approve-one-then-reject-the-last would otherwise strand the workflow forever. Nothing is provisioned.
 
 **ServiceNow side (SETUP.md §10):**
 
@@ -537,7 +542,7 @@ Verified 2026-09-24 on PDI `dev225201` with synthetic data, through a temporary 
 
 **Remaining limitations (M4C):**
 
-- **REJECTED doesn't move the workflow;** what a rejection means for the onboarding is policy, a later milestone.
+- ~~REJECTED doesn't move the workflow~~ **Resolved in M6B:** a rejection settles its resource as `REJECTED`, and the workflow leaves AWAITING_APPROVAL once no approval is pending.
 - **A decision is never flipped automatically.** A later contradicting ServiceNow change is surfaced as `DECISION_CONFLICT`.
 - **Delivery:** ServiceNow's `RESTMessageV2.execute()` in an async rule is not retried automatically. A lost callback leaves the approval PENDING until the record changes again. There's no periodic reconciliation poller yet.
 - **Tunnel:** local callbacks need a public tunnel, and the quick-tunnel URL changes on every restart (update `x_2230066_autono_0.aoo.approval_callback.url`). The tunnel is currently stopped, so callbacks fail harmlessly until a new URL is set.
@@ -1022,6 +1027,147 @@ Observations, not failures:
 - `reason` is model free text, bounded to 300 characters and stored as recommendation data only. Nothing executes or trusts it.
 - Retries in one invocation are bounded by the lease deadline. There is no background retry: the caller re-invokes after `BUSY` or a retryable `RUN_FAILED`.
 
+### Recommendation-to-policy authorization (in place since M6B)
+
+> **Agents recommend. Policies authorize. Adapters execute. The orchestrator owns state.**
+
+`createAccessAuthorizationService(db, { policies, catalogs, workflows, externalOperations })` (`@aoo/orchestrator`, `src/authorization/service.ts`) exposes `authorizeAgentRun({ agentRunId, policyVersion? })`. It turns a **completed** M6A recommendation set into one deterministic, auditable decision per recommended resource. It makes **no model call**: the service has no agent dependency and never re-runs or regenerates recommendations. It provisions nothing, and nothing triggers it automatically yet.
+
+**Flow:**
+
+1. Load the agent run. It must be `SUCCEEDED`. The persisted recommendation rows must match `recommendation_count` exactly.
+2. Load the run's **own fact snapshot** (`department_code`, `role_family_code`, `employment_type`, `facts_hris_event_id` on `agent_runs`). This is **never the employee's current row**. It is validated through `policySubjectFromEmployee`.
+3. Resolve the run's **exact catalog** (`catalogs.resolve({ catalogVersion, catalogHash })`).
+4. Resolve the policy (see **Version guarantees**) and check that it is bound to that exact catalog.
+5. Move the workflow `ACCESS_PLANNING → POLICY_REVIEW`, once per run (idempotency key `authorization-start:<run>`).
+6. For **each recommended resource independently**: evaluate the policy, then persist the decision, the per-resource state and the audit events in **one transaction per resource**. For REQUIRES_APPROVAL, enqueue the ServiceNow request through M4B.
+7. When every resource is decided, move `POLICY_REVIEW → AWAITING_APPROVAL` if any resource awaits approval, otherwise `→ PROVISIONING` (key `authorization-complete:<run>`).
+
+Only recommended resources are evaluated. Catalog dependencies are returned as `dependsOn` metadata and never become decisions; dependency execution is a later provisioning milestone.
+
+**Failure modes.** Run-level failures throw `AuthorizationError`, and nothing is decided:
+
+| Code                      | Meaning                                                | Retryable            |
+| ------------------------- | ------------------------------------------------------ | -------------------- |
+| `AGENT_RUN_NOT_FOUND`     | no such run                                            | no                   |
+| `AGENT_RUN_NOT_SUCCEEDED` | the run isn't `SUCCEEDED`                              | only while `RUNNING` |
+| `RECOMMENDATIONS_MISSING` | recommendation rows don't match `recommendation_count` | no                   |
+| `INVALID_FACTS_SNAPSHOT`  | the snapshot is incomplete or not canonical            | no                   |
+| `CATALOG_UNAVAILABLE`     | the run's catalog version/hash isn't released          | no                   |
+| `POLICY_UNAVAILABLE`      | unknown policy version, or a hash mismatch             | no                   |
+| `POLICY_CATALOG_MISMATCH` | the policy is bound to another catalog                 | no                   |
+| `POLICY_VERSION_LOCKED`   | the run was already authorized under another policy    | no                   |
+| `WORKFLOW_NOT_ACTIVE`     | the workflow is terminal, or still `RECEIVED`          | no                   |
+| `WORKFLOW_CONFLICT`       | concurrent workflow changes kept conflicting           | yes                  |
+| `DECISION_INTEGRITY`      | a stored decision disagrees with its inputs            | no                   |
+
+- **Resource-level failures** don't throw. They are returned in `failures`, for example `PERSISTENCE` (retryable), and never affect other resources' committed decisions. The phase stays `POLICY_REVIEW` until a re-invocation completes it.
+- **A DENY is an outcome, not an error.** It is persisted like any other decision, creates no ticket, and never fails the workflow.
+
+**Result:** one entry per recommended resource:
+
+- `accessDecisionId`, `accessRequestId`, `decision`, `matchedRuleId`, `reasonCode`, `explanation`;
+- the per-resource `status`;
+- `externalOperationId`, `externalOperationStatus`, `ticketNumber`, `approvalId`;
+- `dependsOn` and `created`.
+
+The whole result also carries `failures`, a `summary` (`total`, `allowed`, `denied`, `requiresApproval`, `failed`), `complete`, `replayed`, the versions and hashes, the fact snapshot and `workflowState`.
+
+**Authorization records: `access_decisions`** (migration `0010`, **append-only** by trigger `0011`):
+
+- identity: `id`, `logical_decision_key` (unique), `workflow_id`, `employee_id`, `agent_run_id`, `resource_id`;
+- versions: `catalog_version`, `catalog_hash`, `policy_version`, `policy_hash`;
+- the fact snapshot: `department_code`, `role_family_code`, `employment_type`, `employee_facts_source_event_id`;
+- the outcome: `decision` (`ALLOW` / `DENY` / `REQUIRES_APPROVAL`), `matched_rule_id`, `reason_code`, `explanation`, `created_at`.
+
+Two uniqueness guards:
+
+- `logical_decision_key` = `access-decision:` + sha256(canonical JSON of run, resource, catalog version and hash, policy version and hash, and the fact snapshot identity and values).
+- **`UNIQUE (agent_run_id, resource_id)`**: a run's resource has exactly one decision, ever.
+
+**Per-resource lifecycle: `access_requests`** (one row per decision, the **authority for resource state**; the workflow `state` stays an aggregate phase):
+
+| Decision            | Initial status                                       | Then                                                                                                                                 |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `ALLOW`             | `READY_FOR_PROVISIONING` (`authorized_via = POLICY`) | nothing in M6B (no provisioning)                                                                                                     |
+| `DENY`              | `DENIED` (terminal)                                  | nothing: no ticket, no provisioning, no workflow failure                                                                             |
+| `REQUIRES_APPROVAL` | `AWAITING_APPROVAL`                                  | verified APPROVED → `READY_FOR_PROVISIONING` (`authorized_via = APPROVAL`, `approval_id`); verified REJECTED → `REJECTED` (terminal) |
+
+- Columns: `workflow_id`, `employee_id`, `agent_run_id`, `access_decision_id` (unique), `resource_id`, `status`, `authorized_via`, `external_operation_id` (unique), `approval_id`, `version` and timestamps.
+- CHECKs: `authorized_via` is set iff the status is `READY_FOR_PROVISIONING`, and an `APPROVAL` authorization requires an `approval_id`.
+- One resource can be READY, another DENIED and a third AWAITING_APPROVAL at the same time.
+
+**ServiceNow routing (REQUIRES_APPROVAL).** After the decision commits, the service calls the existing M4B `requestServiceNowAccessRequest`, with `policyDecision: "requires_approval"` (so `approval_state = pending`) and the new optional **`accessDecisionId`**.
+
+- The decision id becomes part of the M4B idempotency and correlation keys (`…:decision=<id>`), so each decision maps to exactly one ServiceNow ticket. M4B callers that don't pass it keep their original keys.
+- The ticket carries the `workflow_id`, HRIS employee id, `resource_id`, the catalog display name as `requested_entitlement`, the agent's reason, and the decision id in `short_description`.
+- `access_requests.external_operation_id` links the resource to the operation. The operation executes through the unchanged M4B worker path: reconcile before create, fenced owners, uncertain-outcome reconciliation and read-back. On success it creates the M4C `approvals` row.
+- **There is no second ServiceNow creation path.**
+
+**Approval effect.** The M4C callback path is unchanged: authenticated callback → durable inbox → authoritative ServiceNow read-back → decide once. The same transaction that applies the approval also updates the `access_requests` row linked by `external_operation_id`, and only from `AWAITING_APPROVAL`: APPROVED → `READY_FOR_PROVISIONING`, REJECTED → `REJECTED`. That writes one `access.approval_verified` or `access.approval_rejected` audit event (idempotency key `access-request:<id>:<status>`). Other resources are never touched. A replayed callback deduplicates in the inbox, and a later event is `ALREADY_APPLIED`.
+
+**Version guarantees.**
+
+- **Fact drift:** decisions always use the agent run's snapshot. After a later HRIS event changes the employee from snapshot A (CONTRACTOR) to B (FULL_TIME), authorizing the old run still decides with A: `aws-prod` is DENY, not REQUIRES_APPROVAL. Every decision row records the snapshot and its source event.
+- **Policy drift:**
+  - A new run uses `policies.current` (1.1.0 today), or an explicitly passed released version (replay/testing).
+  - Once any decision exists for a run, its policy is **locked** to the recorded version and hash, via `policies.resolve`. Re-running after a newer policy becomes current returns the original decisions (`replayed: true`, still 1.1.0 and its hash). An explicit different version fails with `POLICY_VERSION_LOCKED`, and a registry whose hash for that version differs fails with `POLICY_UNAVAILABLE`.
+  - Old runs are never silently re-authorized. Decisions are append-only.
+- **Catalog:** the run's catalog must be released with the same hash, and the policy must be bound to exactly that catalog. No silent upgrade or downgrade.
+
+**Idempotency and concurrency.**
+
+- Decisions: `logical_decision_key` and `(agent_run_id, resource_id)` are unique (`INSERT … ON CONFLICT DO NOTHING`, then read back and compare). Lifecycle rows are unique per decision, and the ServiceNow operation is unique per decision key.
+- Audit events use idempotency keys: `access-decision:<id>:evaluated`, `access-request:<id>:servicenow-requested` and `authorization:<run>:evaluated`.
+- Workflow transitions use idempotency keys, with a re-read on version conflicts.
+- Tested: repeated invocation, 6 concurrent invocations of the same run, an interrupted pass (one resource failing) that is re-run, a repeated operation execution, an uncertain outcome (POST succeeded, response lost) and a temporary ServiceNow outage. The result is still exactly one decision per resource and one ticket per approval-required resource.
+
+**Audit events** (structured; no job text, secrets or provider payloads):
+
+- `access.allowed`, `access.denied` and `access.approval_required`: one per decision, with run, resource, decision, rule, reason code, catalog and policy versions and hashes, and the facts event.
+- `access.servicenow_requested`, when the operation is linked.
+- `access.policy_evaluated`, one per completed pass, with the summary counts.
+- `access.approval_verified` and `access.approval_rejected`.
+- The existing `external_operation.*` and `approval.*` events still apply.
+
+Structured logs carry the workflow, run, resource, catalog and policy versions and hashes, decision, rule, reason code and operation id.
+
+#### M6B verification record
+
+Verified 2026-09-24.
+
+- `pnpm check`: 441 unit tests (13 new: decision and ServiceNow key derivation, including M4B backward compatibility).
+- `pnpm test:integration`: 154 (21 new M6B PostgreSQL tests plus 1 new approvals test).
+  - The M6B tests cover: mixed ALLOW/DENY/approval; all-ALLOW/DENY → PROVISIONING; dependencies stay metadata; an empty set; no model call; audit correctness; **fact drift**; **policy drift**; a historical policy; policy hash mismatch; catalog mismatches; append-only decisions; missing, failed and incomplete runs; an invalid snapshot; an inactive workflow; duplicate and concurrent orchestration; independent resources with rollback; exactly-once tickets; uncertain outcomes and outages; approval → READY with others unchanged and replay harmless; and rejection → REJECTED.
+  - Two M4C assertions changed with the rejection rule; their "the callback's claim is never authoritative" checks are kept.
+- `pnpm build`: 12 packages.
+- **Mutation checks:**
+  - using the employee's current facts instead of the snapshot fails the fact-drift test (and the invalid-snapshot test);
+  - removing the policy lock fails the policy-drift and hash-mismatch tests.
+- **Live PDI** (`pnpm test:m6b:live`, 1/1, synthetic contractor `TEST-EMP-M6B-LIVE-*`, policy 1.1.0, catalog 1.0.0):
+  - **Decisions:** `github-org-membership` ALLOW → READY_FOR_PROVISIONING; `aws-prod` DENY → DENIED; `cursor-license` REQUIRES_APPROVAL → AWAITING_APPROVAL. That is 3 decisions, 1 each.
+  - **Ticket:** only `cursor-license` created one, **`OAR0001012`** (sys_id `49dd0a5dc3a78310317dfb2ed4013113`). Re-running authorization (`replayed: true`) and execution (`already_succeeded`) made 1 POST in total, and a query by correlation key found exactly 1 record. A later read-only query found only this one record for the synthetic employee prefix.
+  - **Approval:** the test approver (schema-verifier) approved it in ServiceNow. Authoritative read-back gave `APPLIED_APPROVED`, `cursor-license` became READY_FOR_PROVISIONING via APPROVAL, and the other two resources were unchanged (same status and version). The workflow went `AWAITING_APPROVAL → PROVISIONING` exactly once.
+  - **Replay:** the replayed callback was `duplicate` / `alreadyProcessed`, a new event id gave `ALREADY_APPLIED`, and there was no second transition or version change.
+  - **Callback transport:** the callback was recorded in-process with the real ticket's identifiers, not through a public tunnel. The M4C transport and HMAC were verified live in M4C, and the decision always comes from the authoritative read-back. With the tunnel stopped, the PDI business rule's own callback failed harmlessly.
+
+**Final verification (2026-09-24, no code changes):**
+
+- **Compose:** `docker compose up --build -d` succeeded, with 10 GiB free. `postgres`, `api`, `web` and `worker` are healthy, and `migrate` exited 0.
+- **Migrations:** the Compose database has 12 applied. The latest applied timestamp equals the `0011_access_decisions_append_only` journal entry, so `0009`, `0010` and `0011` are all applied. `agent_runs.served_model`, `access_decisions` and `access_requests` exist, as do the triggers `access_decisions_no_update_or_delete` and `access_decisions_no_truncate` (function `access_decisions_reject_mutation`).
+- **Append-only at runtime:** in the Compose database, inside a transaction that was rolled back, a synthetic decision chain was inserted. `UPDATE`, `DELETE` and `TRUNCATE` on `access_decisions` were each rejected ("access_decisions is append-only (… rejected)"), and the decision was still present afterwards. Nothing persisted, and ServiceNow was not touched.
+- **Policy 1.2.0:** a **test fixture only**. It exists as in-memory `PolicyRegistry` releases inside two drift tests in `packages/orchestrator/test/integration/authorization.test.ts`. The released policies are still `1.0.0` and `1.1.0` (`packages/policy/src/releases/`), and `CURRENT_POLICY_VERSION` is `1.1.0`.
+- **Final checks:** `pnpm check` 441, `pnpm test:integration` 154, `pnpm build` 12 packages. The live M6B test was not re-run, because no code changed since its pass (`OAR0001012`) and a re-run would create another synthetic ticket.
+
+**Remaining limitations (M6B):**
+
+- Nothing triggers `authorizeAgentRun` (or the agent) automatically; the worker isn't wired to either. ServiceNow operations execute through the existing outbox handler once enqueued.
+- No provisioning: READY_FOR_PROVISIONING resources wait for a later milestone, which will also resolve catalog dependencies (for example a team needing org membership, which may be un-recommended or DENIED).
+- One authorization per agent run. A new policy applies only to new agent runs (a new facts event, catalog, prompt or model). There's no re-authorization command.
+- A workflow with several agent runs (after fact changes) gets separate decisions per run. Superseding old runs' per-resource states is left to provisioning orchestration.
+- The workflow reaches PROVISIONING when no approval is pending, even if everything was denied or rejected; the per-resource records show there is nothing to provision.
+- The live test's `console.log` of the ticket is suppressed by Vitest in non-TTY runs; the ticket was identified by a read-only query instead.
+
 ### Integrations
 
 These are real systems. **Don't fake the final integrations.** Unit tests may use test doubles. Each integration milestone must also include tests that run against that system's real sandbox (the ServiceNow PDI, the Okta developer org, or a GitHub test org). The adapters that ship must call the real APIs.
@@ -1199,7 +1345,7 @@ apps/
 packages/
   shared/        @aoo/shared        Zod schemas + inferred types (incl. WORKFLOW_STATES). Built to dist/ with tsc
   db/            @aoo/db            Drizzle schema, pg client, config loader, migrator. migrations/ = versioned SQL
-  orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence)
+  orchestrator/  @aoo/orchestrator  Workflow state machine + WorkflowService (owns workflow persistence); src/agents (M6A run service), src/authorization (M6B recommendation-to-policy)
   webhooks/      @aoo/webhooks      Webhook signature protocols (HRIS HMAC-SHA256). Node-only
   servicenow/    @aoo/servicenow    ServiceNow Table API client (read-only, M4A); servicenow-app/ = PDI setup guide + update-set exports
   catalog/       @aoo/catalog       Versioned resource catalog (M5A): src/versions/*.json releases, validation, ResourceCatalog + CatalogRegistry
@@ -1266,6 +1412,13 @@ Location decisions made in M6A:
 - Run persistence (`agent_runs`, `agent_recommendations`) lives in `@aoo/db`. The recommendation service (`src/agents/role-access-service.ts`) lives in `@aoo/orchestrator`, because only the orchestrator writes tables.
 - The job description is not a new column. It travels in the HRIS event (optional `jobDescription`) and is read from the receipt of the facts-supplying event.
 
+Location decisions made in M6B:
+
+- `access_decisions` and `access_requests` live in `@aoo/db`.
+- The authorization service is in `@aoo/orchestrator/src/authorization`, which now depends on `@aoo/policy`.
+- The approval effect on resources lives in the existing `ApprovalService` transaction.
+- The ServiceNow link reuses M4B (`accessDecisionId` in the keys).
+
 Not yet created: company onboarding rules, the Onboarding Plan Agent and the Okta/GitHub adapters. **Package locations for these stay flexible.** The milestone that introduces each one decides where it lives, following the dependency rules below, and records the decision in this file.
 
 ### Dependency rules
@@ -1285,6 +1438,7 @@ Not yet created: company onboarding rules, the Onboarding Plan Agent and the Okt
 - `@aoo/catalog` has no workspace dependencies. It never calls providers, never writes the database and makes no policy decisions. It must not be imported by `@aoo/shared` or the web app. Agents get catalog data only as a `CatalogSnapshot` and may only reference resources from it.
 - `@aoo/agents` depends only on `@aoo/catalog` and `zod` (a unit test enforces this). It must not import `@aoo/db`, `@aoo/policy`, `@aoo/servicenow`, `@aoo/orchestrator` or any adapter, and it never writes the database. The model is offered no tools or functions: only a strict structured-output schema. The orchestrator persists runs and passes the agent only human-readable context and the enabled catalog snapshot.
 - `@aoo/policy` depends only on `@aoo/catalog`, `@aoo/shared` (canonical fact values) and `zod`. It is pure: no I/O, no database, no adapters, no LLM, no workflow writes. It must not be imported by `@aoo/shared`, the web app or agent code. Agents never see or call the policy engine; the orchestrator evaluates agent recommendations with it.
+- Only `@aoo/orchestrator` writes `access_decisions` (append-only) and `access_requests`. The authorization service takes policy, catalog, workflow and external-operation dependencies, and **no agent or model provider**.
 - Only `@aoo/orchestrator` writes `external_operations`, `approvals` and `approval_callback_events`. The API only calls `ApprovalService.recordServiceNowCallback`, which records the event and makes no decision. It has no ServiceNow client.
 
 ### Service endpoints
@@ -1380,6 +1534,7 @@ pnpm test:servicenow:live               # explicit live ServiceNow tests: read-o
 pnpm worker:admin external-ops [--status FAILED]           # list durable external operations
 pnpm worker:admin reopen-operation --id <uuid> --reason "…" # reopen a FAILED operation (audited)
 pnpm test:servicenow:approval:live     # explicit live approval round trip (needs SETUP.md §10 + a public tunnel)
+pnpm test:m6b:live                     # explicit live M6B test: authorization → real ServiceNow ticket → approval → per-resource state (synthetic)
 pnpm agent:eval:live                   # explicit live Role Access Agent evaluation (needs OPENAI_API_KEY in .env; BLOCKED otherwise)
 pnpm check            # format:check + typecheck + unit tests
 pnpm db:generate --name <change>   # generate a SQL migration from schema.ts

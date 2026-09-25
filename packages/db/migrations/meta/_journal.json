@@ -71,6 +71,20 @@
       "when": 1790279820393,
       "tag": "0009_agent_run_served_model",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790280993306,
+      "tag": "0010_access_decisions_and_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790280999467,
+      "tag": "0011_access_decisions_append_only",
+      "breakpoints": true
     }
   ]
 }

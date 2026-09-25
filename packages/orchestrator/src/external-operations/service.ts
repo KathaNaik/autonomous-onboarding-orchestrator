@@ -51,6 +51,8 @@ export const RequestServiceNowAccessInputSchema = z.object({
   policyDecision: z.enum(POLICY_DECISIONS),
   shortDescription: z.string().trim().min(1).max(160).optional(),
   actor: z.string().trim().min(1).max(200),
+  /** M6B: ties the request (and its keys) to one authorization decision. */
+  accessDecisionId: z.uuid().optional(),
 });
 export type RequestServiceNowAccessInput = z.input<typeof RequestServiceNowAccessInputSchema>;
 

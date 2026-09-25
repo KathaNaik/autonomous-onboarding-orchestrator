@@ -577,6 +577,119 @@ export const agentRecommendations = pgTable(
   ],
 );
 
+export const ACCESS_DECISIONS = ["ALLOW", "DENY", "REQUIRES_APPROVAL"] as const;
+export const accessDecisionEnum = pgEnum("access_decision", ACCESS_DECISIONS);
+
+/**
+ * One deterministic policy decision for one resource recommended by one agent run (M6B).
+ * Append-only (a trigger rejects UPDATE and DELETE): a later policy or catalog release never
+ * changes an existing decision. Every input that defined it is recorded alongside.
+ */
+export const accessDecisions = pgTable(
+  "access_decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** sha256 over the immutable inputs (run, resource, catalog, policy, fact snapshot). */
+    logicalDecisionKey: text("logical_decision_key").notNull().unique(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "restrict" }),
+    agentRunId: uuid("agent_run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "restrict" }),
+    resourceId: text("resource_id").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    catalogHash: text("catalog_hash").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    policyHash: text("policy_hash").notNull(),
+    // The canonical fact snapshot of the agent run, never the employee's current row.
+    departmentCode: text("department_code").notNull(),
+    roleFamilyCode: text("role_family_code").notNull(),
+    employmentType: text("employment_type").notNull(),
+    employeeFactsSourceEventId: text("employee_facts_source_event_id").notNull(),
+    decision: accessDecisionEnum("decision").notNull(),
+    matchedRuleId: text("matched_rule_id").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    explanation: text("explanation").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One decision per recommended resource per agent run: an authorized run is never silently
+    // re-authorized under another policy or catalog.
+    uniqueIndex("access_decisions_run_resource_idx").on(t.agentRunId, t.resourceId),
+    index("access_decisions_workflow_id_idx").on(t.workflowId),
+  ],
+);
+
+export const ACCESS_REQUEST_STATUSES = [
+  "READY_FOR_PROVISIONING",
+  "DENIED",
+  "AWAITING_APPROVAL",
+  "REJECTED",
+] as const;
+export const accessRequestStatusEnum = pgEnum("access_request_status", ACCESS_REQUEST_STATUSES);
+export const ACCESS_AUTHORIZED_VIA = ["POLICY", "APPROVAL"] as const;
+
+/**
+ * Per-resource lifecycle (M6B): the authority for one resource's state, independent of the
+ * workflow's aggregate phase. One row per access decision. Nothing is provisioned in M6B.
+ */
+export const accessRequests = pgTable(
+  "access_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "restrict" }),
+    agentRunId: uuid("agent_run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "restrict" }),
+    accessDecisionId: uuid("access_decision_id")
+      .notNull()
+      .unique()
+      .references(() => accessDecisions.id, { onDelete: "restrict" }),
+    resourceId: text("resource_id").notNull(),
+    status: accessRequestStatusEnum("status").notNull(),
+    /** How a READY_FOR_PROVISIONING resource was authorized. */
+    authorizedVia: text("authorized_via"),
+    /** The M4B ServiceNow ticket operation, for REQUIRES_APPROVAL decisions. */
+    externalOperationId: uuid("external_operation_id")
+      .unique()
+      .references(() => externalOperations.id, { onDelete: "restrict" }),
+    /** The M4C approval that decided this resource, once verified. */
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "restrict" }),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    index("access_requests_workflow_id_idx").on(t.workflowId),
+    check(
+      "access_requests_authorized_via_iff_ready",
+      sql`(${t.status} = 'READY_FOR_PROVISIONING') = (${t.authorizedVia} IS NOT NULL)`,
+    ),
+    check(
+      "access_requests_authorized_via_valid",
+      sql`${t.authorizedVia} IS NULL OR ${t.authorizedVia} IN ${inList(ACCESS_AUTHORIZED_VIA)}`,
+    ),
+    check(
+      "access_requests_approval_path",
+      sql`${t.status} NOT IN ('AWAITING_APPROVAL', 'REJECTED') OR ${t.authorizedVia} IS NULL`,
+    ),
+    check(
+      "access_requests_approved_has_approval",
+      sql`${t.authorizedVia} IS DISTINCT FROM 'APPROVAL' OR ${t.approvalId} IS NOT NULL`,
+    ),
+  ],
+);
+
+export type AccessDecision = typeof accessDecisions.$inferSelect;
+export type AccessRequest = typeof accessRequests.$inferSelect;
 export type HrisEventReceipt = typeof hrisEventReceipts.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type AgentRecommendation = typeof agentRecommendations.$inferSelect;

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   approvalCallbackEvents,
+  accessRequests,
   approvals,
   auditEvents,
   externalOperations,
@@ -79,7 +80,10 @@ export interface ApprovalService {
    * repeatedly and concurrently.
    */
   processCallback(callbackEventId: string): Promise<ProcessResult>;
-  /** AWAITING_APPROVAL → PROVISIONING when this approval is APPROVED and none are PENDING. */
+  /**
+   * AWAITING_APPROVAL → PROVISIONING when this approval is decided (APPROVED or REJECTED) and no
+   * approval of the workflow is still PENDING.
+   */
   resumeWorkflowIfReady(approvalId: string): Promise<boolean>;
   getApprovalForOperation(externalOperationId: string): Promise<Approval | null>;
 }
@@ -131,7 +135,11 @@ export function createApprovalService(
 
   async function resumeWorkflowIfReady(approvalId: string): Promise<boolean> {
     const [approval] = await db.select().from(approvals).where(eq(approvals.id, approvalId));
-    if (!approval || approval.status !== "APPROVED") return false;
+    // M6B: a rejection also ends the approval phase for its resource; the workflow moves on once
+    // no approval is pending. The rejected resource itself stays REJECTED (never provisioned).
+    if (!approval || (approval.status !== "APPROVED" && approval.status !== "REJECTED")) {
+      return false;
+    }
     const details = await deps.workflows.getWorkflow(approval.workflowId);
     if (!details || details.workflow.state !== "AWAITING_APPROVAL") return false;
     const [{ pending }] = (await db
@@ -353,6 +361,46 @@ export function createApprovalService(
               updatedAt: clock,
             })
             .where(eq(approvals.id, current!.id));
+          // M6B: the verified decision settles the per-resource lifecycle in the same transaction.
+          const settled = await tx
+            .update(accessRequests)
+            .set({
+              status: verified === "APPROVED" ? "READY_FOR_PROVISIONING" : "REJECTED",
+              authorizedVia: verified === "APPROVED" ? "APPROVAL" : null,
+              approvalId: current!.id,
+              version: sql`${accessRequests.version} + 1`,
+              updatedAt: clock,
+            })
+            .where(
+              and(
+                eq(accessRequests.externalOperationId, current!.externalOperationId),
+                eq(accessRequests.status, "AWAITING_APPROVAL"),
+              ),
+            )
+            .returning();
+          for (const request of settled) {
+            await tx
+              .insert(auditEvents)
+              .values({
+                workflowId: request.workflowId,
+                eventType:
+                  verified === "APPROVED" ? "access.approval_verified" : "access.approval_rejected",
+                actor: APPROVAL_VERIFIER_ACTOR,
+                correlationId: current!.correlationKey,
+                idempotencyKey: `access-request:${request.id}:${verified}`,
+                payload: {
+                  accessRequestId: request.id,
+                  accessDecisionId: request.accessDecisionId,
+                  agentRunId: request.agentRunId,
+                  resourceId: request.resourceId,
+                  status: request.status,
+                  approvalId: current!.id,
+                  externalOperationId: current!.externalOperationId,
+                  externalReference: current!.externalReference,
+                },
+              })
+              .onConflictDoNothing();
+          }
           await tx.insert(auditEvents).values({
             workflowId: current!.workflowId,
             eventType: verified === "APPROVED" ? "approval.approved" : "approval.rejected",
@@ -411,9 +459,12 @@ export function createApprovalService(
         },
         "approval callback verified",
       );
-      // 4. Resume only on an authoritatively verified approval (idempotent; retried on conflict).
+      // 4. Once a verified decision leaves no approval pending, the approval phase is over
+      //    (idempotent; retried on conflict). Per-resource records say what was authorized.
       const workflowResumed =
-        result.status === "APPROVED" ? await resumeWorkflowIfReady(approval.id) : false;
+        result.status === "APPROVED" || result.status === "REJECTED"
+          ? await resumeWorkflowIfReady(approval.id)
+          : false;
       return {
         callbackEventId: cb.id,
         outcome: result.outcome,

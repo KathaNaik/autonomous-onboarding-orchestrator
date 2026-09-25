@@ -23,7 +23,8 @@
     "servicenow:check": "pnpm --silent --filter @aoo/servicenow check",
     "test:servicenow:live": "vitest run --config packages/servicenow/vitest.live.config.ts && vitest run --config packages/orchestrator/vitest.live.config.ts",
     "test:servicenow:approval:live": "vitest run --config apps/api/vitest.live.config.ts",
-    "agent:eval:live": "pnpm --silent --filter @aoo/agents eval:live"
+    "agent:eval:live": "pnpm --silent --filter @aoo/agents eval:live",
+    "test:m6b:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/authorization.live.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -7,6 +7,12 @@ export interface AccessRequestIdentity {
   workflowId: string;
   resourceId: string;
   requestedEntitlement: string;
+  /**
+   * M6B: the authorization decision this request belongs to. When given it is part of the key,
+   * so each decision maps to exactly one ServiceNow ticket; M4B-style callers omit it and keep
+   * their original keys.
+   */
+  accessDecisionId?: string | undefined;
 }
 
 /**
@@ -26,6 +32,7 @@ export function serviceNowAccessRequestKeys(
     identity.workflowId,
     identity.resourceId,
     identity.requestedEntitlement,
+    ...(identity.accessDecisionId ? [`decision=${identity.accessDecisionId}`] : []),
   ].join(":");
   const digest = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 40);
   return { idempotencyKey, correlationKey: `${prefix}${digest}` };
