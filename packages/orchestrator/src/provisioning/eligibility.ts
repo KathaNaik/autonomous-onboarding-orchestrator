@@ -43,6 +43,8 @@ const PROVISIONABLE = [
   "PROVISIONING",
   "PROVISIONED",
   "PROVISIONING_FAILED",
+  // M7C: authorized MANUAL resources awaiting an operator's confirmation.
+  "MANUAL_ACTION_REQUIRED",
 ];
 
 /**

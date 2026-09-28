@@ -1,15 +1,28 @@
 import { once } from "node:events";
+import { loadCatalogRegistry } from "@aoo/catalog";
 import { createDatabase } from "@aoo/db";
+import { createGitHubClient } from "@aoo/github";
+import { createOktaClient } from "@aoo/okta";
 import {
   createApprovalService,
   createEventHandlers,
   createExternalOperationService,
+  createGitHubHandlers,
+  createGitHubProvisioningService,
+  createOktaHandlers,
+  createOktaProvisioningService,
   createOutboxRunner,
   createPostgresOutboxStore,
+  createProvisioningCoordinator,
   createWorkflowService,
+  type ExternalOperationHandler,
 } from "@aoo/orchestrator";
 import { createServiceNowClient, safeUrl } from "@aoo/servicenow";
-import { loadConfig, loadWorkerServiceNowConfig } from "./config.js";
+import {
+  loadConfig,
+  loadWorkerProvisioningProviders,
+  loadWorkerServiceNowConfig,
+} from "./config.js";
 import { createHealthServer } from "./health.js";
 import { createLogger } from "./logger.js";
 import { createWorkerLoop } from "./worker.js";
@@ -32,12 +45,61 @@ const approvals = createApprovalService(database.db, {
   workflows,
   logger,
 });
+// M7C: provider clients are optional; unconfigured providers block their resources visibly.
+const providers = loadWorkerProvisioningProviders();
+const okta = providers.okta && {
+  client: createOktaClient(providers.okta.config, { logger: logger.child({ provider: "okta" }) }),
+  targets: providers.okta.targets,
+};
+const github = providers.github && {
+  client: createGitHubClient(providers.github.config, {
+    logger: logger.child({ provider: "github" }),
+  }),
+  targets: providers.github.targets,
+};
+const handlers: ExternalOperationHandler[] = [
+  ...(okta ? createOktaHandlers(okta.client) : []),
+  ...(github ? createGitHubHandlers(github.client) : []),
+];
 const externalOperations = createExternalOperationService(database.db, {
   ...(servicenow && { servicenow }),
+  handlers,
   reconcile: {
     attempts: config.EXTERNAL_OP_RECONCILE_ATTEMPTS,
     delayMs: config.EXTERNAL_OP_RECONCILE_DELAY_MS,
   },
+  logger,
+});
+const catalogs = loadCatalogRegistry();
+const provisionerOwner = { ownerId: config.WORKER_ID, leaseMs: config.OUTBOX_LEASE_MS };
+const coordinator = createProvisioningCoordinator(database.db, {
+  catalogs,
+  workflows,
+  ...(okta && {
+    okta: createOktaProvisioningService(database.db, {
+      catalogs,
+      externalOperations,
+      okta: okta.client,
+      targets: okta.targets,
+      ...provisionerOwner,
+      logger,
+    }),
+  }),
+  ...(github && {
+    github: createGitHubProvisioningService(database.db, {
+      catalogs,
+      externalOperations,
+      github: github.client,
+      targets: github.targets,
+      ...provisionerOwner,
+      logger,
+    }),
+  }),
+  reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
+  retryDelayMs: config.PROVISIONING_RETRY_DELAY_MS,
+  sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
+  // Start no new dispatch after half the lease; the rest continues in a fresh wake.
+  deadlineMs: Math.floor(config.OUTBOX_LEASE_MS / 2),
   logger,
 });
 const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
@@ -57,6 +119,7 @@ const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
       ownerId: config.WORKER_ID,
       leaseMs: config.OUTBOX_LEASE_MS,
     },
+    provisioning: coordinator,
   }),
   logger,
 });
@@ -82,6 +145,12 @@ logger.info(
     maxAttempts: config.OUTBOX_MAX_ATTEMPTS,
     backoffBaseMs: config.OUTBOX_BACKOFF_BASE_MS,
     backoffMaxMs: config.OUTBOX_BACKOFF_MAX_MS,
+    provisioning: {
+      okta: okta ? "enabled" : "disabled",
+      github: github ? "enabled" : "disabled",
+      sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
+      reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
+    },
     servicenow: servicenowConfig
       ? {
           instance: safeUrl(new URL(servicenowConfig.instanceUrl)),
@@ -95,9 +164,26 @@ logger.info(
 
 const done = loop.run();
 
+// M7C periodic reconciliation: enqueue de-duplicated wakes for due provisioning work (e.g. a
+// pending GitHub invitation the employee may have accepted). Execution goes through the outbox.
+const sweep = async () => {
+  try {
+    const { enqueued } = await coordinator.enqueueDueWakes();
+    if (enqueued > 0) logger.info({ enqueued }, "provisioning reconciliation wakes enqueued");
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "provisioning sweep failed",
+    );
+  }
+};
+const sweeper = setInterval(() => void sweep(), config.PROVISIONING_SWEEP_INTERVAL_MS);
+void sweep();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down: finishing in-flight batch");
   loop.stop();
+  clearInterval(sweeper);
   const timeout = new Promise<"timeout">((r) =>
     setTimeout(() => r("timeout"), config.WORKER_SHUTDOWN_TIMEOUT_MS).unref(),
   );

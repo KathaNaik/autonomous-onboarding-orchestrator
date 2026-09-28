@@ -3,15 +3,18 @@ import { createDatabase } from "@aoo/db";
 import {
   createApprovalService,
   createGitHubIdentityService,
+  createManualProvisioningService,
   createHrisIntakeService,
   createWorkflowService,
   type ApprovalService,
   type GitHubIdentityService,
+  type ManualProvisioningService,
   type HrisIntakeService,
 } from "@aoo/orchestrator";
 import Fastify, { type FastifyInstance } from "fastify";
 import { callbackConfig, type Config } from "./config.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
+import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
 import { resourceRoutes } from "./routes/resources.js";
@@ -25,6 +28,8 @@ export interface AppDependencies {
   catalog: ResourceCatalog;
   /** (M7B) HR-recorded GitHub identity claims: records claims only, never provisions. */
   githubIdentities: GitHubIdentityService;
+  /** (M7C) Operator confirmation of authorized provider=MANUAL resources. */
+  manualProvisioning: ManualProvisioningService;
 }
 
 /**
@@ -55,6 +60,7 @@ export async function buildApp(
     }),
     catalog,
     githubIdentities: createGitHubIdentityService(database.db, { catalogs }),
+    manualProvisioning: createManualProvisioningService(database.db, { catalogs }),
     ...overrides,
   };
 
@@ -79,6 +85,10 @@ export async function buildApp(
     await app.register(adminGitHubIdentityRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       identities: deps.githubIdentities,
+    });
+    await app.register(adminManualProvisioningRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      manual: deps.manualProvisioning,
     });
   }
 

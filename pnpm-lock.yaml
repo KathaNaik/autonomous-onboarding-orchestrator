@@ -265,9 +265,18 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aoo/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
       '@aoo/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@aoo/github':
+        specifier: workspace:*
+        version: link:../../packages/github
+      '@aoo/okta':
+        specifier: workspace:*
+        version: link:../../packages/okta
       '@aoo/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator

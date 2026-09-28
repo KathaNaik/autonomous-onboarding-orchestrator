@@ -22,6 +22,7 @@ import { InvalidTransitionError, WorkflowVersionConflictError } from "../errors.
 import { noopLogger, type EventLogger } from "../events/types.js";
 import { formatSanitizedError, sanitizeExternalError } from "../external-operations/sanitize.js";
 import type { ServiceNowAccessRequestGateway } from "../external-operations/service.js";
+import { enqueueProvisioningWake } from "../provisioning/wake.js";
 import type { WorkflowService } from "../workflow-service.js";
 
 export const APPROVAL_VERIFIER_ACTOR = "approval-verifier";
@@ -150,15 +151,26 @@ export function createApprovalService(
       )) as [{ pending: number }];
     if (pending > 0) return false; // other resources still await a human decision
     try {
-      const wf = await deps.workflows.transition({
-        workflowId: approval.workflowId,
-        to: "PROVISIONING",
-        expectedVersion: details.workflow.version,
-        actor: APPROVAL_VERIFIER_ACTOR,
-        correlationId: approval.correlationKey,
-        // At most one resume per approval, across retries, redeliveries and crashes.
-        idempotencyKey: `approval-resume:${approval.workflowId}:${approval.id}`,
-      });
+      const wf = await deps.workflows.transition(
+        {
+          workflowId: approval.workflowId,
+          to: "PROVISIONING",
+          expectedVersion: details.workflow.version,
+          actor: APPROVAL_VERIFIER_ACTOR,
+          correlationId: approval.correlationKey,
+          // At most one resume per approval, across retries, redeliveries and crashes.
+          idempotencyKey: `approval-resume:${approval.workflowId}:${approval.id}`,
+        },
+        {
+          // M7C: the resumed phase may now complete provisioning; wake it atomically.
+          effects: (tx) =>
+            enqueueProvisioningWake(tx, {
+              workflowId: approval.workflowId,
+              reason: "WORKFLOW_RESUMED",
+              key: `resume:${approval.id}`,
+            }).then(() => undefined),
+        },
+      );
       logger.info(
         { approvalId, workflowId: wf.id, state: wf.state },
         "workflow resumed after approval",
@@ -400,6 +412,15 @@ export function createApprovalService(
                 },
               })
               .onConflictDoNothing();
+          }
+          if (settled.length > 0) {
+            // M7C: an approved resource is now runnable (a rejected one settled): wake provisioning
+            // in the same transaction, so the wake can never be lost after the commit.
+            await enqueueProvisioningWake(tx, {
+              workflowId: current!.workflowId,
+              reason: "APPROVAL_DECIDED",
+              key: `approval:${current!.id}:${verified}`,
+            });
           }
           await tx.insert(auditEvents).values({
             workflowId: current!.workflowId,

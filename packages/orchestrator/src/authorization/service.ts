@@ -34,7 +34,8 @@ import { noopLogger, type EventLogger } from "../events/types.js";
 import { ExternalOperationError } from "../external-operations/errors.js";
 import type { ExternalOperationService } from "../external-operations/service.js";
 import { isTerminal } from "../state-machine.js";
-import type { WorkflowService } from "../workflow-service.js";
+import { createProvisioningPlan } from "../provisioning/plan.js";
+import type { TransitionOptions, WorkflowService } from "../workflow-service.js";
 
 export const AUTHORIZATION_ACTOR = "access-authorization";
 
@@ -215,19 +216,23 @@ export function createAccessAuthorizationService(
     idempotencyKey: string,
     correlationId: string,
     agentRunId: string,
+    effects?: TransitionOptions["effects"],
   ): Promise<WorkflowState> {
     for (let attempt = 0; attempt < 5; attempt++) {
       const details = await workflows.getWorkflow(workflowId);
       if (!details) throw new AuthorizationError("WORKFLOW_NOT_ACTIVE", "workflow not found");
       try {
-        const wf = await workflows.transition({
-          workflowId,
-          to,
-          expectedVersion: details.workflow.version,
-          actor,
-          correlationId,
-          idempotencyKey,
-        });
+        const wf = await workflows.transition(
+          {
+            workflowId,
+            to,
+            expectedVersion: details.workflow.version,
+            actor,
+            correlationId,
+            idempotencyKey,
+          },
+          effects ? { effects } : {},
+        );
         return wf.state;
       } catch (err) {
         if (err instanceof WorkflowVersionConflictError) continue;
@@ -605,7 +610,8 @@ export function createAccessAuthorizationService(
       }
 
       // 7. Close the policy phase once every resource is decided: AWAITING_APPROVAL if any
-      //    resource needs a human, otherwise PROVISIONING (nothing is provisioned in M6B).
+      //    resource needs a human, otherwise PROVISIONING. M7C: the same transaction creates the
+      //    workflow's provisioning plan, locked to exactly this run, and wakes provisioning.
       let workflowState = (await workflows.getWorkflow(run.workflowId))!.workflow.state;
       const complete = failures.length === 0;
       if (complete && workflowState === "POLICY_REVIEW") {
@@ -624,6 +630,20 @@ export function createAccessAuthorizationService(
           `authorization-complete:${run.id}`,
           correlationId,
           run.id,
+          async (tx) => {
+            await createProvisioningPlan(
+              tx,
+              {
+                workflowId: run.workflowId,
+                agentRunId: run.id,
+                catalogVersion: catalog.catalogVersion,
+                catalogHash: catalog.catalogHash,
+                policyVersion: engine.policyVersion,
+                policyHash: engine.policyHash,
+              },
+              "AUTHORIZATION",
+            );
+          },
         );
       }
 

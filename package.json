@@ -28,7 +28,8 @@
     "okta:check": "pnpm --silent --filter @aoo/okta check",
     "test:okta:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/okta-provisioning.live.test.ts",
     "github:check": "pnpm --silent --filter @aoo/github check",
-    "test:github:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/github-provisioning.live.test.ts"
+    "test:github:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/github-provisioning.live.test.ts",
+    "test:provisioning:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/provisioning.live.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

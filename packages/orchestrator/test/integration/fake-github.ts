@@ -16,7 +16,8 @@ export type GitHubWriteBehavior =
   | { writeThenHold: Promise<void> }
   | { hold: Promise<void> };
 
-let nextId = 5000;
+// Random base: ids are linked in external_identities (unique), which outlives one test file.
+let nextId = 1_000_000 + Math.floor(Math.random() * 1_000_000_000);
 
 /** In-memory GitHub double: users, one org, org memberships (active/pending), teams, team memberships. */
 export class FakeGitHub implements GitHubGateway {

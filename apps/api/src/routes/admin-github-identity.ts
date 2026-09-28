@@ -1,11 +1,11 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import {
   GitHubIdentityError,
   OPERATOR_ID_PATTERN,
   type GitHubIdentityService,
 } from "@aoo/orchestrator";
 import type { GitHubIdentityErrorResponse } from "@aoo/shared";
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
+import { OPERATOR_ID_HEADER, operatorAuthorizer } from "./operator-auth.js";
 
 export interface AdminGitHubIdentityRoutesOptions {
   /** ONBOARDING_ADMIN_TOKEN: the shared HR/onboarding operator bearer token. */
@@ -13,8 +13,7 @@ export interface AdminGitHubIdentityRoutesOptions {
   identities: GitHubIdentityService;
 }
 
-/** The operator's self-declared id, recorded as the audit actor `hr:<id>`. */
-export const OPERATOR_ID_HEADER = "x-operator-id";
+export { OPERATOR_ID_HEADER };
 
 type Params = { workflowId: string };
 
@@ -36,8 +35,6 @@ const STATUS_OF: Record<GitHubIdentityError["code"], number> = {
   GITHUB_IDENTITY_ALREADY_LINKED: 409,
 };
 
-const digest = (value: string) => createHash("sha256").update(value).digest();
-
 /**
  * HR/onboarding operator routes (M7B): record the GitHub username the employee gave HR, and view
  * GitHub identity progress. Recording is identity data only: no policy decision, GitHub call,
@@ -47,8 +44,6 @@ const digest = (value: string) => createHash("sha256").update(value).digest();
 export const adminGitHubIdentityRoutes: FastifyPluginAsync<
   AdminGitHubIdentityRoutesOptions
 > = async (app, { adminToken, identities }) => {
-  const expected = digest(adminToken);
-
   app.setErrorHandler((err: { statusCode?: number }, request, reply) => {
     if (err.statusCode === 415) {
       return reject(reply, 415, "UNSUPPORTED_MEDIA_TYPE", "content-type must be application/json");
@@ -61,13 +56,9 @@ export const adminGitHubIdentityRoutes: FastifyPluginAsync<
   });
 
   // onRequest: before body parsing, so unauthenticated requests learn nothing about the payload.
-  const authorize = async (request: FastifyRequest, reply: FastifyReply) => {
-    const header = request.headers.authorization;
-    const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-    if (!token || !timingSafeEqual(digest(token), expected)) {
-      return reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required");
-    }
-  };
+  const authorize = operatorAuthorizer(adminToken, (reply) =>
+    reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+  );
 
   const handle = async (reply: FastifyReply, fn: () => Promise<unknown>) => {
     try {

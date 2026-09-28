@@ -1,4 +1,6 @@
 import { hostname } from "node:os";
+import { loadGitHubConfig, loadGitHubTargets } from "@aoo/github";
+import { loadOktaConfig, loadOktaGroupTargets } from "@aoo/okta";
 import { loadServiceNowConfig, type ServiceNowConfig } from "@aoo/servicenow";
 import { z } from "zod";
 
@@ -24,6 +26,13 @@ const EnvSchema = z
     OUTBOX_BACKOFF_MAX_MS: int(1, 86_400_000, 300_000),
     EXTERNAL_OP_RECONCILE_ATTEMPTS: int(1, 10, 3),
     EXTERNAL_OP_RECONCILE_DELAY_MS: int(0, 30_000, 1000),
+    // M7C provisioning orchestration.
+    /** How often the reconciler looks for due provisioning work (wakes are de-duplicated per bucket). */
+    PROVISIONING_SWEEP_INTERVAL_MS: int(1000, 3_600_000, 60_000),
+    /** How long to wait before re-reading an external waiting state (e.g. a GitHub invitation). */
+    PROVISIONING_RECONCILE_INTERVAL_MS: int(1000, 86_400_000, 300_000),
+    /** Delay before retrying a transient provider failure. */
+    PROVISIONING_RETRY_DELAY_MS: int(1000, 86_400_000, 60_000),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {
     message: "OUTBOX_BACKOFF_MAX_MS must be >= OUTBOX_BACKOFF_BASE_MS",
@@ -68,4 +77,19 @@ export function loadWorkerServiceNowConfig(
     );
   }
   return sn;
+}
+
+/**
+ * M7C: optional provisioning providers. Each is enabled only when its token is set; resources of
+ * an unconfigured provider are blocked visibly (PROVIDER_NOT_CONFIGURED), never skipped.
+ */
+export function loadWorkerProvisioningProviders(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    okta: env.OKTA_API_TOKEN?.trim()
+      ? { config: loadOktaConfig(env), targets: loadOktaGroupTargets(env) }
+      : undefined,
+    github: env.GITHUB_TOKEN?.trim()
+      ? { config: loadGitHubConfig(env), targets: loadGitHubTargets(env) }
+      : undefined,
+  };
 }

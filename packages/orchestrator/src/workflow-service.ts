@@ -7,6 +7,7 @@ import {
   type Database,
   type Employee,
   type OnboardingWorkflow,
+  type Transaction,
   type WorkflowStep,
 } from "@aoo/db";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
@@ -39,8 +40,17 @@ export interface WorkflowService {
    * commit in a single transaction. Throws WorkflowVersionConflictError when expectedVersion is
    * stale, so concurrent callers never silently overwrite each other.
    */
-  transition(input: TransitionInput): Promise<OnboardingWorkflow>;
+  transition(input: TransitionInput, options?: TransitionOptions): Promise<OnboardingWorkflow>;
   listAuditEvents(workflowId: string): Promise<AuditEvent[]>;
+}
+
+export interface TransitionOptions {
+  /**
+   * (M7C) Extra writes committed atomically with the transition (e.g. a provisioning plan and its
+   * wake event). Runs only when the transition is actually applied, never on an idempotent replay.
+   * `updated` is the workflow after the transition.
+   */
+  effects?: (tx: Transaction, updated: OnboardingWorkflow) => Promise<void>;
 }
 
 const WorkflowIdSchema = z.uuid();
@@ -79,7 +89,7 @@ export function createWorkflowService(db: Database): WorkflowService {
       return { ...row, steps };
     },
 
-    async transition(rawInput) {
+    async transition(rawInput, options = {}) {
       const input = TransitionInputSchema.parse(rawInput);
 
       return db.transaction(async (tx) => {
@@ -167,6 +177,7 @@ export function createWorkflowService(db: Database): WorkflowService {
               input.to === "PROVISIONING" && { approvalSkipped: true }),
           },
         });
+        if (options.effects) await options.effects(tx, updated);
 
         return updated;
       });

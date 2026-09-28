@@ -17,6 +17,7 @@ import {
   type GitHubIdentityStatus,
 } from "@aoo/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { enqueueProvisioningWake } from "./wake.js";
 
 /** Claims recorded by HR/onboarding staff. Only these are honored (legacy sources are ignored). */
 export const GITHUB_CLAIM_SOURCE = "HR_INPUT";
@@ -216,39 +217,55 @@ export function createGitHubIdentityService(
         workflowId: workflow.id,
         recordedBy: input.operatorId,
       };
+      let auditId: string;
       if (row) {
         await tx
           .update(externalIdentityClaims)
           .set({ ...recorded, updatedAt: sql`now()` })
           .where(eq(externalIdentityClaims.id, row.id));
-        await tx.insert(auditEvents).values({
-          ...base,
-          eventType: claim ? "github.identity_claim_changed" : "github.identity_claim_recorded",
-          payload: {
-            employeeId: employee.id,
-            claimId: row.id,
-            previousLogin: claim?.claimedLogin ?? null,
-            ...(claim ? {} : { replacedSource: row.source }),
-            claimedLogin: login,
-            source: GITHUB_CLAIM_SOURCE,
-          },
-        });
+        const [recordedAudit] = await tx
+          .insert(auditEvents)
+          .values({
+            ...base,
+            eventType: claim ? "github.identity_claim_changed" : "github.identity_claim_recorded",
+            payload: {
+              employeeId: employee.id,
+              claimId: row.id,
+              previousLogin: claim?.claimedLogin ?? null,
+              ...(claim ? {} : { replacedSource: row.source }),
+              claimedLogin: login,
+              source: GITHUB_CLAIM_SOURCE,
+            },
+          })
+          .returning({ id: auditEvents.id });
+        auditId = recordedAudit!.id;
       } else {
         const [created] = await tx
           .insert(externalIdentityClaims)
           .values({ employeeId: employee.id, provider: "github", ...recorded })
           .returning();
-        await tx.insert(auditEvents).values({
-          ...base,
-          eventType: "github.identity_claim_recorded",
-          payload: {
-            employeeId: employee.id,
-            claimId: created!.id,
-            claimedLogin: login,
-            source: GITHUB_CLAIM_SOURCE,
-          },
-        });
+        const [recordedAudit] = await tx
+          .insert(auditEvents)
+          .values({
+            ...base,
+            eventType: "github.identity_claim_recorded",
+            payload: {
+              employeeId: employee.id,
+              claimId: created!.id,
+              claimedLogin: login,
+              source: GITHUB_CLAIM_SOURCE,
+            },
+          })
+          .returning({ id: auditEvents.id });
+        auditId = recordedAudit!.id;
       }
+      // M7C: a new or corrected claim can unblock GitHub provisioning: wake it in this same
+      // transaction. An identical resubmission returned earlier, so it emits nothing.
+      await enqueueProvisioningWake(tx, {
+        workflowId: workflow.id,
+        reason: "GITHUB_IDENTITY_RECORDED",
+        key: `claim:${auditId}`,
+      });
       return true;
     });
     return { ...(await getStatus(input.workflowId)), changed };

@@ -633,9 +633,18 @@ export const ACCESS_REQUEST_STATUSES = [
   "PROVISIONING",
   "PROVISIONED",
   "PROVISIONING_FAILED",
+  // M7C: authorized, provider MANUAL: an operator must perform/confirm the external action.
+  "MANUAL_ACTION_REQUIRED",
 ] as const;
 export const accessRequestStatusEnum = pgEnum("access_request_status", ACCESS_REQUEST_STATUSES);
 export const ACCESS_AUTHORIZED_VIA = ["POLICY", "APPROVAL"] as const;
+/** M7C: how a non-settled resource is blocked (orchestration visibility, not authority). */
+export const PROVISIONING_BLOCKER_CLASSES = [
+  "WAITING",
+  "RETRYABLE",
+  "MANUAL",
+  "DETERMINISTIC_FAILURE",
+] as const;
 
 /**
  * Per-resource lifecycle (M6B): the authority for one resource's state, independent of the
@@ -687,21 +696,37 @@ export const accessRequests = pgTable(
     providerState: text("provider_state"),
     /** M7B: small curated provider evidence (ids, logins, slugs); never API payloads. */
     providerEvidence: jsonb("provider_evidence").$type<Record<string, unknown>>(),
+    // M7C: orchestration visibility. Why the coordinator couldn't settle this resource yet.
+    /** Stable blocker code, e.g. GITHUB_INVITATION_PENDING, MISSING_AUTHORIZED_DEPENDENCY. */
+    orchestrationBlocker: text("orchestration_blocker"),
+    /** WAITING, RETRYABLE, MANUAL or DETERMINISTIC_FAILURE. */
+    blockerClass: text("blocker_class"),
+    /** When the periodic reconciler should look again (null: event-driven only). */
+    nextReconcileAt: timestamp("next_reconcile_at", { withTimezone: true }),
+    lastCoordinatedAt: timestamp("last_coordinated_at", { withTimezone: true }),
+    /** M7C: operator who confirmed a MANUAL resource (audit actor `hr:<id>`). */
+    manualCompletedBy: text("manual_completed_by"),
+    /** M7C: short, safe operator evidence for a MANUAL resource (no credentials). */
+    manualEvidence: text("manual_evidence"),
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
   (t) => [
     index("access_requests_workflow_id_idx").on(t.workflowId),
+    index("access_requests_next_reconcile_idx")
+      .on(t.nextReconcileAt)
+      .where(sql`${t.nextReconcileAt} IS NOT NULL`),
     // Authorized resources keep their authorization through the provisioning lifecycle. The M7A
     // enum values are compared as text: PostgreSQL forbids using a new enum value in the
     // transaction that adds it, and migrations run in one transaction.
     check(
       "access_requests_authorized_via_iff_authorized",
-      sql`(${t.status}::text IN ('READY_FOR_PROVISIONING', 'PROVISIONING', 'PROVISIONED', 'PROVISIONING_FAILED')) = (${t.authorizedVia} IS NOT NULL)`,
+      sql`(${t.status}::text IN ('READY_FOR_PROVISIONING', 'PROVISIONING', 'PROVISIONED', 'PROVISIONING_FAILED', 'MANUAL_ACTION_REQUIRED')) = (${t.authorizedVia} IS NOT NULL)`,
     ),
     check(
       "access_requests_provisioned_has_evidence",
-      sql`${t.status}::text <> 'PROVISIONED' OR (${t.provisionedAt} IS NOT NULL AND ${t.provisioningOperationId} IS NOT NULL AND ${t.providerSubjectId} IS NOT NULL AND ${t.providerTargetId} IS NOT NULL)`,
+      // Provider evidence, or (M7C, MANUAL resources) the operator's confirmation and evidence.
+      sql`${t.status}::text <> 'PROVISIONED' OR (${t.provisionedAt} IS NOT NULL AND ((${t.provisioningOperationId} IS NOT NULL AND ${t.providerSubjectId} IS NOT NULL AND ${t.providerTargetId} IS NOT NULL) OR (${t.manualCompletedBy} IS NOT NULL AND ${t.manualEvidence} IS NOT NULL)))`,
     ),
     check(
       "access_requests_failed_has_code",
@@ -718,6 +743,18 @@ export const accessRequests = pgTable(
     check(
       "access_requests_approved_has_approval",
       sql`${t.authorizedVia} IS DISTINCT FROM 'APPROVAL' OR ${t.approvalId} IS NOT NULL`,
+    ),
+    check(
+      "access_requests_blocker_class_valid",
+      sql`${t.blockerClass} IS NULL OR ${t.blockerClass} IN ${inList(PROVISIONING_BLOCKER_CLASSES)}`,
+    ),
+    check(
+      "access_requests_blocker_pair",
+      sql`(${t.orchestrationBlocker} IS NULL) = (${t.blockerClass} IS NULL)`,
+    ),
+    check(
+      "access_requests_manual_evidence_pair",
+      sql`(${t.manualCompletedBy} IS NULL) = (${t.manualEvidence} IS NULL)`,
     ),
   ],
 );
@@ -804,3 +841,57 @@ export type OutboxEventAttempt = typeof outboxEventAttempts.$inferSelect;
 export type ExternalOperation = typeof externalOperations.$inferSelect;
 export type Approval = typeof approvals.$inferSelect;
 export type ApprovalCallbackEvent = typeof approvalCallbackEvents.$inferSelect;
+
+export const PROVISIONING_PLAN_STATUSES = ["ACTIVE", "COMPLETE"] as const;
+export const provisioningPlanStatusEnum = pgEnum(
+  "provisioning_plan_status",
+  PROVISIONING_PLAN_STATUSES,
+);
+
+/**
+ * M7C: the authorization run a workflow's provisioning executes. Locks the exact agent run (and
+ * its catalog and policy versions/hashes) whose access_requests are provisioned, so requests from
+ * other historical runs are never mixed in. At most one ACTIVE plan per workflow.
+ */
+export const workflowProvisioningPlans = pgTable(
+  "workflow_provisioning_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    agentRunId: uuid("agent_run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "restrict" }),
+    catalogVersion: text("catalog_version").notNull(),
+    catalogHash: text("catalog_hash").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    policyHash: text("policy_hash").notNull(),
+    status: provisioningPlanStatusEnum("status").notNull().default("ACTIVE"),
+    /** AUTHORIZATION (created with M6B's authorization-complete transition) or LEGACY_ADOPTION. */
+    createdVia: text("created_via").notNull(),
+    lastCoordinatedAt: timestamp("last_coordinated_at", { withTimezone: true }),
+    /** Earliest next_reconcile_at of its requests: the periodic reconciler's index. */
+    nextReconcileAt: timestamp("next_reconcile_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("workflow_provisioning_plans_one_active_idx")
+      .on(t.workflowId)
+      .where(sql`${t.status} = 'ACTIVE'`),
+    uniqueIndex("workflow_provisioning_plans_workflow_run_idx").on(t.workflowId, t.agentRunId),
+    index("workflow_provisioning_plans_next_reconcile_idx")
+      .on(t.nextReconcileAt)
+      .where(sql`${t.status} = 'ACTIVE'`),
+    check(
+      "workflow_provisioning_plans_completed_iff_complete",
+      sql`(${t.status} = 'COMPLETE') = (${t.completedAt} IS NOT NULL)`,
+    ),
+    check(
+      "workflow_provisioning_plans_created_via_valid",
+      sql`${t.createdVia} IN ('AUTHORIZATION', 'LEGACY_ADOPTION')`,
+    ),
+  ],
+);
+export type WorkflowProvisioningPlan = typeof workflowProvisioningPlans.$inferSelect;
