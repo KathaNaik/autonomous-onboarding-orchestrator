@@ -1,0 +1,4 @@
+ALTER TABLE "external_identity_claims" ALTER COLUMN "source_event_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "external_identity_claims" ADD COLUMN "workflow_id" uuid;--> statement-breakpoint
+ALTER TABLE "external_identity_claims" ADD CONSTRAINT "external_identity_claims_workflow_id_onboarding_workflows_id_fk" FOREIGN KEY ("workflow_id") REFERENCES "public"."onboarding_workflows"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "external_identity_claims" ADD CONSTRAINT "external_identity_claims_source_check" CHECK ("external_identity_claims"."source" = 'EMPLOYEE_INPUT');

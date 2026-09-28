@@ -1,2 +1,6 @@
+export * from "./eligibility.js";
+export * from "./github-handlers.js";
+export * from "./github-identity.js";
+export * from "./github-service.js";
 export * from "./okta-handlers.js";
 export * from "./okta-service.js";

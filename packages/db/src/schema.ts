@@ -680,6 +680,13 @@ export const accessRequests = pgTable(
     provisionedAt: timestamp("provisioned_at", { withTimezone: true }),
     /** Stable error code for PROVISIONING_FAILED (never provider text). */
     provisioningErrorCode: text("provisioning_error_code"),
+    /**
+     * M7B: provider-side state while PROVISIONING (e.g. INVITATION_PENDING: GitHub sent an org
+     * invitation the user has not accepted yet). Null otherwise.
+     */
+    providerState: text("provider_state"),
+    /** M7B: small curated provider evidence (ids, logins, slugs); never API payloads. */
+    providerEvidence: jsonb("provider_evidence").$type<Record<string, unknown>>(),
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
@@ -745,6 +752,47 @@ export const externalIdentities = pgTable(
   ],
 );
 
+/**
+ * Trusted claims of an employee's provider account (M7B), e.g. the GitHub login supplied by HRIS
+ * onboarding data. A claim is only a pointer: provisioning resolves it exactly at the provider
+ * and links the immutable provider id in external_identities. One claim per employee/provider;
+ * the latest accepted HRIS event wins.
+ */
+export const externalIdentityClaims = pgTable(
+  "external_identity_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "restrict" }),
+    provider: externalProviderEnum("provider").notNull(),
+    /** The exact provider login HR/onboarding staff recorded (never inferred). */
+    claimedLogin: text("claimed_login").notNull(),
+    /**
+     * Where the claim came from. "HR_INPUT" (since 0015): recorded by HR/onboarding staff. The
+     * legacy "EMPLOYEE_INPUT" (0014, pre-commit only) is never written and is ignored (fail-closed).
+     */
+    source: text("source").notNull(),
+    /** Unused since 0014 (HRIS no longer carries provider logins); kept nullable. */
+    sourceEventId: text("source_event_id"),
+    /** (0014) The onboarding workflow the claim was recorded for. */
+    workflowId: uuid("workflow_id").references(() => onboardingWorkflows.id, {
+      onDelete: "restrict",
+    }),
+    /** (0015) The HR/onboarding operator who last recorded the claim (self-declared id). */
+    recordedBy: text("recorded_by"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("external_identity_claims_employee_provider_idx").on(t.employeeId, t.provider),
+    check(
+      "external_identity_claims_source_check",
+      sql`${t.source} IN ('HR_INPUT', 'EMPLOYEE_INPUT')`,
+    ),
+  ],
+);
+
+export type ExternalIdentityClaim = typeof externalIdentityClaims.$inferSelect;
 export type ExternalIdentity = typeof externalIdentities.$inferSelect;
 export type AccessDecision = typeof accessDecisions.$inferSelect;
 export type AccessRequest = typeof accessRequests.$inferSelect;

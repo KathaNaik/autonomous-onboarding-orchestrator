@@ -92,6 +92,27 @@
       "when": 1790299765991,
       "tag": "0012_okta_provisioning",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790302107923,
+      "tag": "0013_github_provisioning",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790315938321,
+      "tag": "0014_github_identity_employee_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790320600539,
+      "tag": "0015_github_identity_hr_claims",
+      "breakpoints": true
     }
   ]
 }

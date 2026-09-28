@@ -40,6 +40,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aoo}:${POSTGRES_PASSWORD:-aoo}@postgres:5432/${POSTGRES_DB:-aoo}
       # Development-only default. Set HRIS_WEBHOOK_SECRET (>= 32 chars) for anything real.
       HRIS_WEBHOOK_SECRET: ${HRIS_WEBHOOK_SECRET:-dev-only-hris-webhook-secret-change-me}
+      # Development-only default. HR/onboarding operator bearer token (admin routes).
+      ONBOARDING_ADMIN_TOKEN: ${ONBOARDING_ADMIN_TOKEN:-dev-only-onboarding-admin-token-change-me}
     ports:
       - "${API_PORT:-4000}:4000"
     depends_on:

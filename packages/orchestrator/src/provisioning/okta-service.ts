@@ -18,6 +18,13 @@ import { noopLogger, type EventLogger } from "../events/types.js";
 import { ExternalOperationError } from "../external-operations/errors.js";
 import type { ExecutionSuccess, ExternalOperationService } from "../external-operations/service.js";
 import {
+  EligibilityError,
+  loadAuthorizedRequest,
+  missingDependencies,
+  resolveProviderResource,
+  type AuthorizedRequest,
+} from "./eligibility.js";
+import {
   OKTA_ADD_GROUP_MEMBERSHIP,
   OKTA_ENSURE_USER,
   identityMismatches,
@@ -260,68 +267,27 @@ export function createOktaProvisioningService(
       const { accessRequestId } = parsed.data;
       const started = performance.now();
 
-      // 1. The authorization chain, validated fail-closed before any provider call.
-      const [found] = await db
-        .select({ request: accessRequests, decision: accessDecisions, employee: employees })
-        .from(accessRequests)
-        .innerJoin(accessDecisions, eq(accessDecisions.id, accessRequests.accessDecisionId))
-        .innerJoin(employees, eq(employees.id, accessRequests.employeeId))
-        .where(eq(accessRequests.id, accessRequestId));
-      if (!found) {
-        throw new OktaProvisioningError(
-          "ACCESS_REQUEST_NOT_FOUND",
-          `access request ${accessRequestId} not found`,
-        );
-      }
-      const { request, decision, employee } = found;
-      const chain = (msg: string) =>
-        new OktaProvisioningError("AUTHORIZATION_CHAIN_INVALID", msg, { accessRequestId });
-
-      if (
-        !["READY_FOR_PROVISIONING", "PROVISIONING", "PROVISIONED", "PROVISIONING_FAILED"].includes(
-          request.status,
-        )
-      ) {
-        throw new OktaProvisioningError(
-          "NOT_ELIGIBLE",
-          `access request is ${request.status}; only authorized resources are provisioned`,
-          { accessRequestId },
-        );
-      }
-      if (
-        request.workflowId !== decision.workflowId ||
-        request.employeeId !== decision.employeeId ||
-        request.agentRunId !== decision.agentRunId ||
-        request.resourceId !== decision.resourceId
-      ) {
-        throw chain("access request and decision disagree on workflow, employee, run or resource");
-      }
-      if (decision.decision === "ALLOW") {
-        if (request.authorizedVia !== "POLICY")
-          throw chain("an ALLOW decision must be authorized by policy");
-      } else if (decision.decision === "REQUIRES_APPROVAL") {
-        if (
-          request.authorizedVia !== "APPROVAL" ||
-          !request.approvalId ||
-          !request.externalOperationId
-        ) {
-          throw chain("an approval-required decision needs a verified approval");
+      // 1–3. Authorization chain, exact catalog resource and dependencies (shared, fail-closed).
+      const eligible = <T>(fn: () => T): T => {
+        try {
+          return fn();
+        } catch (err) {
+          if (err instanceof EligibilityError) {
+            throw new OktaProvisioningError(err.code, err.message, { accessRequestId });
+          }
+          throw err;
         }
-        const [approval] = await db
-          .select()
-          .from(approvals)
-          .where(eq(approvals.id, request.approvalId));
-        if (
-          !approval ||
-          approval.status !== "APPROVED" ||
-          approval.externalOperationId !== request.externalOperationId ||
-          approval.workflowId !== request.workflowId
-        ) {
-          throw chain("the approval is not a verified APPROVED approval for this request");
+      };
+      let authorized: AuthorizedRequest;
+      try {
+        authorized = await loadAuthorizedRequest(db, accessRequestId);
+      } catch (err) {
+        if (err instanceof EligibilityError) {
+          throw new OktaProvisioningError(err.code, err.message, { accessRequestId });
         }
-      } else {
-        throw chain(`decision ${decision.decision} never authorizes provisioning`);
+        throw err;
       }
+      const { request, decision, employee } = authorized;
       if (request.status === "PROVISIONING_FAILED") {
         throw new OktaProvisioningError(
           "PROVISIONING_FAILED",
@@ -335,34 +301,8 @@ export function createOktaProvisioningService(
       if (request.status === "PROVISIONED") {
         return replayResult(request, decision.id, employee.hrisEmployeeId);
       }
-
-      // 2. Exact catalog resource, provider and configured target.
-      let resource: CatalogResource;
-      try {
-        const catalog = catalogs.resolve({
-          catalogVersion: decision.catalogVersion,
-          catalogHash: decision.catalogHash,
-        });
-        if (!catalog.hasResource(request.resourceId)) {
-          throw new OktaProvisioningError(
-            "RESOURCE_NOT_IN_CATALOG",
-            "resource is not in the decision's catalog",
-            { accessRequestId },
-          );
-        }
-        resource = catalog.getResource(request.resourceId);
-      } catch (err) {
-        if (err instanceof CatalogError)
-          throw new OktaProvisioningError("CATALOG_UNAVAILABLE", err.message, { accessRequestId });
-        throw err;
-      }
-      if (resource.provider !== "OKTA") {
-        throw new OktaProvisioningError(
-          "PROVIDER_MISMATCH",
-          `resource provider is ${resource.provider}, not OKTA`,
-          { accessRequestId },
-        );
-      }
+      const resource = eligible(() => resolveProviderResource(catalogs, decision, request, "OKTA"));
+      if (resource.provider !== "OKTA") throw new Error("unreachable: provider already checked");
       const target = targets.get(resource.resourceId);
       if (!target) {
         throw new OktaProvisioningError(
@@ -372,22 +312,7 @@ export function createOktaProvisioningService(
         );
       }
       const expectedGroupName = target.expectedName ?? resource.providerMetadata.groupName;
-
-      // 3. Declared dependencies must already be PROVISIONED (no graph execution in M7A).
-      const missingDeps: string[] = [];
-      for (const dep of resource.dependsOn) {
-        const [ready] = await db
-          .select({ id: accessRequests.id })
-          .from(accessRequests)
-          .where(
-            and(
-              eq(accessRequests.workflowId, request.workflowId),
-              eq(accessRequests.resourceId, dep),
-              eq(accessRequests.status, "PROVISIONED"),
-            ),
-          );
-        if (!ready) missingDeps.push(dep);
-      }
+      const missingDeps = await missingDependencies(db, request, resource);
       if (missingDeps.length > 0) {
         throw new OktaProvisioningError(
           "DEPENDENCIES_NOT_READY",

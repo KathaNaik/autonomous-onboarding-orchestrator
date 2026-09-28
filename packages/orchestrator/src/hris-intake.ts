@@ -86,7 +86,6 @@ export function createHrisIntakeService(db: Database): HrisIntakeService {
             hrisEventId: event.eventId,
           },
         });
-
         const [active] = await tx
           .select()
           .from(onboardingWorkflows)

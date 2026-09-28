@@ -31,6 +31,13 @@ const EnvSchema = z
       .min(1000)
       .max(3_600_000)
       .default(300_000),
+    /**
+     * (M7B) Bearer token for the HR/onboarding operator routes (recording GitHub usernames).
+     * Unset: those routes are not registered. Dedicated: not the HRIS or callback secret.
+     */
+    ONBOARDING_ADMIN_TOKEN: optional(
+      z.string().min(32, "ONBOARDING_ADMIN_TOKEN must be at least 32 characters"),
+    ),
   })
   .refine(
     (c) =>
@@ -53,7 +60,17 @@ const EnvSchema = z
   .refine((c) => c.SERVICENOW_CALLBACK_SECRET !== c.HRIS_WEBHOOK_SECRET, {
     message: "SERVICENOW_CALLBACK_SECRET must differ from HRIS_WEBHOOK_SECRET",
     path: ["SERVICENOW_CALLBACK_SECRET"],
-  });
+  })
+  .refine(
+    (c) =>
+      !c.ONBOARDING_ADMIN_TOKEN ||
+      (c.ONBOARDING_ADMIN_TOKEN !== c.HRIS_WEBHOOK_SECRET &&
+        c.ONBOARDING_ADMIN_TOKEN !== c.SERVICENOW_CALLBACK_SECRET),
+    {
+      message: "ONBOARDING_ADMIN_TOKEN must differ from the HRIS and ServiceNow callback secrets",
+      path: ["ONBOARDING_ADMIN_TOKEN"],
+    },
+  );
 
 export type Config = z.infer<typeof EnvSchema>;
 
@@ -66,6 +83,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     apiPasswords.includes(config.SERVICENOW_CALLBACK_SECRET)
   ) {
     throw new Error("SERVICENOW_CALLBACK_SECRET must not reuse a ServiceNow API password");
+  }
+  if (config.ONBOARDING_ADMIN_TOKEN && apiPasswords.includes(config.ONBOARDING_ADMIN_TOKEN)) {
+    throw new Error("ONBOARDING_ADMIN_TOKEN must not reuse a ServiceNow API password");
   }
   return config;
 }

@@ -1,3 +1,4 @@
+import { GitHubError } from "@aoo/github";
 import { OktaError } from "@aoo/okta";
 import { ServiceNowError, redactText } from "@aoo/servicenow";
 
@@ -57,6 +58,8 @@ const OKTA_CATEGORY: Record<string, ErrorCategory> = {
   UNEXPECTED_REDIRECT: "RESPONSE_INVALID",
 };
 
+const GITHUB_CATEGORY: Record<string, ErrorCategory> = { ...OKTA_CATEGORY };
+
 const MAX_MESSAGE = 300;
 
 /**
@@ -68,6 +71,9 @@ export function scrubText(text: string, sensitiveValues: readonly string[] = [])
   let out = redactText(text)
     // Okta API tokens use the SSWS scheme (not covered by the Basic/Bearer rule).
     .replace(/\bSSWS\s+[A-Za-z0-9._~+/=-]+/gi, "SSWS [REDACTED]")
+    // GitHub tokens (classic and fine-grained) and "token <value>" authorization values.
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, "[REDACTED]")
+    .replace(/\btoken\s+[A-Za-z0-9._~+/=-]{16,}/gi, "token [REDACTED]")
     .replace(/\bparams:[\s\S]*$/i, "params: [REDACTED]")
     .replace(/\b(set-cookie|cookie)\s*[:=]\s*[^\n;]+/gi, "$1: [REDACTED]")
     .replace(/(https?:\/\/[^\s?#]+)\?[^\s#]*/gi, "$1?[REDACTED]")
@@ -93,6 +99,17 @@ export function sanitizeExternalError(
     return {
       ...base,
       category: SERVICENOW_CATEGORY[err.code] ?? "INTERNAL",
+      code: err.code,
+      ...(err.status !== undefined && { httpStatus: err.status }),
+      operation: err.operation,
+      retryable: err.retryable,
+      message: scrub(err.message),
+    };
+  }
+  if (err instanceof GitHubError) {
+    return {
+      ...base,
+      category: GITHUB_CATEGORY[err.code] ?? "INTERNAL",
       code: err.code,
       ...(err.status !== undefined && { httpStatus: err.status }),
       operation: err.operation,

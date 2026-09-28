@@ -1,3 +1,4 @@
+import { GitHubError } from "@aoo/github";
 import { OktaError } from "@aoo/okta";
 import { ServiceNowAuthError, ServiceNowOutcomeUnknownError } from "@aoo/servicenow";
 import { describe, expect, it } from "vitest";
@@ -162,6 +163,50 @@ describe("Okta error sanitization (M7A)", () => {
   ] as const)("maps Okta %s to category %s", (code, category) => {
     expect(
       sanitizeExternalError(new OktaError(code, "op", "x"), { provider: "okta" }).category,
+    ).toBe(category);
+  });
+});
+
+describe("GitHub error sanitization (M7B)", () => {
+  const classic = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
+  const fineGrained =
+    "github_pat_" + "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";
+
+  it("never persists GITHUB_TOKEN values, Authorization headers or bearer values", () => {
+    const fromGitHub = sanitizeExternalError(
+      new GitHubError(
+        "AUTHENTICATION_FAILED",
+        "setOrgMembership",
+        `HTTP 401 Authorization: Bearer ${classic} GITHUB_TOKEN=${fineGrained}`,
+        { status: 401 },
+      ),
+      { provider: "github" },
+    );
+    expect(fromGitHub).toMatchObject({
+      provider: "github",
+      category: "AUTHENTICATION",
+      httpStatus: 401,
+      retryable: false,
+    });
+    const unexpected = sanitizeExternalError(
+      new Error(`socket closed; header Authorization: token ${classic}; also ${fineGrained}`),
+      { provider: "github" },
+    );
+    for (const e of [fromGitHub, unexpected]) {
+      const text = JSON.stringify(e) + formatSanitizedError(e);
+      expect(text).not.toContain(classic);
+      expect(text).not.toContain(fineGrained);
+      expect(text).not.toContain("A1b2C3d4");
+    }
+  });
+
+  it.each([
+    ["RATE_LIMITED", "PROVIDER_UNAVAILABLE"],
+    ["OUTCOME_UNKNOWN", "OUTCOME_UNKNOWN"],
+    ["PERMISSION_DENIED", "PERMISSION"],
+  ] as const)("maps GitHub %s to category %s", (code, category) => {
+    expect(
+      sanitizeExternalError(new GitHubError(code, "op", "x"), { provider: "github" }).category,
     ).toBe(category);
   });
 });

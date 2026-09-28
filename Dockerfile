@@ -21,6 +21,7 @@ COPY packages/catalog/package.json packages/catalog/
 COPY packages/policy/package.json packages/policy/
 COPY packages/agents/package.json packages/agents/
 COPY packages/okta/package.json packages/okta/
+COPY packages/github/package.json packages/github/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build

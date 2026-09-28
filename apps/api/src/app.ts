@@ -2,13 +2,16 @@ import { loadCatalogRegistry, type ResourceCatalog } from "@aoo/catalog";
 import { createDatabase } from "@aoo/db";
 import {
   createApprovalService,
+  createGitHubIdentityService,
   createHrisIntakeService,
   createWorkflowService,
   type ApprovalService,
+  type GitHubIdentityService,
   type HrisIntakeService,
 } from "@aoo/orchestrator";
 import Fastify, { type FastifyInstance } from "fastify";
 import { callbackConfig, type Config } from "./config.js";
+import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
 import { resourceRoutes } from "./routes/resources.js";
@@ -20,6 +23,8 @@ export interface AppDependencies {
   approvals: ApprovalService;
   /** Current resource catalog version (read-only). */
   catalog: ResourceCatalog;
+  /** (M7B) HR-recorded GitHub identity claims: records claims only, never provisions. */
+  githubIdentities: GitHubIdentityService;
 }
 
 /**
@@ -36,7 +41,8 @@ export async function buildApp(
   });
 
   // Loaded before anything else: invalid or modified catalog data fails startup.
-  const catalog = overrides.catalog ?? loadCatalogRegistry().current;
+  const catalogs = loadCatalogRegistry();
+  const catalog = overrides.catalog ?? catalogs.current;
 
   const database = createDatabase(config.DATABASE_URL, {
     onIdleClientError: (err) => app.log.warn({ err: err.message }, "database idle connection lost"),
@@ -48,6 +54,7 @@ export async function buildApp(
       workflows: createWorkflowService(database.db),
     }),
     catalog,
+    githubIdentities: createGitHubIdentityService(database.db, { catalogs }),
     ...overrides,
   };
 
@@ -65,6 +72,13 @@ export async function buildApp(
       ...callbacks,
       bodyLimit: 16_384,
       approvals: deps.approvals,
+    });
+  }
+
+  if (config.ONBOARDING_ADMIN_TOKEN) {
+    await app.register(adminGitHubIdentityRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      identities: deps.githubIdentities,
     });
   }
 
