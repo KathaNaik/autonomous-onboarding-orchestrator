@@ -69,6 +69,9 @@ describe("successful authenticated reads", () => {
       policyDecision: "requires_approval",
       approvalState: "pending",
       correlationKey: "wf-7c9e6679:github:team:platform",
+      // A record without the M7D fields (historical approval record) still loads.
+      requestKind: null,
+      fulfillmentState: null,
     });
     expect(rows[1]?.policyDecision).toBeNull();
 

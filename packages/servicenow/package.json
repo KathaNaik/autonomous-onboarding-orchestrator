@@ -16,7 +16,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "tsx --conditions=source src/bin/check.ts"
+    "check": "tsx --conditions=source src/bin/check.ts",
+    "fulfillment:check": "tsx --conditions=source src/bin/fulfillment-check.ts",
+    "export:check": "tsx --conditions=source src/bin/export-check.ts",
+    "fulfillment:acl-check": "tsx --conditions=source src/bin/fulfillment-acl-check.ts"
   },
   "dependencies": {
     "zod": "^4.6.5"

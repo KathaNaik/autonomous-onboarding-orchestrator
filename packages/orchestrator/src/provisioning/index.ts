@@ -8,4 +8,5 @@ export * from "./okta-handlers.js";
 export * from "./okta-service.js";
 export * from "./plan.js";
 export * from "./scheduling.js";
+export * from "./servicenow-fulfillment.js";
 export * from "./wake.js";

@@ -112,6 +112,8 @@ describe("checkAccessRequestTable", () => {
     choices: {
       policy_decision: ["pending", "allow", "deny", "requires_approval"],
       approval_state: ["not_required", "pending", "approved", "rejected"],
+      request_kind: ["approval", "fulfillment"],
+      fulfillment_state: ["pending", "in_progress", "fulfilled", "failed"],
     },
   };
 
@@ -167,6 +169,8 @@ describe("checkAccessRequestTable: choices and defaults", () => {
         choices: {
           policy_decision: ["pending", "allow", "maybe"],
           approval_state: ["not_required", "pending", "approved", "rejected"],
+          request_kind: ["approval", "fulfillment"],
+          fulfillment_state: ["pending", "in_progress", "fulfilled", "failed"],
         },
       }),
     ).toEqual([
@@ -176,7 +180,11 @@ describe("checkAccessRequestTable: choices and defaults", () => {
     expect(
       checkAccessRequestTable({
         ...base,
-        choices: { approval_state: ["not_required", "pending", "approved", "rejected"] },
+        choices: {
+          approval_state: ["not_required", "pending", "approved", "rejected"],
+          request_kind: ["approval", "fulfillment"],
+          fulfillment_state: ["pending", "in_progress", "fulfilled", "failed"],
+        },
       }),
     ).toEqual([
       "column policy_decision is missing choices: pending, allow, deny, requires_approval",
@@ -194,6 +202,8 @@ describe("checkAccessRequestTable: choices and defaults", () => {
         choices: {
           policy_decision: ["pending", "allow", "deny", "requires_approval"],
           approval_state: ["not_required", "pending", "approved", "rejected"],
+          request_kind: ["approval", "fulfillment"],
+          fulfillment_state: ["pending", "in_progress", "fulfilled", "failed"],
         },
       }),
     ).toEqual(['column policy_decision default is "allow", expected "pending"']);
@@ -246,5 +256,50 @@ describe("checkIntegrationAccess", () => {
         `integration user is granted write on ${t}.* via x.integration_reader`,
       ]),
     );
+  });
+});
+
+describe("checkAccessRequestTable: M7D fulfillment fields", () => {
+  const columns = ACCESS_REQUEST_TABLE_SPEC.columns.map((c) => ({
+    name: c.name,
+    internalType: c.type,
+    maxLength: c.maxLength,
+    mandatory: c.mandatory,
+    unique: "unique" in c ? c.unique : false,
+    defaultValue: "defaultValue" in c ? c.defaultValue : "",
+  }));
+  const base = {
+    name: "x_1234567_autonomo_onboarding_access_request",
+    label: "Onboarding Access Request",
+    superClass: "task",
+    scope: "x_1234567_autonomo",
+    columns,
+    choices: {
+      policy_decision: ["pending", "allow", "deny", "requires_approval"],
+      approval_state: ["not_required", "pending", "approved", "rejected"],
+      request_kind: ["approval", "fulfillment"],
+      fulfillment_state: ["pending", "in_progress", "fulfilled", "failed"],
+    },
+  };
+
+  it("requires request_kind (default approval) and fulfillment_state with exactly their choices", () => {
+    expect(checkAccessRequestTable(base)).toEqual([]);
+    expect(
+      checkAccessRequestTable({
+        ...base,
+        columns: columns.filter((c) => !["request_kind", "fulfillment_state"].includes(c.name)),
+      }),
+    ).toEqual(["missing column request_kind", "missing column fulfillment_state"]);
+    expect(
+      checkAccessRequestTable({
+        ...base,
+        columns: columns.map((c) => (c.name === "request_kind" ? { ...c, defaultValue: "" } : c)),
+        choices: { ...base.choices, fulfillment_state: ["pending", "done"] },
+      }),
+    ).toEqual([
+      'column request_kind default is "", expected "approval"',
+      "column fulfillment_state is missing choices: in_progress, fulfilled, failed",
+      "column fulfillment_state has unexpected choices: done",
+    ]);
   });
 });

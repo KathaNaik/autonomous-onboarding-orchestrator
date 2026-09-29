@@ -11,11 +11,12 @@ export const SETTLED_STATUSES: readonly RequestStatus[] = ["PROVISIONED", "DENIE
 export const isSettled = (status: RequestStatus) => SETTLED_STATUSES.includes(status);
 
 /** How the coordinator executes a catalog provider. Anything unknown is UNSUPPORTED, never MANUAL. */
-export type DispatchKind = "OKTA" | "GITHUB" | "MANUAL" | "UNSUPPORTED";
+export type DispatchKind = "OKTA" | "GITHUB" | "SERVICENOW" | "MANUAL" | "UNSUPPORTED";
 export function dispatchKind(provider: CatalogResource["provider"] | string): DispatchKind {
   switch (provider) {
     case "OKTA":
     case "GITHUB":
+    case "SERVICENOW": // M7D: human fulfillment through a dedicated ServiceNow record
     case "MANUAL":
       return provider;
     default:
@@ -93,8 +94,11 @@ export function dependencyState(
 export interface Blocker {
   code: string;
   blockerClass: BlockerClass;
-  /** When the periodic reconciler should look again; null = event-driven only (no polling). */
-  schedule: "RECONCILE" | "RETRY" | "NONE";
+  /**
+   * When the periodic reconciler should look again: RECONCILE (external wait), FULFILLMENT
+   * (M7D ServiceNow fulfillment wait), RETRY (transient failure) or NONE (event-driven only).
+   */
+  schedule: "RECONCILE" | "FULFILLMENT" | "RETRY" | "NONE";
 }
 
 export const BLOCKERS = {
@@ -143,6 +147,16 @@ export const BLOCKERS = {
     code: "GITHUB_INVITATION_PENDING",
     blockerClass: "WAITING",
     schedule: "RECONCILE",
+  },
+  SERVICENOW_FULFILLMENT_PENDING: {
+    code: "SERVICENOW_FULFILLMENT_PENDING",
+    blockerClass: "WAITING",
+    schedule: "FULFILLMENT",
+  },
+  SERVICENOW_FULFILLMENT_IN_PROGRESS: {
+    code: "SERVICENOW_FULFILLMENT_IN_PROGRESS",
+    blockerClass: "WAITING",
+    schedule: "FULFILLMENT",
   },
   GITHUB_IDENTITY_CLAIM_REQUIRED: {
     code: "GITHUB_IDENTITY_CLAIM_REQUIRED",

@@ -24,6 +24,7 @@ import { noopLogger, type EventLogger } from "../events/types.js";
 import type { WorkflowService } from "../workflow-service.js";
 import type { GitHubProvisioningService } from "./github-service.js";
 import type { OktaProvisioningService } from "./okta-service.js";
+import type { ServiceNowFulfillmentService } from "./servicenow-fulfillment.js";
 import {
   PROVISIONING_ACTOR,
   ProvisioningPlanError,
@@ -44,6 +45,13 @@ import {
 } from "./scheduling.js";
 import { enqueueProvisioningWake } from "./wake.js";
 
+/** Timed external waits: not re-read before their next_reconcile_at (no busy loop). */
+const SCHEDULED_WAITS = new Set<string>([
+  BLOCKERS.GITHUB_INVITATION_PENDING.code,
+  BLOCKERS.SERVICENOW_FULFILLMENT_PENDING.code,
+  BLOCKERS.SERVICENOW_FULFILLMENT_IN_PROGRESS.code,
+]);
+
 /** Workflow phases in which authorized resources are provisioned (per-resource, not a gate). */
 const COORDINATED_STATES: readonly WorkflowState[] = ["AWAITING_APPROVAL", "PROVISIONING"];
 
@@ -54,8 +62,12 @@ export interface ProvisioningCoordinatorOptions {
   okta?: Pick<OktaProvisioningService, "provisionOktaAccess">;
   /** The existing M7B service (absent: GITHUB resources are blocked as PROVIDER_NOT_CONFIGURED). */
   github?: Pick<GitHubProvisioningService, "provisionGitHubAccess">;
+  /** (M7D) The ServiceNow fulfillment service (absent: SERVICENOW resources PROVIDER_NOT_CONFIGURED). */
+  servicenow?: Pick<ServiceNowFulfillmentService, "provisionServiceNowAccess">;
   /** How long to wait before re-reading an external waiting state (e.g. a GitHub invitation). */
   reconcileIntervalMs?: number;
+  /** (M7D) How long to wait before re-reading a pending ServiceNow fulfillment. */
+  fulfillmentReconcileIntervalMs?: number;
   /** Delay before retrying a transient provider failure (and the in-flight crash-recovery mark). */
   retryDelayMs?: number;
   /** Stop starting new dispatches after this long and continue in a fresh wake (lease safety). */
@@ -117,6 +129,7 @@ export function createProvisioningCoordinator(
   const { catalogs, workflows } = options;
   const reconcileIntervalMs = options.reconcileIntervalMs ?? 300_000;
   const retryDelayMs = options.retryDelayMs ?? 60_000;
+  const fulfillmentReconcileIntervalMs = options.fulfillmentReconcileIntervalMs ?? 120_000;
   const sweepIntervalMs = options.sweepIntervalMs ?? 60_000;
   const maxPasses = options.maxPasses ?? 10;
   const logger = options.logger ?? noopLogger;
@@ -182,9 +195,11 @@ export function createProvisioningCoordinator(
     const next =
       blocker.schedule === "RECONCILE"
         ? after(reconcileIntervalMs)
-        : blocker.schedule === "RETRY"
-          ? after(retryDelayMs)
-          : null;
+        : blocker.schedule === "FULFILLMENT"
+          ? after(fulfillmentReconcileIntervalMs)
+          : blocker.schedule === "RETRY"
+            ? after(retryDelayMs)
+            : null;
     const [updated] = await db
       .update(accessRequests)
       .set({
@@ -241,7 +256,7 @@ export function createProvisioningCoordinator(
     if (!request.nextReconcileAt || request.nextReconcileAt.getTime() <= Date.now()) return true;
     return !(
       request.blockerClass === "RETRYABLE" ||
-      request.orchestrationBlocker === BLOCKERS.GITHUB_INVITATION_PENDING.code ||
+      SCHEDULED_WAITS.has(request.orchestrationBlocker ?? "") ||
       request.orchestrationBlocker === null
     );
   }
@@ -534,7 +549,8 @@ export function createProvisioningCoordinator(
           }
           continue;
         }
-        const service = kind === "OKTA" ? options.okta : options.github;
+        const service =
+          kind === "OKTA" ? options.okta : kind === "GITHUB" ? options.github : options.servicenow;
         if (!service) {
           await setBlocker(request, BLOCKERS.PROVIDER_NOT_CONFIGURED);
           continue;
@@ -550,7 +566,11 @@ export function createProvisioningCoordinator(
           const result =
             kind === "OKTA"
               ? await options.okta!.provisionOktaAccess({ accessRequestId: request.id })
-              : await options.github!.provisionGitHubAccess({ accessRequestId: request.id });
+              : kind === "GITHUB"
+                ? await options.github!.provisionGitHubAccess({ accessRequestId: request.id })
+                : await options.servicenow!.provisionServiceNowAccess({
+                    accessRequestId: request.id,
+                  });
           if (result.status === "PROVISIONED") {
             await db
               .update(accessRequests)
@@ -564,7 +584,14 @@ export function createProvisioningCoordinator(
             statusByResource.set(node.resourceId, "PROVISIONED");
             progress = true;
           } else {
-            await setBlocker(request, BLOCKERS.GITHUB_INVITATION_PENDING);
+            await setBlocker(
+              request,
+              result.status === "FULFILLMENT_PENDING"
+                ? BLOCKERS.SERVICENOW_FULFILLMENT_PENDING
+                : result.status === "FULFILLMENT_IN_PROGRESS"
+                  ? BLOCKERS.SERVICENOW_FULFILLMENT_IN_PROGRESS
+                  : BLOCKERS.GITHUB_INVITATION_PENDING,
+            );
           }
         } catch (err) {
           const e = err as { code?: unknown; retryable?: unknown; reason?: unknown };

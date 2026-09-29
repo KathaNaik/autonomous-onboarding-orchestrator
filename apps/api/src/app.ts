@@ -4,11 +4,13 @@ import {
   createApprovalService,
   createGitHubIdentityService,
   createManualProvisioningService,
+  createServiceNowFulfillmentCallbackService,
   createHrisIntakeService,
   createWorkflowService,
   type ApprovalService,
   type GitHubIdentityService,
   type ManualProvisioningService,
+  type ServiceNowFulfillmentCallbackService,
   type HrisIntakeService,
 } from "@aoo/orchestrator";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -19,6 +21,7 @@ import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
 import { resourceRoutes } from "./routes/resources.js";
 import { serviceNowApprovalWebhookRoutes } from "./routes/servicenow-approval-webhook.js";
+import { serviceNowFulfillmentWebhookRoutes } from "./routes/servicenow-fulfillment-webhook.js";
 
 export interface AppDependencies {
   hrisIntake: HrisIntakeService;
@@ -30,6 +33,8 @@ export interface AppDependencies {
   githubIdentities: GitHubIdentityService;
   /** (M7C) Operator confirmation of authorized provider=MANUAL resources. */
   manualProvisioning: ManualProvisioningService;
+  /** (M7D) Records fulfillment notifications only; the worker reads ServiceNow and decides. */
+  fulfillmentCallbacks: ServiceNowFulfillmentCallbackService;
 }
 
 /**
@@ -61,6 +66,7 @@ export async function buildApp(
     catalog,
     githubIdentities: createGitHubIdentityService(database.db, { catalogs }),
     manualProvisioning: createManualProvisioningService(database.db, { catalogs }),
+    fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
     ...overrides,
   };
 
@@ -78,6 +84,11 @@ export async function buildApp(
       ...callbacks,
       bodyLimit: 16_384,
       approvals: deps.approvals,
+    });
+    await app.register(serviceNowFulfillmentWebhookRoutes, {
+      ...callbacks,
+      bodyLimit: 16_384,
+      fulfillment: deps.fulfillmentCallbacks,
     });
   }
 

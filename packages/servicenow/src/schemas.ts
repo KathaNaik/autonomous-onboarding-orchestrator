@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { APPROVAL_STATES, POLICY_DECISIONS } from "./table-spec.js";
+import {
+  APPROVAL_STATES,
+  FULFILLMENT_STATES,
+  POLICY_DECISIONS,
+  REQUEST_KINDS,
+} from "./table-spec.js";
 
 /** ServiceNow sys_id: 32 lowercase hex characters. */
 export const SysIdSchema = z.string().regex(/^[0-9a-f]{32}$/, "must be a 32-character hex sys_id");
@@ -21,6 +26,9 @@ export const ACCESS_REQUEST_FIELDS = [
   "policy_decision",
   "approval_state",
   "correlation_key",
+  // M7D. Absent on instances/records that predate the fields: parsed as null (approval record).
+  "request_kind",
+  "fulfillment_state",
 ] as const;
 
 // With sysparm_display_value=false and sysparm_exclude_reference_link=true, every field is a string.
@@ -43,6 +51,8 @@ export const AccessRequestRecordSchema = z
     policy_decision: z.union([z.enum(POLICY_DECISIONS), z.literal("")]),
     approval_state: z.union([z.enum(APPROVAL_STATES), z.literal("")]),
     correlation_key: Field,
+    request_kind: z.union([z.enum(REQUEST_KINDS), z.literal("")]).optional(),
+    fulfillment_state: z.union([z.enum(FULFILLMENT_STATES), z.literal("")]).optional(),
   })
   .transform((r) => ({
     sysId: r.sys_id,
@@ -60,6 +70,9 @@ export const AccessRequestRecordSchema = z
     policyDecision: r.policy_decision === "" ? null : r.policy_decision,
     approvalState: r.approval_state === "" ? null : r.approval_state,
     correlationKey: r.correlation_key,
+    /** null: a record created before M7D (an approval record). */
+    requestKind: r.request_kind ? r.request_kind : null,
+    fulfillmentState: r.fulfillment_state ? r.fulfillment_state : null,
   }));
 export type AccessRequestRecord = z.output<typeof AccessRequestRecordSchema>;
 
@@ -111,6 +124,10 @@ export const CreateAccessRequestInputSchema = z.object({
   policyDecision: z.enum(POLICY_DECISIONS),
   /** Initial human-approval state: "pending" when policy requires approval. */
   approvalState: z.enum(["not_required", "pending"]).default("not_required"),
+  /** M7D: sent only when set, so the M4B approval payload is unchanged. */
+  requestKind: z.enum(REQUEST_KINDS).optional(),
+  /** M7D: initial fulfillment state of a fulfillment record ("pending"). */
+  fulfillmentState: z.enum(["pending"]).optional(),
   // Deterministic, query-safe provider-side idempotency key (unique in the table).
   correlationKey: z
     .string()
@@ -125,9 +142,20 @@ export const AclEntrySchema = z.object({
   name: z.string(),
   "operation.name": z.string(),
   active: z.string(),
+  /** M7D: the ACL's encoded-query condition (metadata, e.g. "request_kind=fulfillment^EQ"). */
+  condition: z.string().optional(),
 });
 export const AclRoleEntrySchema = z.object({
   sys_security_acl: z.string(),
   "sys_user_role.name": z.string(),
 });
 export const UserRoleEntrySchema = z.object({ "role.name": z.string() });
+
+export const RoleEntrySchema = z.object({ name: z.string(), sys_id: z.string() });
+export const BusinessRuleEntrySchema = z.object({
+  name: z.string(),
+  collection: z.string(),
+  active: z.string(),
+  when: z.string(),
+  action_update: z.string(),
+});

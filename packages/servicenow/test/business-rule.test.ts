@@ -15,6 +15,12 @@ const script = readFileSync(
   ),
   "utf8",
 );
+const fulfillmentScript = readFileSync(
+  fileURLToPath(
+    new URL("../servicenow-app/business-rules/aoo-fulfillment-callback.js", import.meta.url),
+  ),
+  "utf8",
+);
 
 interface Sent {
   url?: string;
@@ -27,6 +33,7 @@ function runRule(opts: {
   fields: Record<string, string>;
   now?: number;
   status?: number;
+  source?: string;
 }) {
   const sent: Sent = { headers: {} };
   const warnings: string[] = [];
@@ -34,6 +41,7 @@ function runRule(opts: {
     "aoo.approval_callback.url": "https://example.test/webhooks/servicenow/approvals",
     "aoo.approval_callback.secret": opts.secret,
     "aoo.approval_callback.instance": "dev225201",
+    "aoo.fulfillment_callback.url": "https://example.test/webhooks/servicenow/fulfillment",
   };
   const current = {
     getUniqueValue: () => opts.fields.sys_id!,
@@ -72,7 +80,7 @@ function runRule(opts: {
     sn_ws: { RESTMessageV2 },
     // Deliberately absent, as in a scoped app: GlideCertificateEncryption, GlideStringUtil.
   });
-  vm.runInContext(script, context);
+  vm.runInContext(opts.source ?? script, context);
   return { sent, warnings };
 }
 
@@ -160,5 +168,78 @@ describe("ServiceNow business rule: AOO approval callback", () => {
     ]) {
       expect(code).not.toContain(forbidden);
     }
+  });
+});
+
+describe("ServiceNow business rule: AOO fulfillment callback (M7D)", () => {
+  const fields = {
+    ...baseFields,
+    correlation_key: "aoo-test-ful-1fb6f302c49e1b3bdb0c3dd829549eef54d0d9ad",
+    approval_state: "not_required",
+    request_kind: "fulfillment",
+    fulfillment_state: "fulfilled",
+  };
+
+  it("notifies the fulfillment endpoint with identifiers and a signature our API verifies", () => {
+    const secret = "live-like-callback-secret-0123456789abcdefgh";
+    const { sent, warnings } = runRule({
+      secret,
+      fields,
+      now: Date.now(),
+      source: fulfillmentScript,
+    });
+    expect(warnings).toEqual([]);
+    expect(sent.url).toBe("https://example.test/webhooks/servicenow/fulfillment");
+    expect(JSON.parse(sent.body!)).toEqual({
+      eventId: `${fields.sys_id}:1`,
+      instance: "dev225201",
+      table: "x_2230066_autono_0_onboarding_access_request",
+      sysId: fields.sys_id,
+      number: fields.number,
+      correlationKey: fields.correlation_key,
+      claimedFulfillmentState: "fulfilled",
+    });
+    expect(
+      verifyServiceNowCallback({
+        rawBody: sent.body!,
+        timestamp: sent.headers["x-aoo-timestamp"],
+        signature: sent.headers["x-aoo-signature"],
+        secret,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("ignores approval records and records without a request kind", () => {
+    for (const request_kind of ["approval", ""]) {
+      const { sent } = runRule({
+        secret: "s".repeat(40),
+        fields: { ...fields, request_kind },
+        source: fulfillmentScript,
+      });
+      expect(sent.body).toBeUndefined();
+    }
+  });
+
+  it("its HMAC matches Node crypto, and it uses no API forbidden in scoped applications", () => {
+    const secret = "ünïcødé-🔑-secret-√" + "x".repeat(50);
+    const { sent } = runRule({ secret, fields, source: fulfillmentScript });
+    const ts = sent.headers["x-aoo-timestamp"]!;
+    expect(sent.headers["x-aoo-signature"]).toBe(
+      `v1=${createHmac("sha256", secret).update(`${ts}.${sent.body}`).digest("base64")}`,
+    );
+    const code = fulfillmentScript.slice(fulfillmentScript.indexOf("(function executeRule"));
+    for (const forbidden of ["GlideCertificateEncryption", "GlideStringUtil", "gs.base64Encode"]) {
+      expect(code).not.toContain(forbidden);
+    }
+  });
+
+  it("never logs the secret or body on failure", () => {
+    const { warnings } = runRule({
+      secret: "never-log-this-secret-0123456789abcdef",
+      fields,
+      status: 500,
+      source: fulfillmentScript,
+    });
+    expect(warnings).toEqual(["AOO fulfillment callback for OAR0001006 returned HTTP 500"]);
   });
 });

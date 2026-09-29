@@ -14,6 +14,8 @@ import {
   createOutboxRunner,
   createPostgresOutboxStore,
   createProvisioningCoordinator,
+  createServiceNowFulfillmentHandler,
+  createServiceNowFulfillmentService,
   createWorkflowService,
   type ExternalOperationHandler,
 } from "@aoo/orchestrator";
@@ -57,7 +59,10 @@ const github = providers.github && {
   }),
   targets: providers.github.targets,
 };
+// M7D: ServiceNow fulfillment only when explicitly enabled AND ServiceNow is configured.
+const fulfillment = config.PROVISIONING_SERVICENOW_FULFILLMENT_ENABLED ? servicenow : undefined;
 const handlers: ExternalOperationHandler[] = [
+  ...(fulfillment ? [createServiceNowFulfillmentHandler(fulfillment)] : []),
   ...(okta ? createOktaHandlers(okta.client) : []),
   ...(github ? createGitHubHandlers(github.client) : []),
 ];
@@ -95,7 +100,17 @@ const coordinator = createProvisioningCoordinator(database.db, {
       logger,
     }),
   }),
+  ...(fulfillment && {
+    servicenow: createServiceNowFulfillmentService(database.db, {
+      catalogs,
+      externalOperations,
+      servicenow: fulfillment,
+      ...provisionerOwner,
+      logger,
+    }),
+  }),
   reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
+  fulfillmentReconcileIntervalMs: config.PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS,
   retryDelayMs: config.PROVISIONING_RETRY_DELAY_MS,
   sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
   // Start no new dispatch after half the lease; the rest continues in a fresh wake.
@@ -148,6 +163,7 @@ logger.info(
     provisioning: {
       okta: okta ? "enabled" : "disabled",
       github: github ? "enabled" : "disabled",
+      servicenowFulfillment: fulfillment ? "enabled" : "disabled",
       sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
       reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
     },

@@ -650,13 +650,13 @@ describe("manual and unsupported providers", () => {
     expect((await rowFor(a.agentRunId, MANUAL)).status).toBe("MANUAL_ACTION_REQUIRED");
   });
 
-  it("an unsupported provider (SERVICENOW) is blocked, never PROVISIONED, with no external writes", async () => {
+  it("a SERVICENOW resource without a configured fulfillment service is blocked, never PROVISIONED, with no external writes", async () => {
     const w = world();
     const a = await authorized(w, ["slack-engineering"]);
     const result = await coordinatorFor(w).coordinateProvisioning({ workflowId: a.workflowId });
     expect(await rowFor(a.agentRunId, "slack-engineering")).toMatchObject({
       status: "READY_FOR_PROVISIONING",
-      orchestrationBlocker: "UNSUPPORTED_PROVISIONING_PROVIDER",
+      orchestrationBlocker: "PROVIDER_NOT_CONFIGURED",
       blockerClass: "DETERMINISTIC_FAILURE",
     });
     expect(result).toMatchObject({ outcome: "IN_PROGRESS", workflowState: "PROVISIONING" });
@@ -748,9 +748,10 @@ describe("workflow completion predicate", () => {
     expect((await rowFor(a.agentRunId, "aws-prod")).status).toBe("READY_FOR_PROVISIONING");
     expect(await wakesOf(a.workflowId, "APPROVAL_DECIDED")).toHaveLength(1);
     await drainWakes(coordinatorFor(w));
-    // aws-prod is provider SERVICENOW: no M7C executor, so it's blocked and the stage stays open.
+    // aws-prod depends on aws-dev, which this plan never authorized: blocked visibly (no
+    // authorization is invented) and the stage stays open. M7D covers the fulfillment path.
     expect(await rowFor(a.agentRunId, "aws-prod")).toMatchObject({
-      orchestrationBlocker: "UNSUPPORTED_PROVISIONING_PROVIDER",
+      orchestrationBlocker: "MISSING_AUTHORIZED_DEPENDENCY",
     });
     expect(await stateOf(a.workflowId)).toBe("PROVISIONING");
   });

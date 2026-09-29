@@ -4,4 +4,5 @@ export * from "./github-identity.js";
 export * from "./health.js";
 export * from "./hris.js";
 export * from "./outbox.js";
+export * from "./servicenow-fulfillment.js";
 export * from "./workflow.js";

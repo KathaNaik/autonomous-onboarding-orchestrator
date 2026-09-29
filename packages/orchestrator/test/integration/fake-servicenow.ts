@@ -56,6 +56,8 @@ export class FakeServiceNow implements ServiceNowAccessRequestGateway {
       policyDecision: input.policyDecision,
       approvalState: input.approvalState ?? "not_required",
       correlationKey: input.correlationKey,
+      requestKind: input.requestKind ?? null,
+      fulfillmentState: input.fulfillmentState ?? null,
       ...overrides,
     };
     this.records.push(record);
@@ -77,6 +79,13 @@ export class FakeServiceNow implements ServiceNowAccessRequestGateway {
     const record = this.records.find((r) => r.sysId === sysId);
     if (!record) throw new Error(`no record ${sysId}`);
     record.approvalState = state;
+  }
+
+  /** Simulates the human fulfiller changing a fulfillment record's authoritative state (M7D). */
+  setFulfillmentState(sysId: string, state: AccessRequestRecord["fulfillmentState"]) {
+    const record = this.records.find((r) => r.sysId === sysId);
+    if (!record) throw new Error(`no record ${sysId}`);
+    record.fulfillmentState = state;
   }
 
   /** Makes the next N getAccessRequest calls fail like a transient outage. */

@@ -21,6 +21,9 @@
     "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start",
     "worker:admin": "pnpm --silent --filter @aoo/worker admin",
     "servicenow:check": "pnpm --silent --filter @aoo/servicenow check",
+    "servicenow:fulfillment:check": "pnpm --silent --filter @aoo/servicenow fulfillment:check",
+    "servicenow:export:check": "pnpm --silent --filter @aoo/servicenow export:check",
+    "servicenow:fulfillment:acl-check": "pnpm --silent --filter @aoo/servicenow fulfillment:acl-check",
     "test:servicenow:live": "vitest run --config packages/servicenow/vitest.live.config.ts && vitest run --config packages/orchestrator/vitest.live.config.ts",
     "test:servicenow:approval:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/approval-callback.live.test.ts",
     "agent:eval:live": "pnpm --silent --filter @aoo/agents eval:live",
@@ -29,6 +32,7 @@
     "test:okta:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/okta-provisioning.live.test.ts",
     "github:check": "pnpm --silent --filter @aoo/github check",
     "test:github:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/github-provisioning.live.test.ts",
+    "test:servicenow:fulfillment:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/servicenow-fulfillment.live.test.ts",
     "test:provisioning:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/provisioning.live.test.ts"
   },
   "devDependencies": {

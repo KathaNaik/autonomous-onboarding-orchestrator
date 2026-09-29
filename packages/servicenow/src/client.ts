@@ -19,6 +19,8 @@ import {
   ChoiceEntrySchema,
   CreateAccessRequestInputSchema,
   UserRoleEntrySchema,
+  RoleEntrySchema,
+  BusinessRuleEntrySchema,
   DictionaryEntrySchema,
   ListEnvelopeSchema,
   SingleEnvelopeSchema,
@@ -71,7 +73,24 @@ export interface TableDescription {
 }
 
 export interface AccessControlDescription {
-  acls: Array<{ name: string; operation: string; active: boolean; roles: string[] }>;
+  acls: Array<{
+    name: string;
+    operation: string;
+    active: boolean;
+    roles: string[];
+    /** Encoded-query condition ("" when none). */
+    condition?: string;
+  }>;
+}
+
+export interface PublishSources {
+  scopeSysId: string;
+  /** sys_update_xml rows of the application (name, type, action, payload text). */
+  updates: Array<{ name: string; type: string; action: string; payload: string }>;
+  /** sys_metadata_delete rows of the application (deleted files are still published). */
+  deletes: Array<{ name: string; payload: string }>;
+  /** Application-scope sys_properties records (must be zero: they export WITH their values). */
+  scopedProperties: number;
 }
 
 /** ServiceNow Table API client (read + create only). Independent of workflows: no orchestrator imports. */
@@ -98,6 +117,18 @@ export interface ServiceNowClient {
   describeUserRoles(userName: string): Promise<string[]>;
   /** Reads table metadata (sys_db_object, sys_dictionary); needs dictionary read rights. */
   describeAccessRequestTable(): Promise<TableDescription>;
+  /** (M7D) Setup verification only: which of these role names exist (needs admin read). */
+  describeRoles(names: readonly string[]): Promise<string[]>;
+  /**
+   * (M7D) Pre-export verification only (needs admin read): everything the scoped application
+   * would publish (update records, deleted-file records, scoped properties). The caller scans it
+   * locally and must never print payloads.
+   */
+  readPublishSources(scope: string): Promise<PublishSources>;
+  /** (M7D) Setup verification only: business rules on the table (needs admin read). */
+  describeBusinessRules(): Promise<
+    Array<{ name: string; active: boolean; when: string; onUpdate: boolean }>
+  >;
 }
 
 const noopLogger: ServiceNowLogger = { debug: () => {}, warn: () => {} };
@@ -520,6 +551,8 @@ export function createServiceNowClient(
           policy_decision: i.policyDecision,
           approval_state: i.approvalState,
           correlation_key: i.correlationKey,
+          ...(i.requestKind !== undefined && { request_kind: i.requestKind }),
+          ...(i.fulfillmentState !== undefined && { fulfillment_state: i.fulfillmentState }),
         },
         options.signal,
       );
@@ -541,7 +574,7 @@ export function createServiceNowClient(
         ListEnvelopeSchema,
         await get(operation, "/api/now/table/sys_security_acl", {
           sysparm_query: `nameSTARTSWITH${table}`,
-          sysparm_fields: "sys_id,name,operation.name,active",
+          sysparm_fields: "sys_id,name,operation.name,active,condition",
           sysparm_limit: "200",
         }),
         operation,
@@ -560,6 +593,7 @@ export function createServiceNowClient(
         acls: acls.map((a) => ({
           name: a.name,
           operation: a["operation.name"],
+          condition: a.condition ?? "",
           active: a.active === "true",
           roles: links
             .filter((l) => l.sys_security_acl === a.sys_id)
@@ -581,6 +615,102 @@ export function createServiceNowClient(
         operation,
       ).result.map((r) => parse(UserRoleEntrySchema, r, operation));
       return [...new Set(rows.map((r) => r["role.name"]))].sort();
+    },
+
+    async describeRoles(names) {
+      const operation = "describeRoles";
+      const safe = names.map((n) => queryValue(operation, "roleName", n));
+      if (safe.length === 0) return [];
+      const rows = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_user_role", {
+          sysparm_query: `nameIN${safe.join(",")}`,
+          sysparm_fields: "name,sys_id",
+          sysparm_limit: "50",
+        }),
+        operation,
+      ).result.map((r) => parse(RoleEntrySchema, r, operation));
+      return rows.map((r) => r.name).sort();
+    },
+
+    async readPublishSources(scope) {
+      const operation = "readPublishSources";
+      const scopes = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_scope", {
+          sysparm_query: `scope=${queryValue(operation, "scope", scope)}`,
+          sysparm_fields: "sys_id",
+          sysparm_limit: "1",
+        }),
+        operation,
+      ).result as Array<{ sys_id?: unknown }>;
+      const scopeSysId = typeof scopes[0]?.sys_id === "string" ? scopes[0].sys_id : "";
+      if (!SysIdSchema.safeParse(scopeSysId).success) {
+        throw new ServiceNowResponseError("NOT_FOUND", operation, `scope ${scope} not found`);
+      }
+      const page = async (tableName: string, query: string, fields: string) => {
+        const rows: Record<string, string>[] = [];
+        for (let offset = 0; offset < 20_000; offset += 200) {
+          const batch = parse(
+            ListEnvelopeSchema,
+            await get(operation, `/api/now/table/${tableName}`, {
+              sysparm_query: query,
+              sysparm_fields: fields,
+              sysparm_exclude_reference_link: "true",
+              sysparm_limit: "200",
+              sysparm_offset: String(offset),
+            }),
+            operation,
+          ).result as Record<string, string>[];
+          rows.push(...batch);
+          if (batch.length < 200) break;
+        }
+        return rows;
+      };
+      const updates = await page(
+        "sys_update_xml",
+        `application=${scopeSysId}`,
+        "name,type,action,payload",
+      );
+      const deletes = await page(
+        "sys_metadata_delete",
+        `sys_scope=${scopeSysId}`,
+        "sys_update_name,payload",
+      );
+      const properties = await page("sys_properties", `sys_scope=${scopeSysId}`, "sys_id");
+      return {
+        scopeSysId,
+        updates: updates.map((u) => ({
+          name: String(u.name ?? ""),
+          type: String(u.type ?? ""),
+          action: String(u.action ?? ""),
+          payload: String(u.payload ?? ""),
+        })),
+        deletes: deletes.map((d) => ({
+          name: String(d.sys_update_name ?? ""),
+          payload: String(d.payload ?? ""),
+        })),
+        scopedProperties: properties.length,
+      };
+    },
+
+    async describeBusinessRules() {
+      const operation = "describeBusinessRules";
+      const rows = parse(
+        ListEnvelopeSchema,
+        await get(operation, "/api/now/table/sys_script", {
+          sysparm_query: `collection=${table}`,
+          sysparm_fields: "name,collection,active,when,action_update",
+          sysparm_limit: "50",
+        }),
+        operation,
+      ).result.map((r) => parse(BusinessRuleEntrySchema, r, operation));
+      return rows.map((r) => ({
+        name: r.name,
+        active: r.active === "true",
+        when: r.when,
+        onUpdate: r.action_update === "true",
+      }));
     },
 
     async describeAccessRequestTable() {
@@ -736,6 +866,78 @@ export function checkIntegrationAccess(
       problems.push(
         `integration user is granted ${acl.operation} on ${acl.name} via ${via.join(", ")}`,
       );
+    }
+  }
+  return problems;
+}
+
+/** (M7D) The scoped fulfiller role for a table, e.g. x_2230066_autono_0.fulfillment_agent. */
+export function fulfillerRoleFor(table: string): string {
+  return `${table.replace(/_onboarding_access_request$/, "")}.fulfillment_agent`;
+}
+/**
+ * Fields a fulfiller may change on a fulfillment record. Work notes are NOT supported in M7D: a
+ * runtime check on the PDI showed the inherited task.work_notes rules silently ignore the write,
+ * so the child-table work_notes ACL was removed (no itil/task_editor grant, task.work_notes
+ * untouched).
+ */
+export const FULFILLER_WRITABLE_FIELDS = ["fulfillment_state"] as const;
+
+/**
+ * (M7D) Least privilege of the human fulfiller role (setup verification only). Requires: read on
+ * the table and its fields; table-level write; a field write grant on fulfillment_state; a
+ * restrictive `<table>.*` write ACL the fulfiller does NOT pass (so every other field, including
+ * correlation_key, approval_state and the identity fields, stays read-only); no delete; no write
+ * grant on any other field. Returns problems (empty = OK).
+ */
+export function checkFulfillerAccess(
+  table: string,
+  access: AccessControlDescription,
+  role: string = fulfillerRoleFor(table),
+): string[] {
+  const problems: string[] = [];
+  const active = access.acls.filter((a) => a.active);
+  const via = (operation: string, name: string) =>
+    active.some((a) => a.operation === operation && a.name === name && a.roles.includes(role));
+  for (const name of [table, `${table}.*`]) {
+    if (!via("read", name)) problems.push(`no active read ACL on ${name} for ${role}`);
+  }
+  if (!via("write", table))
+    problems.push(`no active table-level write ACL on ${table} for ${role}`);
+  // The table-level gates must be limited to fulfillment records (never approval/historical ones).
+  for (const operation of ["read", "write"]) {
+    for (const a of active.filter(
+      (x) => x.operation === operation && x.name === table && x.roles.includes(role),
+    )) {
+      if (a.condition !== undefined && !/(^|\^)request_kind=fulfillment(\^|$)/.test(a.condition)) {
+        problems.push(
+          `${operation} ACL on ${table} for ${role} isn't limited to request_kind=fulfillment`,
+        );
+      }
+    }
+  }
+  if (!via("write", `${table}.fulfillment_state`)) {
+    problems.push(`no active write ACL on ${table}.fulfillment_state for ${role}`);
+  }
+  const wildcardWrite = active.filter((a) => a.operation === "write" && a.name === `${table}.*`);
+  if (wildcardWrite.length === 0) {
+    problems.push(`no restrictive write ACL on ${table}.* (other fields would be writable)`);
+  }
+  for (const acl of active) {
+    if (!acl.roles.includes(role)) continue;
+    if (acl.operation === "delete") problems.push(`${role} is granted delete on ${acl.name}`);
+    if (acl.operation === "write" && acl.name === `${table}.*`) {
+      problems.push(`${role} is granted write on every field (${acl.name})`);
+    }
+    if (
+      acl.operation === "write" &&
+      acl.name.startsWith(`${table}.`) &&
+      acl.name !== `${table}.*`
+    ) {
+      const field = acl.name.slice(table.length + 1);
+      if (!(FULFILLER_WRITABLE_FIELDS as readonly string[]).includes(field)) {
+        problems.push(`${role} is granted write on ${acl.name}`);
+      }
     }
   }
   return problems;

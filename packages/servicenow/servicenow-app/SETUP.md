@@ -226,3 +226,73 @@ SERVICENOW_CALLBACK_TABLE=x_2230066_autono_0_onboarding_access_request
 **7. Export** the application (M4C: version `1.2.2`) to `update-sets/autonomous-onboarding-1.2.2.xml`. **Before publishing**, run the read-only pre-export check: the app must have no property records (live or deleted) and no secrets or tunnel URLs in any update record. After exporting, inspect the file with flag-only output. Versions 1.2.0 and 1.2.1 were withdrawn because they contained secrets.
 
 **8. Live test:** `pnpm test:servicenow:approval:live`. See CLAUDE.md for what it proves.
+
+## 11. M7D: fulfillment records, the fulfiller role and the fulfillment callback
+
+An authorized resource whose catalog provider is `SERVICENOW` (for example `aws-dev`, `aws-prod` or `slack-engineering`) gets its **own fulfillment record**, separate from any approval record. A human fulfiller performs the real external work (AWS access, Slack workspace…) outside AOO, then sets the record's **Fulfillment State**. AOO reads the record back and only the authoritative `fulfillment_state = fulfilled` makes the resource PROVISIONED. Creating the record is **not** provisioning.
+
+Do everything in the **Autonomous Onboarding** scope unless a step says Global.
+
+**1. Columns.** Add two columns to the Onboarding Access Request table, then add both to the form layout:
+
+| Label             | Name                | Type   | Max length | Mandatory | Default    | Choices (value: label)                                                                   |
+| ----------------- | ------------------- | ------ | ---------- | --------- | ---------- | ---------------------------------------------------------------------------------------- |
+| Request Kind      | `request_kind`      | Choice | 40         | no        | `approval` | `approval`: Approval, `fulfillment`: Fulfillment                                         |
+| Fulfillment State | `fulfillment_state` | Choice | 40         | no        | (none)     | `pending`: Pending, `in_progress`: In progress, `fulfilled`: Fulfilled, `failed`: Failed |
+
+- Existing records keep an empty Request Kind: they are approval records. New approval records get the default `approval`; M7D fulfillment records are created with `request_kind = fulfillment`, `fulfillment_state = pending`, `approval_state = not_required`. Don't edit existing records.
+- The integration account's existing **create** and **read** ACLs (`table` and `table.*`) already cover the new columns. **Don't** give the integration account write or delete.
+
+**2. Fulfiller role.** **System Security → Roles → New**: name `fulfillment_agent` (the scoped name becomes `x_2230066_autono_0.fulfillment_agent`). No contained roles.
+
+**3. Fulfiller ACLs** (**System Security → Access Control (ACL) → New**; elevate to `security_admin` first). Type **record** for all:
+
+| Operation | Name                                              | Requires role       | Condition                                 |
+| --------- | ------------------------------------------------- | ------------------- | ----------------------------------------- |
+| read      | Onboarding Access Request → **None** (table)      | `fulfillment_agent` | Request Kind is Fulfillment               |
+| read      | Onboarding Access Request → **\*** (all fields)   | `fulfillment_agent` | (none)                                    |
+| write     | Onboarding Access Request → **None** (table)      | `fulfillment_agent` | Request Kind is Fulfillment               |
+| write     | Onboarding Access Request → **Fulfillment State** | `fulfillment_agent` | Request Kind is Fulfillment               |
+| write     | Onboarding Access Request → **\*** (all fields)   | **`admin`** only    | (none): keeps every other field read-only |
+
+- The last row is the restrictive wildcard: without it, the table-level write would let the fulfiller change `correlation_key`, `approval_state`, `resource_id` and the identity fields. The specific **Fulfillment State** ACL overrides it for the fulfiller.
+- **No** delete ACL for the fulfiller. **No** write on approval records (the condition).
+- **Work notes are not supported in M7D.** A runtime check with the real fulfiller showed that a child-table `work_notes` write ACL is silently ignored (the inherited `task.work_notes` rules still apply). Don't add one, don't change `task.work_notes`, and don't grant `itil`, `task_editor` or `admin` to make it work. `pnpm servicenow:fulfillment:check` flags any fulfiller write grant other than `fulfillment_state`.
+
+**4. Synthetic fulfiller account (PDI only, never exported).** **User Administration → Users → New**: user ID `aoo.fulfiller`, name "AOO Synthetic Fulfiller", a long random password, **Web service access only** if the field is on the form. Grant **only** `x_2230066_autono_0.fulfillment_agent` (plus whatever the platform requires for REST access). Not `admin`, not the integration roles. Users, passwords and role assignments are **not** part of the application and must never appear in an export.
+
+**5. Global property** (switch the application picker to **Global**; `sys_properties_list.do` → New), then switch back:
+
+| Name                           | Type   | Value                                                        | Private |
+| ------------------------------ | ------ | ------------------------------------------------------------ | ------- |
+| `aoo.fulfillment_callback.url` | string | `https://<your tunnel host>/webhooks/servicenow/fulfillment` | ✅      |
+
+The rule reuses the existing global `aoo.approval_callback.secret` and `aoo.approval_callback.instance`. **Never** create application-scope properties (they export with their values).
+
+**6. Business rule.** **System Definition → Business Rules → New**, configured as the header of `business-rules/aoo-fulfillment-callback.js` says:
+
+- **Name:** AOO fulfillment callback; **Table:** Onboarding Access Request
+- **Advanced:** ✅; **When:** async; **Update:** ✅
+- **Filter:** Request Kind **is** Fulfillment, AND Fulfillment State **changes**
+- **Script:** paste the file verbatim (it's tested byte-for-byte in `test/business-rule.test.ts`).
+
+It's only a notification; the backend reads the record back. A lost callback is harmless: the worker's periodic reconciliation re-reads pending fulfillment records every `PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS`.
+
+**7. Backend `.env`** (git-ignored; single-quote passwords):
+
+```sh
+SERVICENOW_FULFILLER_USERNAME='aoo.fulfiller'
+SERVICENOW_FULFILLER_PASSWORD='<the fulfiller password>'
+# Worker: create fulfillment records (off by default; Compose keeps it off unless set).
+PROVISIONING_SERVICENOW_FULFILLMENT_ENABLED=true
+```
+
+**8. Verify (read-only):** `pnpm servicenow:fulfillment:check` must print `"ok": true` and `"writes": 0`. It checks the columns and choices, the integration account (create, no write/delete), the fulfiller role and ACLs, the business rule and the fulfiller account's roles, and prints no credentials.
+
+**9. Export, gated.** Set the application version to **1.3.0**, then:
+
+1. **Before publishing**, run `pnpm servicenow:export:check` (read-only). It scans every publish source of the app (update records, deleted-file records, scoped properties) for every configured secret value, tunnel URLs, Authorization headers, private keys, users, role assignments, properties and data rows, and prints **counts only**. It must print `"clean": true`. **If it doesn't, stop: don't publish.**
+2. Publish to an update set and download it as `update-sets/autonomous-onboarding-1.3.0.xml`.
+3. Run `pnpm servicenow:export:check --file packages/servicenow/servicenow-app/update-sets/autonomous-onboarding-1.3.0.xml`; it must also be clean before the file is committed. Earlier exports (1.0.0, 1.1.0, 1.2.2) stay unchanged.
+
+**10. Live test:** `pnpm test:servicenow:fulfillment:live` (creates one synthetic fulfillment record; the synthetic fulfiller marks it fulfilled).

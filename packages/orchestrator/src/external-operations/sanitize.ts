@@ -74,6 +74,11 @@ export function scrubText(text: string, sensitiveValues: readonly string[] = [])
     // GitHub tokens (classic and fine-grained) and "token <value>" authorization values.
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, "[REDACTED]")
     .replace(/\btoken\s+[A-Za-z0-9._~+/=-]{16,}/gi, "token [REDACTED]")
+    // Public tunnel URLs (local callback endpoints) identify the operator's machine: drop them whole.
+    .replace(
+      /https?:\/\/[A-Za-z0-9.-]+\.(?:trycloudflare\.com|ngrok(?:-free)?\.(?:app|io|dev))\S*/gi,
+      "[REDACTED-TUNNEL-URL]",
+    )
     .replace(/\bparams:[\s\S]*$/i, "params: [REDACTED]")
     .replace(/\b(set-cookie|cookie)\s*[:=]\s*[^\n;]+/gi, "$1: [REDACTED]")
     .replace(/(https?:\/\/[^\s?#]+)\?[^\s#]*/gi, "$1?[REDACTED]")

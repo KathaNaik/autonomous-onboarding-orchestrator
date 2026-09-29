@@ -73,9 +73,14 @@ describe("dependency graph and topological order", () => {
 });
 
 describe("provider dispatch and blockers", () => {
-  it("dispatches only OKTA, GITHUB and MANUAL; everything else is unsupported, never MANUAL", () => {
-    expect(["OKTA", "GITHUB", "MANUAL"].map(dispatchKind)).toEqual(["OKTA", "GITHUB", "MANUAL"]);
-    expect(["SERVICENOW", "NONE", "AWS", ""].map(dispatchKind)).toEqual([
+  it("dispatches OKTA, GITHUB, SERVICENOW (M7D) and MANUAL; anything else is unsupported, never MANUAL", () => {
+    expect(["OKTA", "GITHUB", "SERVICENOW", "MANUAL"].map(dispatchKind)).toEqual([
+      "OKTA",
+      "GITHUB",
+      "SERVICENOW",
+      "MANUAL",
+    ]);
+    expect(["NONE", "AWS", "SLACK", ""].map(dispatchKind)).toEqual([
       "UNSUPPORTED",
       "UNSUPPORTED",
       "UNSUPPORTED",

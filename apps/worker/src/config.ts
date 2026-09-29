@@ -33,6 +33,16 @@ const EnvSchema = z
     PROVISIONING_RECONCILE_INTERVAL_MS: int(1000, 86_400_000, 300_000),
     /** Delay before retrying a transient provider failure. */
     PROVISIONING_RETRY_DELAY_MS: int(1000, 86_400_000, 60_000),
+    /**
+     * (M7D) Create ServiceNow fulfillment records for authorized SERVICENOW resources. Off by
+     * default: ordinary Compose never writes fulfillment tickets unless explicitly enabled.
+     */
+    PROVISIONING_SERVICENOW_FULFILLMENT_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** (M7D) Re-read delay for a pending ServiceNow fulfillment (lost-callback safety net). */
+    PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS: int(10_000, 86_400_000, 120_000),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {
     message: "OUTBOX_BACKOFF_MAX_MS must be >= OUTBOX_BACKOFF_BASE_MS",

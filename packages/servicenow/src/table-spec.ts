@@ -13,6 +13,21 @@ export type PolicyDecision = (typeof POLICY_DECISIONS)[number];
 export const APPROVAL_STATES = ["not_required", "pending", "approved", "rejected"] as const;
 export type ApprovalState = (typeof APPROVAL_STATES)[number];
 
+/**
+ * M7D: what the record is for. "approval" (M4B/M4C: a human decides whether the resource may be
+ * granted) or "fulfillment" (a human performs the already-authorized external work). Records
+ * created before M7D have no value and are approval records.
+ */
+export const REQUEST_KINDS = ["approval", "fulfillment"] as const;
+export type RequestKind = (typeof REQUEST_KINDS)[number];
+
+/**
+ * M7D: human fulfillment progress of a fulfillment record. Only a fulfiller changes it; the
+ * backend reads it back and treats "fulfilled"/"failed" as authoritative. Empty on approvals.
+ */
+export const FULFILLMENT_STATES = ["pending", "in_progress", "fulfilled", "failed"] as const;
+export type FulfillmentState = (typeof FULFILLMENT_STATES)[number];
+
 export interface ColumnSpec {
   name: string;
   label: string;
@@ -66,6 +81,23 @@ export const ACCESS_REQUEST_TABLE_SPEC = {
       mandatory: true,
       choices: APPROVAL_STATES,
       defaultValue: "not_required",
+    },
+    {
+      name: "request_kind",
+      label: "Request Kind",
+      type: "choice",
+      maxLength: 40,
+      mandatory: false,
+      choices: REQUEST_KINDS,
+      defaultValue: "approval",
+    },
+    {
+      name: "fulfillment_state",
+      label: "Fulfillment State",
+      type: "choice",
+      maxLength: 40,
+      mandatory: false,
+      choices: FULFILLMENT_STATES,
     },
     {
       name: "correlation_key",
