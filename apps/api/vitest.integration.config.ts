@@ -9,6 +9,9 @@ export default defineProject({
     include: ["test/integration/**/*.test.ts"],
     globalSetup: ["test/integration/global-setup.ts"],
     testTimeout: 30_000,
+    // (M9) The end-to-end observability test runs the real outbox runner, which would claim other
+    // files' events: files share one database and one outbox queue, so run them sequentially.
+    fileParallelism: false,
     hookTimeout: 60_000,
   },
 });

@@ -1,4 +1,12 @@
 import {
+  ROOT_CONTEXT,
+  SpanKind,
+  annotateActiveSpan,
+  contextFromTraceParent,
+  errorType,
+  withSpan,
+} from "@aoo/telemetry";
+import {
   PermanentEventError,
   noopLogger,
   type EventEnvelope,
@@ -49,7 +57,28 @@ export function describeError(err: unknown, depth = 0): ErrorInfo {
 export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOptions): OutboxRunner {
   const logger = options.logger ?? noopLogger;
 
-  async function processOne(claim: ClaimedEvent, summary: RunSummary): Promise<void> {
+  /**
+   * (M9) One span per delivery, parented on the trace context persisted with the event (request →
+   * outbox → worker), or a new trace for historical events. Tracing never affects the outcome.
+   */
+  function processOne(claim: ClaimedEvent, summary: RunSummary): Promise<void> {
+    return withSpan(
+      `outbox.process ${claim.eventType}`,
+      {
+        outboxEventId: claim.id,
+        outboxEventType: claim.eventType,
+        deliveryAttempt: claim.cycleAttempt,
+        workflowId: claim.aggregateType === "onboarding_workflow" ? claim.aggregateId : undefined,
+      },
+      () => processClaim(claim, summary),
+      {
+        parent: contextFromTraceParent(claim.traceParent, claim.traceState) ?? ROOT_CONTEXT,
+        kind: SpanKind.CONSUMER,
+      },
+    );
+  }
+
+  async function processClaim(claim: ClaimedEvent, summary: RunSummary): Promise<void> {
     const log = {
       eventId: claim.id,
       eventType: claim.eventType,
@@ -74,6 +103,7 @@ export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOpti
         const result = await handler(envelope, { logger });
         await store.complete(claim, result);
         summary.succeeded += 1;
+        annotateActiveSpan({ outcome: result.status });
         logger.info(
           { ...log, result: result.status, detail: result.detail },
           "outbox event processed",
@@ -88,6 +118,10 @@ export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOpti
           : computeBackoffMs(claim.cycleAttempt, options.retry, options.random);
         const error = describeError(err);
         await store.fail(claim, { error, deadLetter, retryDelayMs });
+        annotateActiveSpan({
+          outcome: deadLetter ? "dead_lettered" : "retry_scheduled",
+          errorType: errorType(err),
+        });
         if (deadLetter) {
           summary.deadLettered += 1;
           logger.error(
@@ -104,6 +138,7 @@ export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOpti
       // Another worker reclaimed the event (or our lease ran out); our result is discarded.
       // Handlers are idempotent, so the new owner's run converges on the same outcome.
       summary.leaseLost += 1;
+      annotateActiveSpan({ outcome: "lease_lost" });
       logger.warn(log, "outbox lease lost; result discarded");
     }
   }

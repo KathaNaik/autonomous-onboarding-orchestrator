@@ -113,6 +113,8 @@ export function createPostgresOutboxStore(db: Database): PostgresOutboxStore {
             cycleAttempt: row.cycleAttempts,
             leaseToken: row.leaseToken!,
             leaseExpiresAt: row.leaseExpiresAt!,
+            traceParent: row.traceParent,
+            traceState: row.traceState,
           }));
       });
     },

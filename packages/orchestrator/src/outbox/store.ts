@@ -14,6 +14,9 @@ export interface ClaimedEvent {
   cycleAttempt: number;
   leaseToken: string;
   leaseExpiresAt: Date;
+  /** (M9) W3C trace context persisted with the event (validated), if any. */
+  traceParent?: string | null;
+  traceState?: string | null;
 }
 
 export interface ErrorInfo {

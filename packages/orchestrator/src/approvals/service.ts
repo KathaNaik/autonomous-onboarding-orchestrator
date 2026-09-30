@@ -24,6 +24,7 @@ import { formatSanitizedError, sanitizeExternalError } from "../external-operati
 import type { ServiceNowAccessRequestGateway } from "../external-operations/service.js";
 import { enqueueProvisioningWake } from "../provisioning/wake.js";
 import type { WorkflowService } from "../workflow-service.js";
+import { outboxTraceColumns } from "../telemetry.js";
 
 export const APPROVAL_VERIFIER_ACTOR = "approval-verifier";
 
@@ -229,6 +230,7 @@ export function createApprovalService(
           return { callbackEventId: existing!.id, duplicate: true };
         }
         await tx.insert(outboxEvents).values({
+          ...outboxTraceColumns(),
           idempotencyKey: `${OUTBOX_EVENT_TYPES.approvalCallbackReceived}:${inserted.id}`,
           aggregateType: "approval_callback",
           aggregateId: inserted.id,

@@ -17,6 +17,9 @@ export const workspaceAliases = [
   { find: /^@aoo\/orchestrator$/, replacement: src("packages/orchestrator/src/index.ts") },
   { find: /^@aoo\/policy$/, replacement: src("packages/policy/src/index.ts") },
   { find: /^@aoo\/servicenow$/, replacement: src("packages/servicenow/src/index.ts") },
+  { find: /^@aoo\/telemetry\/sdk$/, replacement: src("packages/telemetry/src/sdk.ts") },
+  { find: /^@aoo\/telemetry\/testing$/, replacement: src("packages/telemetry/src/testing.ts") },
+  { find: /^@aoo\/telemetry$/, replacement: src("packages/telemetry/src/index.ts") },
   { find: /^@aoo\/shared$/, replacement: src("packages/shared/src/index.ts") },
   { find: /^@aoo\/webhooks$/, replacement: src("packages/webhooks/src/index.ts") },
 ];

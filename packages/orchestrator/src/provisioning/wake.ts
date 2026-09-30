@@ -4,6 +4,7 @@ import {
   ProvisioningWorkflowWakePayloadSchema,
   type ProvisioningWorkflowWakePayload,
 } from "@aoo/shared";
+import { outboxTraceColumns } from "../telemetry.js";
 
 /**
  * M7C: writes a `provisioning.workflow.wake` outbox event. Call it inside the transaction that
@@ -21,6 +22,7 @@ export async function enqueueProvisioningWake(
   const inserted = await tx
     .insert(outboxEvents)
     .values({
+      ...outboxTraceColumns(),
       idempotencyKey: `${OUTBOX_EVENT_TYPES.provisioningWorkflowWake}:${input.key}`,
       aggregateType: "onboarding_workflow",
       aggregateId: input.workflowId,

@@ -27,6 +27,7 @@ import {
   type OnboardingContextErrorCode,
 } from "./context.js";
 import { enqueueOnboardingPlanGeneration } from "./wake.js";
+import { withSpan } from "@aoo/telemetry";
 
 export const ONBOARDING_PLAN_AGENT_NAME = "onboarding-plan";
 export const ONBOARDING_PLAN_ACTOR = "onboarding-plan";
@@ -440,9 +441,19 @@ export function createOnboardingPlanService(
 
     let outcome: OnboardingPlanAgentResult;
     try {
-      outcome = await agent.generate(agentInput, {
-        signal: AbortSignal.timeout(Math.floor(leaseMs * DEADLINE_FRACTION)),
-      });
+      outcome = await withSpan(
+        "agent.onboarding_plan.generate",
+        {
+          agentName: ONBOARDING_PLAN_AGENT_NAME,
+          onboardingPlanRunId: run.id,
+          provisioningPlanId: plan.id,
+          workflowId,
+        },
+        () =>
+          agent.generate(agentInput, {
+            signal: AbortSignal.timeout(Math.floor(leaseMs * DEADLINE_FRACTION)),
+          }),
+      );
     } catch (err) {
       const agentError =
         err instanceof OnboardingPlanAgentError

@@ -1,0 +1,4 @@
+ALTER TABLE "outbox_events" ADD COLUMN "trace_parent" text;--> statement-breakpoint
+ALTER TABLE "outbox_events" ADD COLUMN "trace_state" text;--> statement-breakpoint
+ALTER TABLE "outbox_events" ADD CONSTRAINT "outbox_events_trace_parent_format" CHECK ("outbox_events"."trace_parent" IS NULL OR "outbox_events"."trace_parent" ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$');--> statement-breakpoint
+ALTER TABLE "outbox_events" ADD CONSTRAINT "outbox_events_trace_state_bounded" CHECK ("outbox_events"."trace_state" IS NULL OR ("outbox_events"."trace_parent" IS NOT NULL AND length("outbox_events"."trace_state") <= 256));

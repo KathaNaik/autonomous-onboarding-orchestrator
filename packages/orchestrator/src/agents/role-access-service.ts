@@ -20,6 +20,7 @@ import {
 import { and, asc, eq, gt, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { noopLogger, type EventLogger } from "../events/types.js";
+import { withSpan } from "@aoo/telemetry";
 
 export const ROLE_ACCESS_AGENT_NAME = "role-access";
 
@@ -447,9 +448,14 @@ export function createRoleAccessRecommendationService(
 
       let outcome;
       try {
-        outcome = await agent.recommend(agentInput, {
-          signal: AbortSignal.timeout(Math.floor(leaseMs * DEADLINE_FRACTION)),
-        });
+        outcome = await withSpan(
+          "agent.role_access.recommend",
+          { agentName: ROLE_ACCESS_AGENT_NAME, agentRunId: run.id, workflowId },
+          () =>
+            agent.recommend(agentInput, {
+              signal: AbortSignal.timeout(Math.floor(leaseMs * DEADLINE_FRACTION)),
+            }),
+        );
       } catch (err) {
         const agentError =
           err instanceof RoleAccessAgentError

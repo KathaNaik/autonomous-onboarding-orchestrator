@@ -222,8 +222,23 @@ export const outboxEvents = pgTable(
     deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
     redriveCount: integer("redrive_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * (M9) W3C trace context of the transaction that wrote the event, so the worker's span joins
+     * the originating trace. Transport metadata only (never business payload); validated format;
+     * no baggage. NULL for historical events or when tracing is off.
+     */
+    traceParent: text("trace_parent"),
+    traceState: text("trace_state"),
   },
   (t) => [
+    check(
+      "outbox_events_trace_parent_format",
+      sql`${t.traceParent} IS NULL OR ${t.traceParent} ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'`,
+    ),
+    check(
+      "outbox_events_trace_state_bounded",
+      sql`${t.traceState} IS NULL OR (${t.traceParent} IS NOT NULL AND length(${t.traceState}) <= 256)`,
+    ),
     index("outbox_events_claimable_idx")
       .on(t.availableAt)
       .where(sql`${t.status} = 'PENDING'`),

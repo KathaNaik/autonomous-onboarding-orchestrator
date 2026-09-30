@@ -26,6 +26,7 @@ import {
   type ExternalOperationHandler,
 } from "@aoo/orchestrator";
 import { loadPolicyRegistry } from "@aoo/policy";
+import { loadTelemetryEnv, startTelemetry } from "@aoo/telemetry/sdk";
 import { createServiceNowClient, safeUrl } from "@aoo/servicenow";
 import {
   loadConfig,
@@ -38,6 +39,14 @@ import { createWorkerLoop } from "./worker.js";
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL, config.WORKER_ID);
+// (M9) Opt-in tracing (OTEL_ENABLED=true). Best-effort: exports run in the background, and an
+// unreachable collector never blocks or fails outbox processing.
+const otel = loadTelemetryEnv();
+const telemetry = startTelemetry({
+  enabled: otel.OTEL_ENABLED,
+  serviceName: otel.OTEL_SERVICE_NAME ?? "aoo-worker",
+  endpoint: otel.OTEL_EXPORTER_OTLP_ENDPOINT,
+});
 
 const database = createDatabase(config.DATABASE_URL, {
   maxConnections: Math.min(50, config.OUTBOX_BATCH_SIZE * 2 + 2),
@@ -195,6 +204,7 @@ logger.info(
       reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
     },
     onboardingPlanGeneration: onboardingPlans ? "enabled" : "disabled",
+    tracing: telemetry.enabled ? "enabled" : "disabled",
     servicenow: servicenowConfig
       ? {
           instance: safeUrl(new URL(servicenowConfig.instanceUrl)),
@@ -241,6 +251,7 @@ async function shutdown(signal: string) {
     logger.warn({ timeoutMs: config.WORKER_SHUTDOWN_TIMEOUT_MS }, "shutdown timed out");
   }
   health.close();
+  await telemetry.shutdown();
   await database.close();
   logger.info("worker stopped");
   process.exit(0);

@@ -42,6 +42,10 @@ services:
       HRIS_WEBHOOK_SECRET: ${HRIS_WEBHOOK_SECRET:-dev-only-hris-webhook-secret-change-me}
       # Development-only default. HR/onboarding operator bearer token (admin routes).
       ONBOARDING_ADMIN_TOKEN: ${ONBOARDING_ADMIN_TOKEN:-dev-only-onboarding-admin-token-change-me}
+      # M9: OpenTelemetry is opt-in and best-effort (no collector is needed or started).
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: aoo-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${API_PORT:-4000}:4000"
     depends_on:
@@ -85,6 +89,10 @@ services:
       ONBOARDING_PLAN_GENERATION_ENABLED: ${ONBOARDING_PLAN_GENERATION_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
+      # M9: OpenTelemetry is opt-in and best-effort (no collector is needed or started).
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: aoo-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     # No published port: health is internal (Docker HEALTHCHECK on /ready), so
     # `docker compose up --scale worker=3` works. WORKER_ID defaults to <hostname>-<pid>.
     stop_grace_period: 20s
@@ -101,6 +109,9 @@ services:
     environment:
       PORT: 3000
       API_BASE_URL: http://api:4000
+      # M9: the web SERVER validates dashboard logins, signs short-lived HttpOnly sessions and calls
+      # the API with the existing operator token. Server-only: never sent to the browser.
+      ONBOARDING_ADMIN_TOKEN: ${ONBOARDING_ADMIN_TOKEN:-dev-only-onboarding-admin-token-change-me}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

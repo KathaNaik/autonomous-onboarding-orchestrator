@@ -37,6 +37,8 @@ import {
   scrubText,
   type SanitizedExternalError,
 } from "./sanitize.js";
+import { outboxTraceColumns } from "../telemetry.js";
+import { annotateActiveSpan, withSpan } from "@aoo/telemetry";
 
 /** The ServiceNow calls the executor needs; satisfied by ServiceNowClient (and by test doubles). */
 export type ServiceNowAccessRequestGateway = Pick<
@@ -468,6 +470,7 @@ export function createExternalOperationService(
             operationType: inserted.operationType,
           });
         await tx.insert(outboxEvents).values({
+          ...outboxTraceColumns(),
           idempotencyKey: `${OUTBOX_EVENT_TYPES.externalOperationExecute}:${inserted.id}`,
           aggregateType: "onboarding_workflow",
           aggregateId: input.workflowId,
@@ -711,159 +714,175 @@ export function createExternalOperationService(
     requestOperation: (input) => enqueue(input),
 
     async execute(operationId, { ownerId, leaseMs }) {
-      const current = await get(operationId);
-      if (!current) {
-        throw new ExternalOperationError(
-          "NOT_FOUND",
-          "VALIDATION",
-          false,
-          "operation not found",
-          operationId,
-        );
-      }
-      if (current.status === "SUCCEEDED") {
-        return {
-          status: "SUCCEEDED",
-          operationId,
-          externalId: current.externalId!,
-          externalReference: current.externalReference!,
-          via: "already_succeeded",
-        };
-      }
-      if (current.status === "FAILED" || current.status === "CONFLICT") {
-        throw new ExternalOperationError(
-          "STOPPED",
-          current.status === "CONFLICT" ? "CONFLICT" : "VALIDATION",
-          false,
-          `operation is ${current.status}; reopen it after investigation`,
-          operationId,
-        );
-      }
+      return withSpan(
+        "external_operation.execute",
+        { externalOperationId: operationId },
+        async () => {
+          const current = await get(operationId);
+          if (!current) {
+            throw new ExternalOperationError(
+              "NOT_FOUND",
+              "VALIDATION",
+              false,
+              "operation not found",
+              operationId,
+            );
+          }
+          annotateActiveSpan({
+            provider: current.provider,
+            operationType: current.operationType,
+            workflowId: current.workflowId,
+          });
+          if (current.status === "SUCCEEDED") {
+            return {
+              status: "SUCCEEDED",
+              operationId,
+              externalId: current.externalId!,
+              externalReference: current.externalReference!,
+              via: "already_succeeded",
+            };
+          }
+          if (current.status === "FAILED" || current.status === "CONFLICT") {
+            throw new ExternalOperationError(
+              "STOPPED",
+              current.status === "CONFLICT" ? "CONFLICT" : "VALIDATION",
+              false,
+              `operation is ${current.status}; reopen it after investigation`,
+              operationId,
+            );
+          }
 
-      const handler =
-        current.operationType === SERVICENOW_CREATE_ACCESS_REQUEST
-          ? undefined
-          : handlers.get(current.operationType);
-      const gw = options.servicenow;
-      if (current.operationType === SERVICENOW_CREATE_ACCESS_REQUEST ? !gw : !handler) {
-        throw new ExternalOperationError(
-          "PROVIDER_NOT_CONFIGURED",
-          "VALIDATION",
-          false,
-          `${current.provider} (${current.operationType}) is not configured on this process`,
-          operationId,
-        );
-      }
+          const handler =
+            current.operationType === SERVICENOW_CREATE_ACCESS_REQUEST
+              ? undefined
+              : handlers.get(current.operationType);
+          const gw = options.servicenow;
+          if (current.operationType === SERVICENOW_CREATE_ACCESS_REQUEST ? !gw : !handler) {
+            throw new ExternalOperationError(
+              "PROVIDER_NOT_CONFIGURED",
+              "VALIDATION",
+              false,
+              `${current.provider} (${current.operationType}) is not configured on this process`,
+              operationId,
+            );
+          }
 
-      const claimed = await claim(operationId, ownerId, leaseMs);
-      if (!claimed.claimed) {
-        if (claimed.row?.status === "SUCCEEDED") {
-          return {
-            status: "SUCCEEDED",
-            operationId,
-            externalId: claimed.row.externalId!,
-            externalReference: claimed.row.externalReference!,
-            via: "already_succeeded",
+          const claimed = await claim(operationId, ownerId, leaseMs);
+          if (!claimed.claimed) {
+            if (claimed.row?.status === "SUCCEEDED") {
+              return {
+                status: "SUCCEEDED",
+                operationId,
+                externalId: claimed.row.externalId!,
+                externalReference: claimed.row.externalReference!,
+                via: "already_succeeded",
+              };
+            }
+            throw new ExternalOperationError(
+              "BUSY",
+              "OWNERSHIP",
+              true,
+              `operation is ${claimed.row?.status ?? "missing"} and owned by another worker`,
+              operationId,
+            );
+          }
+
+          const row = claimed.row;
+          if (handler) {
+            return executeWithHandler(handler, row, claimed.previousStatus, ownerId, leaseMs);
+          }
+          const request = CreateAccessRequestInputSchema.parse(row.request);
+          const f: Fence = {
+            id: row.id,
+            ownerToken: row.ownerToken!,
+            ownerId,
+            workflowId: row.workflowId,
+            request,
           };
-        }
-        throw new ExternalOperationError(
-          "BUSY",
-          "OWNERSHIP",
-          true,
-          `operation is ${claimed.row?.status ?? "missing"} and owned by another worker`,
-          operationId,
-        );
-      }
-
-      const row = claimed.row;
-      if (handler) {
-        return executeWithHandler(handler, row, claimed.previousStatus, ownerId, leaseMs);
-      }
-      const request = CreateAccessRequestInputSchema.parse(row.request);
-      const f: Fence = {
-        id: row.id,
-        ownerToken: row.ownerToken!,
-        ownerId,
-        workflowId: row.workflowId,
-        request,
-      };
-      // A previous owner may have sent a create before dying: never resume as "certainly unsent".
-      const maybeSentBefore = claimed.previousStatus !== "PENDING";
-      const deadline = AbortSignal.timeout(Math.max(1, Math.floor(leaseMs * DEADLINE_FRACTION)));
-      const sanitize = (err: unknown) =>
-        sanitizeExternalError(err, {
-          provider: "servicenow",
-          correlationKey: request.correlationKey,
-          sensitiveValues: sensitiveValuesOf(request),
-        });
-
-      let postSent = false;
-      try {
-        // 1. Reconcile first, always: the provider may already hold the record.
-        const existing = await lookup(gw!, f, deadline);
-        if (existing.length > 0)
-          return await settle(
-            f,
-            existing,
-            maybeSentBefore ? "reconciled_after_unknown" : "reconciled",
+          // A previous owner may have sent a create before dying: never resume as "certainly unsent".
+          const maybeSentBefore = claimed.previousStatus !== "PENDING";
+          const deadline = AbortSignal.timeout(
+            Math.max(1, Math.floor(leaseMs * DEADLINE_FRACTION)),
           );
+          const sanitize = (err: unknown) =>
+            sanitizeExternalError(err, {
+              provider: "servicenow",
+              correlationKey: request.correlationKey,
+              sensitiveValues: sensitiveValuesOf(request),
+            });
 
-        // 2. Create exactly once per attempt; the unique correlation_key is the provider's last guard.
-        let created: AccessRequestRecord;
-        try {
-          postSent = true;
-          created = await gw!.createAccessRequest(request, { signal: deadline });
-        } catch (err) {
-          const error = sanitize(err);
-          if (err instanceof ServiceNowAuthError || err instanceof ServiceNowRequestError) {
-            return await stop(f, "FAILED", error);
-          }
-          if (err instanceof ServiceNowUnavailableError && err.notSent) {
-            postSent = false;
-            return await release(f, maybeSentBefore ? "OUTCOME_UNKNOWN" : "PENDING", error);
-          }
-          // Uncertain (timeout, dropped connection, 5xx, unreadable 2xx) or rejected (400/403,
-          // possibly a unique-key violation). Record the uncertainty BEFORE doing anything else.
-          await fenced(f, {
-            status: "OUTCOME_UNKNOWN",
-            lastError: formatSanitizedError(error),
-            lastErrorDetail: { ...error },
-          });
-          logger.warn({ operationId: f.id, error }, "external write outcome unknown; reconciling");
-          const found = await reconcile(gw!, f, deadline);
-          if (found.length > 0) return await settle(f, found, "reconciled_after_unknown");
-          if (
-            err instanceof ServiceNowPermissionError ||
-            (err instanceof ServiceNowError && err.code === "BAD_REQUEST")
-          ) {
-            return await stop(f, "FAILED", error);
-          }
-          return await release(f, "OUTCOME_UNKNOWN", error);
-        }
+          let postSent = false;
+          try {
+            // 1. Reconcile first, always: the provider may already hold the record.
+            const existing = await lookup(gw!, f, deadline);
+            if (existing.length > 0)
+              return await settle(
+                f,
+                existing,
+                maybeSentBefore ? "reconciled_after_unknown" : "reconciled",
+              );
 
-        // 3. Record the provider ids immediately, then verify by read-back.
-        await fenced(f, { externalId: created.sysId, externalReference: created.number });
-        const readBack = await gw!.getAccessRequest(created.sysId, { signal: deadline });
-        if (!readBack) {
-          return await release(f, "OUTCOME_UNKNOWN", {
-            provider: "servicenow",
-            category: "RESPONSE_INVALID",
-            code: "READ_BACK_MISSING",
-            correlationKey: request.correlationKey,
-            retryable: true,
-            message: "created record was not readable by sys_id",
-          });
-        }
-        return await settle(f, [readBack], "created");
-      } catch (err) {
-        if (err instanceof ExternalOperationError) throw err;
-        // Reconciliation/read-back infrastructure failure: keep the operation safe and retry later.
-        return await release(
-          f,
-          postSent || maybeSentBefore ? "OUTCOME_UNKNOWN" : "PENDING",
-          sanitize(err),
-        );
-      }
+            // 2. Create exactly once per attempt; the unique correlation_key is the provider's last guard.
+            let created: AccessRequestRecord;
+            try {
+              postSent = true;
+              created = await gw!.createAccessRequest(request, { signal: deadline });
+            } catch (err) {
+              const error = sanitize(err);
+              if (err instanceof ServiceNowAuthError || err instanceof ServiceNowRequestError) {
+                return await stop(f, "FAILED", error);
+              }
+              if (err instanceof ServiceNowUnavailableError && err.notSent) {
+                postSent = false;
+                return await release(f, maybeSentBefore ? "OUTCOME_UNKNOWN" : "PENDING", error);
+              }
+              // Uncertain (timeout, dropped connection, 5xx, unreadable 2xx) or rejected (400/403,
+              // possibly a unique-key violation). Record the uncertainty BEFORE doing anything else.
+              await fenced(f, {
+                status: "OUTCOME_UNKNOWN",
+                lastError: formatSanitizedError(error),
+                lastErrorDetail: { ...error },
+              });
+              logger.warn(
+                { operationId: f.id, error },
+                "external write outcome unknown; reconciling",
+              );
+              const found = await reconcile(gw!, f, deadline);
+              if (found.length > 0) return await settle(f, found, "reconciled_after_unknown");
+              if (
+                err instanceof ServiceNowPermissionError ||
+                (err instanceof ServiceNowError && err.code === "BAD_REQUEST")
+              ) {
+                return await stop(f, "FAILED", error);
+              }
+              return await release(f, "OUTCOME_UNKNOWN", error);
+            }
+
+            // 3. Record the provider ids immediately, then verify by read-back.
+            await fenced(f, { externalId: created.sysId, externalReference: created.number });
+            const readBack = await gw!.getAccessRequest(created.sysId, { signal: deadline });
+            if (!readBack) {
+              return await release(f, "OUTCOME_UNKNOWN", {
+                provider: "servicenow",
+                category: "RESPONSE_INVALID",
+                code: "READ_BACK_MISSING",
+                correlationKey: request.correlationKey,
+                retryable: true,
+                message: "created record was not readable by sys_id",
+              });
+            }
+            return await settle(f, [readBack], "created");
+          } catch (err) {
+            if (err instanceof ExternalOperationError) throw err;
+            // Reconciliation/read-back infrastructure failure: keep the operation safe and retry later.
+            return await release(
+              f,
+              postSent || maybeSentBefore ? "OUTCOME_UNKNOWN" : "PENDING",
+              sanitize(err),
+            );
+          }
+        },
+      );
     },
 
     get,
@@ -887,6 +906,7 @@ export function createExternalOperationService(
           );
         }
         await tx.insert(outboxEvents).values({
+          ...outboxTraceColumns(),
           idempotencyKey: `${OUTBOX_EVENT_TYPES.externalOperationExecute}:${row.id}:reopen:${randomUUID()}`,
           aggregateType: "onboarding_workflow",
           aggregateId: row.workflowId,

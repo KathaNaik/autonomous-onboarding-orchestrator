@@ -16,7 +16,8 @@
     "@aoo/db": "workspace:*",
     "@aoo/orchestrator": "workspace:*",
     "@aoo/webhooks": "workspace:*",
-    "@aoo/catalog": "workspace:*"
+    "@aoo/catalog": "workspace:*",
+    "@aoo/telemetry": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

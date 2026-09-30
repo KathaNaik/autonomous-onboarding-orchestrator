@@ -6,15 +6,20 @@ import {
   createManualProvisioningService,
   createServiceNowFulfillmentCallbackService,
   createHrisIntakeService,
+  createWorkflowReadService,
   createWorkflowService,
   type ApprovalService,
   type GitHubIdentityService,
   type ManualProvisioningService,
   type ServiceNowFulfillmentCallbackService,
   type HrisIntakeService,
+  type WorkflowReadService,
 } from "@aoo/orchestrator";
+import { logTraceFields } from "@aoo/telemetry";
 import Fastify, { type FastifyInstance } from "fastify";
 import { callbackConfig, type Config } from "./config.js";
+import { normalizeRequestId, registerRequestObservability } from "./observability.js";
+import { adminOnboardingReadRoutes } from "./routes/admin-onboarding-read.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
 import { healthRoutes } from "./routes/health.js";
@@ -35,6 +40,8 @@ export interface AppDependencies {
   manualProvisioning: ManualProvisioningService;
   /** (M7D) Records fulfillment notifications only; the worker reads ServiceNow and decides. */
   fulfillmentCallbacks: ServiceNowFulfillmentCallbackService;
+  /** (M9) Read-only operator read models (dashboard). */
+  workflowReads: WorkflowReadService;
 }
 
 /**
@@ -47,8 +54,27 @@ export async function buildApp(
   options: { logStream?: { write(line: string): void } } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: config.LOG_LEVEL, ...(options.logStream && { stream: options.logStream }) },
+    logger: {
+      level: config.LOG_LEVEL,
+      // (M9) trace_id/span_id on every line when a span is active; never headers.
+      mixin: () => logTraceFields(),
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "req.headers['x-hris-signature']",
+          "req.headers['x-aoo-signature']",
+        ],
+        censor: "[REDACTED]",
+      },
+      ...(options.logStream && { stream: options.logStream }),
+    },
+    // (M9) Request ids: a safe caller-supplied X-Request-Id is reused, otherwise a UUID.
+    requestIdHeader: false,
+    requestIdLogLabel: "requestId",
+    genReqId: (req) => normalizeRequestId(req.headers["x-request-id"]),
   });
+  registerRequestObservability(app);
 
   // Loaded before anything else: invalid or modified catalog data fails startup.
   const catalogs = loadCatalogRegistry();
@@ -67,6 +93,7 @@ export async function buildApp(
     githubIdentities: createGitHubIdentityService(database.db, { catalogs }),
     manualProvisioning: createManualProvisioningService(database.db, { catalogs }),
     fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
+    workflowReads: createWorkflowReadService(database.db, { catalogs }),
     ...overrides,
   };
 
@@ -100,6 +127,10 @@ export async function buildApp(
     await app.register(adminManualProvisioningRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       manual: deps.manualProvisioning,
+    });
+    await app.register(adminOnboardingReadRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      reads: deps.workflowReads,
     });
   }
 

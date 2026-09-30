@@ -17,6 +17,7 @@ import {
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { HrisEventConflictError, HrisEventNotEligibleError } from "./errors.js";
 import { insertWorkflow, upsertEmployee } from "./workflow-writes.js";
+import { outboxTraceColumns } from "./telemetry.js";
 
 export const HRIS_ACTOR = "hris-webhook";
 
@@ -134,6 +135,7 @@ export function createHrisIntakeService(db: Database): HrisIntakeService {
         }
 
         await tx.insert(outboxEvents).values({
+          ...outboxTraceColumns(),
           idempotencyKey: `${OUTBOX_EVENT_TYPES.hrisOfferSignedAccepted}:${event.eventId}`,
           aggregateType: "onboarding_workflow",
           aggregateId: workflow.id,

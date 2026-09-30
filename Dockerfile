@@ -22,6 +22,7 @@ COPY packages/policy/package.json packages/policy/
 COPY packages/agents/package.json packages/agents/
 COPY packages/okta/package.json packages/okta/
 COPY packages/github/package.json packages/github/
+COPY packages/telemetry/package.json packages/telemetry/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build

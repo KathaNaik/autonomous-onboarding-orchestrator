@@ -4,6 +4,7 @@ import {
   OnboardingPlanGeneratePayloadSchema,
   type OnboardingPlanGeneratePayload,
 } from "@aoo/shared";
+import { outboxTraceColumns } from "../telemetry.js";
 
 /**
  * M8: writes an `onboarding.plan.generate` outbox event. Call it inside the transaction that moves
@@ -21,6 +22,7 @@ export async function enqueueOnboardingPlanGeneration(
   const inserted = await tx
     .insert(outboxEvents)
     .values({
+      ...outboxTraceColumns(),
       idempotencyKey: `${OUTBOX_EVENT_TYPES.onboardingPlanGenerate}:${input.key}`,
       aggregateType: "onboarding_workflow",
       aggregateId: input.workflowId,

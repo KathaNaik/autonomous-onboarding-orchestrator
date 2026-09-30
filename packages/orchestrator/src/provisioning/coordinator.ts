@@ -45,6 +45,7 @@ import {
 } from "./scheduling.js";
 import { enqueueOnboardingPlanGeneration } from "../onboarding-plan/wake.js";
 import { enqueueProvisioningWake } from "./wake.js";
+import { annotateActiveSpan, withSpan } from "@aoo/telemetry";
 
 /** Timed external waits: not re-read before their next_reconcile_at (no busy loop). */
 const SCHEDULED_WAITS = new Set<string>([
@@ -400,7 +401,18 @@ export function createProvisioningCoordinator(
       .sort((a, b) => a.resourceId.localeCompare(b.resourceId));
   }
 
-  async function coordinateProvisioning({
+  /** (M9) One span per coordination pass; attributes identify the workflow and plan. */
+  function coordinateProvisioning(input: {
+    workflowId: string;
+  }): Promise<ProvisioningCoordinationResult> {
+    return withSpan("provisioning.coordinate", { workflowId: input.workflowId }, async () => {
+      const result = await coordinateProvisioningImpl(input);
+      annotateActiveSpan({ provisioningPlanId: result.planId, outcome: result.outcome });
+      return result;
+    });
+  }
+
+  async function coordinateProvisioningImpl({
     workflowId,
   }: {
     workflowId: string;

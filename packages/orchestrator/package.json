@@ -27,7 +27,8 @@
     "@aoo/catalog": "workspace:*",
     "@aoo/policy": "workspace:*",
     "@aoo/okta": "workspace:*",
-    "@aoo/github": "workspace:*"
+    "@aoo/github": "workspace:*",
+    "@aoo/telemetry": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15"
