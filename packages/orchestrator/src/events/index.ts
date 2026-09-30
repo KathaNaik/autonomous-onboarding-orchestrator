@@ -3,15 +3,21 @@ import type { WorkflowService } from "../workflow-service.js";
 import type { ApprovalService } from "../approvals/service.js";
 import type { ExternalOperationService } from "../external-operations/service.js";
 import type { ProvisioningCoordinator } from "../provisioning/coordinator.js";
+import type { OnboardingPlanService } from "../onboarding-plan/service.js";
 import { createApprovalCallbackHandler } from "./approval-callback-received.js";
 import { createExternalOperationExecuteHandler } from "./external-operation-execute.js";
 import { createHrisOfferSignedAcceptedHandler } from "./hris-offer-signed-accepted.js";
+import {
+  createOnboardingPlanGenerateHandler,
+  onboardingPlanGenerationDisabledHandler,
+} from "./onboarding-plan-generate.js";
 import { createProvisioningWorkflowWakeHandler } from "./provisioning-workflow-wake.js";
 import type { EventHandlerRegistry } from "./types.js";
 
 export * from "./approval-callback-received.js";
 export * from "./external-operation-execute.js";
 export * from "./hris-offer-signed-accepted.js";
+export * from "./onboarding-plan-generate.js";
 export * from "./provisioning-workflow-wake.js";
 export * from "./types.js";
 
@@ -23,6 +29,11 @@ export function createEventHandlers(deps: {
   approvals?: ApprovalService;
   /** (M7C) When set, the worker drives provisioning on provisioning.workflow.wake. */
   provisioning?: Pick<ProvisioningCoordinator, "coordinateProvisioning">;
+  /**
+   * (M8) When set, the worker generates onboarding plans on onboarding.plan.generate; otherwise
+   * those requests are acknowledged as disabled (the recovery sweep re-enqueues them once enabled).
+   */
+  onboardingPlans?: Pick<OnboardingPlanService, "generatePlan">;
 }): EventHandlerRegistry {
   return {
     [OUTBOX_EVENT_TYPES.hrisOfferSignedAccepted]: createHrisOfferSignedAcceptedHandler(
@@ -42,5 +53,8 @@ export function createEventHandlers(deps: {
         deps.provisioning,
       ),
     }),
+    [OUTBOX_EVENT_TYPES.onboardingPlanGenerate]: deps.onboardingPlans
+      ? createOnboardingPlanGenerateHandler(deps.onboardingPlans)
+      : onboardingPlanGenerationDisabledHandler,
   };
 }

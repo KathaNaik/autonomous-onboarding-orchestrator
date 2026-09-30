@@ -31,6 +31,7 @@ function retryAfterMs(headers: Headers): number | undefined {
 }
 
 interface ResponsesApiBody {
+  id?: string;
   status?: string;
   model?: string;
   incomplete_details?: { reason?: string } | null;
@@ -187,6 +188,7 @@ export function createOpenAIProvider(
             usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
           }),
         ...(typeof body.model === "string" && { model: body.model }),
+        ...(typeof body.id === "string" && { responseId: body.id.slice(0, 200) }),
       };
     },
   };

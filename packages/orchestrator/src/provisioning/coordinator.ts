@@ -43,6 +43,7 @@ import {
   type Blocker,
   type RequestStatus,
 } from "./scheduling.js";
+import { enqueueOnboardingPlanGeneration } from "../onboarding-plan/wake.js";
 import { enqueueProvisioningWake } from "./wake.js";
 
 /** Timed external waits: not re-read before their next_reconcile_at (no busy loop). */
@@ -365,6 +366,12 @@ export function createProvisioningCoordinator(
             effects: async (tx) => {
               applied = true;
               await markPlanComplete(tx, plan);
+              // M8: the onboarding plan is requested in the same transaction, so it can't be lost.
+              await enqueueOnboardingPlanGeneration(tx, {
+                workflowId: plan.workflowId,
+                reason: "PROVISIONING_SETTLED",
+                key: `provisioning-plan:${plan.id}`,
+              });
             },
           },
         );

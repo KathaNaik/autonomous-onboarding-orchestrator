@@ -27,6 +27,8 @@
     "test:servicenow:live": "vitest run --config packages/servicenow/vitest.live.config.ts && vitest run --config packages/orchestrator/vitest.live.config.ts",
     "test:servicenow:approval:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/approval-callback.live.test.ts",
     "agent:eval:live": "pnpm --silent --filter @aoo/agents eval:live",
+    "test:onboarding-plan:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/onboarding-plan.live.test.ts",
+    "test:onboarding-plan:eval": "pnpm --silent --filter @aoo/agents eval:onboarding-plan",
     "test:m6b:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/authorization.live.test.ts",
     "okta:check": "pnpm --silent --filter @aoo/okta check",
     "test:okta:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/okta-provisioning.live.test.ts",

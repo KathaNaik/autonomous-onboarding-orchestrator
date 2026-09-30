@@ -5,6 +5,7 @@ export * from "./errors.js";
 export * from "./events/index.js";
 export * from "./external-operations/index.js";
 export * from "./hris-intake.js";
+export * from "./onboarding-plan/index.js";
 export * from "./outbox/index.js";
 export * from "./provisioning/index.js";
 export * from "./schemas.js";

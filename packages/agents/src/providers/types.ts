@@ -25,6 +25,8 @@ export interface ModelResponse {
   readonly usage?: ModelUsage;
   /** The model identifier the provider reports having served, when it reports one. */
   readonly model?: string;
+  /** The provider's response id, when it reports one (audit/provenance only). */
+  readonly responseId?: string;
 }
 
 export interface ModelProvider {

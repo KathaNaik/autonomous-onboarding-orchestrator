@@ -265,6 +265,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aoo/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@aoo/catalog':
         specifier: workspace:*
         version: link:../../packages/catalog
@@ -280,6 +283,9 @@ importers:
       '@aoo/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@aoo/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@aoo/servicenow':
         specifier: workspace:*
         version: link:../../packages/servicenow

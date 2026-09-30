@@ -43,6 +43,16 @@ const EnvSchema = z
       .transform((v) => v === "true"),
     /** (M7D) Re-read delay for a pending ServiceNow fulfillment (lost-callback safety net). */
     PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS: int(10_000, 86_400_000, 120_000),
+    /**
+     * (M8) Generate onboarding plans with the Onboarding Plan Agent (OpenAI). Off by default:
+     * ordinary Compose never calls OpenAI unless explicitly enabled. Requires OPENAI_API_KEY.
+     */
+    ONBOARDING_PLAN_GENERATION_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** (M8) Lease on one plan-generation run; the model deadline is 80% of it. */
+    ONBOARDING_PLAN_RUN_LEASE_MS: int(10_000, 3_600_000, 180_000),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {
     message: "OUTBOX_BACKOFF_MAX_MS must be >= OUTBOX_BACKOFF_BASE_MS",

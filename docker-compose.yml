@@ -79,6 +79,12 @@ services:
       # M7D: ServiceNow fulfillment tickets are created only when explicitly enabled.
       PROVISIONING_SERVICENOW_FULFILLMENT_ENABLED: ${PROVISIONING_SERVICENOW_FULFILLMENT_ENABLED:-false}
       PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS: ${PROVISIONING_FULFILLMENT_RECONCILE_INTERVAL_MS:-120000}
+      # M8: the Onboarding Plan Agent calls OpenAI only when explicitly enabled
+      # (ONBOARDING_PLAN_GENERATION_ENABLED=true). When disabled, generation requests are
+      # acknowledged and the recovery sweep picks the workflows up once it is enabled.
+      ONBOARDING_PLAN_GENERATION_ENABLED: ${ONBOARDING_PLAN_GENERATION_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
     # No published port: health is internal (Docker HEALTHCHECK on /ready), so
     # `docker compose up --scale worker=3` works. WORKER_ID defaults to <hostname>-<pid>.
     stop_grace_period: 20s

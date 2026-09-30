@@ -17,6 +17,17 @@ describe("worker config", () => {
     expect(loadConfig(base).WORKER_ID).toMatch(/-\d+$/);
   });
 
+  it("(M8) keeps onboarding-plan generation off unless explicitly enabled", () => {
+    expect(loadConfig(base)).toMatchObject({
+      ONBOARDING_PLAN_GENERATION_ENABLED: false,
+      ONBOARDING_PLAN_RUN_LEASE_MS: 180_000,
+    });
+    expect(loadConfig({ ...base, ONBOARDING_PLAN_GENERATION_ENABLED: "true" })).toMatchObject({
+      ONBOARDING_PLAN_GENERATION_ENABLED: true,
+    });
+    expect(() => loadConfig({ ...base, ONBOARDING_PLAN_GENERATION_ENABLED: "yes" })).toThrow();
+  });
+
   it("coerces numeric strings", () => {
     expect(
       loadConfig({ ...base, OUTBOX_BATCH_SIZE: "25", OUTBOX_MAX_ATTEMPTS: "8" }),

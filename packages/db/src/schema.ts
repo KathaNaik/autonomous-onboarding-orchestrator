@@ -895,3 +895,119 @@ export const workflowProvisioningPlans = pgTable(
   ],
 );
 export type WorkflowProvisioningPlan = typeof workflowProvisioningPlans.$inferSelect;
+
+/**
+ * M8: one logical Onboarding Plan Agent generation per workflow and exact input (unique
+ * logical_run_key), so retries, duplicate deliveries, restarts and concurrent workers reuse one row.
+ * Separate from agent_runs (whose Role-Access-specific columns stay untouched). Records exactly what
+ * the model saw (input_snapshot) and which settled resources it was built from (resource_snapshot).
+ * Written only by @aoo/orchestrator.
+ */
+export const onboardingPlanRuns = pgTable(
+  "onboarding_plan_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    logicalRunKey: text("logical_run_key").notNull().unique(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    provisioningPlanId: uuid("provisioning_plan_id")
+      .notNull()
+      .references(() => workflowProvisioningPlans.id, { onDelete: "restrict" }),
+    /** The Role Access Agent run whose authorized resources were provisioned (the plan's run). */
+    sourceAgentRunId: uuid("source_agent_run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "restrict" }),
+    promptVersion: text("prompt_version").notNull(),
+    modelProvider: text("model_provider").notNull(),
+    model: text("model").notNull(),
+    modelConfig: text("model_config").notNull(),
+    servedModel: text("served_model"),
+    providerResponseId: text("provider_response_id"),
+    catalogVersion: text("catalog_version").notNull(),
+    catalogHash: text("catalog_hash").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    policyHash: text("policy_hash").notNull(),
+    /** sha256 of input_snapshot (canonical JSON). */
+    inputHash: text("input_hash").notNull(),
+    /** Exactly what the model received (human-readable labels and resources; no identifiers). */
+    inputSnapshot: jsonb("input_snapshot").$type<Record<string, unknown>>().notNull(),
+    /** Internal settled-resource snapshot (request/decision ids, status); never sent to the model. */
+    resourceSnapshot: jsonb("resource_snapshot").$type<Record<string, unknown>[]>().notNull(),
+    status: agentRunStatusEnum("status").notNull(),
+    attempts: integer("attempts").notNull().default(1),
+    modelCalls: integer("model_calls"),
+    ownerToken: uuid("owner_token"),
+    ownerId: text("owner_id"),
+    ownerExpiresAt: timestamp("owner_expires_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** SUCCEEDED: the validated structured output (identical to the accepted plan). */
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    /** Sanitized: category, message and codes only; never keys, headers, prompts or model text. */
+    errorCategory: text("error_category"),
+    errorMessage: text("error_message"),
+    errorRetryable: boolean("error_retryable"),
+    errorDetail: jsonb("error_detail").$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [
+    index("onboarding_plan_runs_workflow_id_idx").on(t.workflowId),
+    check("onboarding_plan_runs_attempts_positive", sql`${t.attempts} >= 1`),
+    check(
+      "onboarding_plan_runs_owner_all_or_nothing",
+      sql`(${t.ownerToken} IS NULL) = (${t.ownerId} IS NULL) AND (${t.ownerToken} IS NULL) = (${t.ownerExpiresAt} IS NULL)`,
+    ),
+    check(
+      "onboarding_plan_runs_owner_iff_running",
+      sql`(${t.status} = 'RUNNING') = (${t.ownerToken} IS NOT NULL)`,
+    ),
+    check(
+      "onboarding_plan_runs_succeeded_complete",
+      sql`${t.status} <> 'SUCCEEDED' OR (${t.completedAt} IS NOT NULL AND ${t.output} IS NOT NULL AND ${t.errorCategory} IS NULL)`,
+    ),
+    check(
+      "onboarding_plan_runs_failed_has_error",
+      sql`${t.status} <> 'FAILED' OR (${t.completedAt} IS NOT NULL AND ${t.errorCategory} IS NOT NULL AND ${t.errorRetryable} IS NOT NULL)`,
+    ),
+  ],
+);
+export type OnboardingPlanRun = typeof onboardingPlanRuns.$inferSelect;
+
+/**
+ * M8: the accepted onboarding plan. At most one per workflow (unique workflow_id) and one per run;
+ * append-only (triggers reject UPDATE, DELETE and TRUNCATE), written in the same transaction as the
+ * run's success and ONBOARDING_GENERATION → COMPLETED.
+ */
+export const onboardingPlans = pgTable(
+  "onboarding_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .unique()
+      .references(() => onboardingWorkflows.id, { onDelete: "restrict" }),
+    onboardingPlanRunId: uuid("onboarding_plan_run_id")
+      .notNull()
+      .unique()
+      .references(() => onboardingPlanRuns.id, { onDelete: "restrict" }),
+    provisioningPlanId: uuid("provisioning_plan_id")
+      .notNull()
+      .references(() => workflowProvisioningPlans.id, { onDelete: "restrict" }),
+    promptVersion: text("prompt_version").notNull(),
+    summary: text("summary").notNull(),
+    tasks: jsonb("tasks").$type<Record<string, unknown>[]>().notNull(),
+    taskCount: integer("task_count").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "onboarding_plans_task_count_range",
+      sql`${t.taskCount} BETWEEN 3 AND 12 AND jsonb_array_length(${t.tasks}) = ${t.taskCount}`,
+    ),
+  ],
+);
+export type OnboardingPlan = typeof onboardingPlans.$inferSelect;

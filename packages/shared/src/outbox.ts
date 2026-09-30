@@ -16,6 +16,7 @@ export const OUTBOX_EVENT_TYPES = {
   externalOperationExecute: "external_operation.execute",
   approvalCallbackReceived: "servicenow.approval_callback.received",
   provisioningWorkflowWake: "provisioning.workflow.wake",
+  onboardingPlanGenerate: "onboarding.plan.generate",
 } as const;
 
 /** Asks a worker to execute (or resume/reconcile) one durable external operation. */
@@ -49,3 +50,21 @@ export const ProvisioningWorkflowWakePayloadSchema = z.object({
   reason: z.enum(PROVISIONING_WAKE_REASONS),
 });
 export type ProvisioningWorkflowWakePayload = z.infer<typeof ProvisioningWorkflowWakePayloadSchema>;
+
+/** M8: why onboarding-plan generation was requested (diagnostics only). */
+export const ONBOARDING_PLAN_GENERATE_REASONS = [
+  /** Written in the same transaction as PROVISIONING → ONBOARDING_GENERATION. */
+  "PROVISIONING_SETTLED",
+  /** The periodic sweeper found a workflow in ONBOARDING_GENERATION without an accepted plan. */
+  "SCHEDULED_RECOVERY",
+] as const;
+
+/**
+ * M8: asks a worker to generate (or finish) the onboarding plan of one workflow in
+ * ONBOARDING_GENERATION. Duplicates are harmless: one logical run, at most one accepted plan.
+ */
+export const OnboardingPlanGeneratePayloadSchema = z.object({
+  workflowId: z.uuid(),
+  reason: z.enum(ONBOARDING_PLAN_GENERATE_REASONS),
+});
+export type OnboardingPlanGeneratePayload = z.infer<typeof OnboardingPlanGeneratePayloadSchema>;

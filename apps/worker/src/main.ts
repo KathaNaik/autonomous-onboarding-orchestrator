@@ -1,4 +1,9 @@
 import { once } from "node:events";
+import {
+  createOnboardingPlanAgent,
+  createOnboardingPlanProviderFromConfig,
+  loadOnboardingPlanAgentConfig,
+} from "@aoo/agents";
 import { loadCatalogRegistry } from "@aoo/catalog";
 import { createDatabase } from "@aoo/db";
 import { createGitHubClient } from "@aoo/github";
@@ -9,6 +14,7 @@ import {
   createExternalOperationService,
   createGitHubHandlers,
   createGitHubProvisioningService,
+  createOnboardingPlanService,
   createOktaHandlers,
   createOktaProvisioningService,
   createOutboxRunner,
@@ -19,6 +25,7 @@ import {
   createWorkflowService,
   type ExternalOperationHandler,
 } from "@aoo/orchestrator";
+import { loadPolicyRegistry } from "@aoo/policy";
 import { createServiceNowClient, safeUrl } from "@aoo/servicenow";
 import {
   loadConfig,
@@ -117,6 +124,25 @@ const coordinator = createProvisioningCoordinator(database.db, {
   deadlineMs: Math.floor(config.OUTBOX_LEASE_MS / 2),
   logger,
 });
+// M8: the Onboarding Plan Agent runs only when explicitly enabled (it calls OpenAI).
+const onboardingPlans = config.ONBOARDING_PLAN_GENERATION_ENABLED
+  ? (() => {
+      const agentConfig = loadOnboardingPlanAgentConfig(); // names a missing variable, never a value
+      return createOnboardingPlanService(database.db, {
+        agent: createOnboardingPlanAgent({
+          provider: createOnboardingPlanProviderFromConfig(agentConfig),
+          maxAttempts: agentConfig.ONBOARDING_PLAN_AGENT_MAX_ATTEMPTS,
+        }),
+        catalogs,
+        policies: loadPolicyRegistry(catalogs),
+        workflows,
+        ownerId: config.WORKER_ID,
+        leaseMs: config.ONBOARDING_PLAN_RUN_LEASE_MS,
+        sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
+        logger,
+      });
+    })()
+  : undefined;
 const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
   workerId: config.WORKER_ID,
   batchSize: config.OUTBOX_BATCH_SIZE,
@@ -135,6 +161,7 @@ const runner = createOutboxRunner(createPostgresOutboxStore(database.db), {
       leaseMs: config.OUTBOX_LEASE_MS,
     },
     provisioning: coordinator,
+    ...(onboardingPlans && { onboardingPlans }),
   }),
   logger,
 });
@@ -167,6 +194,7 @@ logger.info(
       sweepIntervalMs: config.PROVISIONING_SWEEP_INTERVAL_MS,
       reconcileIntervalMs: config.PROVISIONING_RECONCILE_INTERVAL_MS,
     },
+    onboardingPlanGeneration: onboardingPlans ? "enabled" : "disabled",
     servicenow: servicenowConfig
       ? {
           instance: safeUrl(new URL(servicenowConfig.instanceUrl)),
@@ -186,6 +214,11 @@ const sweep = async () => {
   try {
     const { enqueued } = await coordinator.enqueueDueWakes();
     if (enqueued > 0) logger.info({ enqueued }, "provisioning reconciliation wakes enqueued");
+    // M8 recovery: workflows in ONBOARDING_GENERATION without an accepted plan (e.g. a missed event).
+    if (onboardingPlans) {
+      const plans = await onboardingPlans.enqueueDueGenerations();
+      if (plans.enqueued > 0) logger.info(plans, "onboarding plan generation requests enqueued");
+    }
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
