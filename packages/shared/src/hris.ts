@@ -58,6 +58,7 @@ export type HrisWebhookAcceptedResponse = z.infer<typeof HrisWebhookAcceptedResp
 export const HRIS_WEBHOOK_ERROR_CODES = [
   "SIGNATURE_MISSING",
   "SIGNATURE_INVALID",
+  "SIGNATURE_STALE",
   "UNSUPPORTED_MEDIA_TYPE",
   "MALFORMED_JSON",
   "INVALID_PAYLOAD",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { HrisOfferSignedEventSchema, type HrisOfferSignedEvent } from "@aoo/shared";
-import { HRIS_SIGNATURE_HEADER, signHrisPayload } from "@aoo/webhooks";
+import { hrisSignatureHeaders } from "@aoo/webhooks";
 
 const FIRST = ["Ada", "Grace", "Alan", "Katherine", "Linus", "Margaret", "Dennis", "Barbara"];
 const LAST = [
@@ -131,13 +131,13 @@ export interface SignedRequest {
 }
 
 /** Serializes and signs exactly as the HRIS webhook protocol requires. */
-export function signEvent(event: unknown, secret: string): SignedRequest {
+export function signEvent(event: unknown, secret: string, now?: number): SignedRequest {
   const body = JSON.stringify(event);
   return {
     body,
     headers: {
       "content-type": "application/json",
-      [HRIS_SIGNATURE_HEADER]: signHrisPayload(body, secret),
+      ...hrisSignatureHeaders(body, secret, now),
     },
   };
 }

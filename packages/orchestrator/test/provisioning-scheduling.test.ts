@@ -107,9 +107,14 @@ describe("provider dispatch and blockers", () => {
       {
         code: "OKTA_TARGET_NOT_CONFIGURED",
         blockerClass: "DETERMINISTIC_FAILURE",
-        schedule: "NONE",
+        // (M10) configuration is fixed by a redeploy (not an event): re-checked periodically
+        schedule: "RECONCILE",
       },
     );
+    expect(BLOCKERS.PROVIDER_NOT_CONFIGURED.schedule).toBe("RECONCILE");
+    expect(
+      classifyDispatchError({ code: "GITHUB_IDENTITY_CONFLICT", retryable: false }).schedule,
+    ).toBe("NONE");
     expect(BLOCKERS.GITHUB_INVITATION_PENDING).toMatchObject({
       blockerClass: "WAITING",
       schedule: "RECONCILE",

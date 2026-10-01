@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireOperatorSession } from "@/lib/dashboard-auth";
+import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
 import { fetchWorkflowView } from "@/lib/onboarding-read-api";
 import { WorkflowView } from "./workflow-view";
 
@@ -13,13 +13,21 @@ export default async function WorkflowDetailPage({
 }) {
   const session = await requireOperatorSession();
   const { workflowId } = await params;
-  const result = await fetchWorkflowView(workflowId, session.operatorId);
+  const result = await fetchWorkflowView(workflowId, session);
+  if (!result.ok) redirectIfUnauthorized(result.status);
   return (
     <main>
       <p>
         <Link href="/admin/onboarding">← All workflows</Link>
       </p>
       <h1>Onboarding workflow</h1>
+      {result.ok && (
+        <p>
+          <Link href={`/admin/onboarding/${encodeURIComponent(workflowId)}/github`}>
+            Record the employee&apos;s GitHub username
+          </Link>
+        </p>
+      )}
       {result.ok ? (
         <WorkflowView view={result.body} />
       ) : (

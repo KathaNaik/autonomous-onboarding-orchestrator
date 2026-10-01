@@ -4,6 +4,11 @@ import type { ApprovalService } from "../approvals/service.js";
 import type { ExternalOperationService } from "../external-operations/service.js";
 import type { ProvisioningCoordinator } from "../provisioning/coordinator.js";
 import type { OnboardingPlanService } from "../onboarding-plan/service.js";
+import type { AccessPlanningService } from "../access-planning/service.js";
+import {
+  accessPlanningDisabledHandler,
+  createAccessPlanningRequestedHandler,
+} from "./access-planning-requested.js";
 import { createApprovalCallbackHandler } from "./approval-callback-received.js";
 import { createExternalOperationExecuteHandler } from "./external-operation-execute.js";
 import { createHrisOfferSignedAcceptedHandler } from "./hris-offer-signed-accepted.js";
@@ -14,6 +19,7 @@ import {
 import { createProvisioningWorkflowWakeHandler } from "./provisioning-workflow-wake.js";
 import type { EventHandlerRegistry } from "./types.js";
 
+export * from "./access-planning-requested.js";
 export * from "./approval-callback-received.js";
 export * from "./external-operation-execute.js";
 export * from "./hris-offer-signed-accepted.js";
@@ -34,6 +40,12 @@ export function createEventHandlers(deps: {
    * those requests are acknowledged as disabled (the recovery sweep re-enqueues them once enabled).
    */
   onboardingPlans?: Pick<OnboardingPlanService, "generatePlan">;
+  /**
+   * (M10) When set, the worker runs the Role Access Agent and the policy authorization on
+   * access.planning.requested; otherwise those requests are acknowledged as disabled (the
+   * recovery sweep re-enqueues them once enabled).
+   */
+  accessPlanning?: Pick<AccessPlanningService, "planAccess">;
 }): EventHandlerRegistry {
   return {
     [OUTBOX_EVENT_TYPES.hrisOfferSignedAccepted]: createHrisOfferSignedAcceptedHandler(
@@ -53,6 +65,9 @@ export function createEventHandlers(deps: {
         deps.provisioning,
       ),
     }),
+    [OUTBOX_EVENT_TYPES.accessPlanningRequested]: deps.accessPlanning
+      ? createAccessPlanningRequestedHandler(deps.accessPlanning)
+      : accessPlanningDisabledHandler,
     [OUTBOX_EVENT_TYPES.onboardingPlanGenerate]: deps.onboardingPlans
       ? createOnboardingPlanGenerateHandler(deps.onboardingPlans)
       : onboardingPlanGenerationDisabledHandler,

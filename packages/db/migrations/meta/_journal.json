@@ -134,6 +134,13 @@
       "when": 1790793462516,
       "tag": "0018_outbox_trace_context",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790838347465,
+      "tag": "0019_operator_session_revocations",
+      "breakpoints": true
     }
   ]
 }

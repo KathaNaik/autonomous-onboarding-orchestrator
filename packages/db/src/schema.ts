@@ -1026,3 +1026,23 @@ export const onboardingPlans = pgTable(
   ],
 );
 export type OnboardingPlan = typeof onboardingPlans.$inferSelect;
+
+/**
+ * (M10) Server-side revocation of operator dashboard sessions. The web's session cookie is a
+ * stateless signed token; logout records its nonce here so a copied cookie stops working before
+ * it expires. The API rejects revoked nonces before any read or write. Rows are only needed until
+ * `expires_at` (the session's own expiry).
+ */
+export const operatorSessionRevocations = pgTable(
+  "operator_session_revocations",
+  {
+    sessionNonce: uuid("session_nonce").primaryKey(),
+    operatorId: text("operator_id").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("operator_session_revocations_expires_idx").on(t.expiresAt)],
+);
+export type OperatorSessionRevocation = typeof operatorSessionRevocations.$inferSelect;

@@ -8,13 +8,15 @@ import {
   type HrisWebhookAcceptedResponse,
   type HrisWebhookErrorResponse,
 } from "@aoo/shared";
-import { HRIS_SIGNATURE_HEADER, verifyHrisSignature } from "@aoo/webhooks";
+import { HRIS_SIGNATURE_HEADER, HRIS_TIMESTAMP_HEADER, verifyHrisRequest } from "@aoo/webhooks";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 
 export interface HrisWebhookOptions {
   secret: string;
   bodyLimit: number;
+  /** (M10) Replay window for X-AOO-Timestamp. */
+  maxSkewMs: number;
   intake: HrisIntakeService;
 }
 
@@ -44,13 +46,38 @@ export const hrisWebhookRoutes: FastifyPluginAsync<HrisWebhookOptions> = async (
   app.post("/webhooks/hris", async (request, reply) => {
     const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
 
-    const signature = request.headers[HRIS_SIGNATURE_HEADER];
-    if (typeof signature !== "string" || signature.length === 0) {
-      return reject(reply, 401, "SIGNATURE_MISSING", `missing ${HRIS_SIGNATURE_HEADER} header`);
-    }
-    if (!verifyHrisSignature(rawBody, signature, opts.secret)) {
-      request.log.warn("hris webhook rejected: invalid signature");
-      return reject(reply, 401, "SIGNATURE_INVALID", "signature does not match request body");
+    const header = (name: string) => {
+      const v = request.headers[name];
+      return typeof v === "string" && v.length > 0 ? v : undefined;
+    };
+    // (M10) Timestamped signature: HMAC over "<timestamp>.<raw body>", bounded replay window.
+    // Nothing is parsed or written before authentication succeeds.
+    const auth = verifyHrisRequest({
+      rawBody,
+      timestamp: header(HRIS_TIMESTAMP_HEADER),
+      signature: header(HRIS_SIGNATURE_HEADER),
+      secret: opts.secret,
+      maxSkewMs: opts.maxSkewMs,
+    });
+    if (!auth.ok) {
+      request.log.warn({ reason: auth.reason }, "hris webhook rejected: authentication failed");
+      if (auth.reason === "MISSING") {
+        return reject(
+          reply,
+          401,
+          "SIGNATURE_MISSING",
+          `missing ${HRIS_SIGNATURE_HEADER} or ${HRIS_TIMESTAMP_HEADER} header`,
+        );
+      }
+      if (auth.reason === "STALE") {
+        return reject(
+          reply,
+          401,
+          "SIGNATURE_STALE",
+          "request timestamp outside the allowed window",
+        );
+      }
+      return reject(reply, 401, "SIGNATURE_INVALID", "signature does not match request");
     }
 
     const contentType = request.headers["content-type"] ?? "";

@@ -1,5 +1,5 @@
 import { HrisOfferSignedEventSchema, isOnboardingEligible } from "@aoo/shared";
-import { HRIS_SIGNATURE_HEADER, verifyHrisSignature } from "@aoo/webhooks";
+import { HRIS_SIGNATURE_HEADER, HRIS_TIMESTAMP_HEADER, verifyHrisRequest } from "@aoo/webhooks";
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -104,9 +104,14 @@ describe("signEvent", () => {
   it("signs the exact serialized body with the shared protocol", () => {
     const req = signEvent(buildOfferSignedEvent(), secret);
     expect(req.headers["content-type"]).toBe("application/json");
-    expect(verifyHrisSignature(req.body, req.headers[HRIS_SIGNATURE_HEADER], secret)).toBe(true);
-    expect(verifyHrisSignature(req.body, req.headers[HRIS_SIGNATURE_HEADER], `${secret}x`)).toBe(
-      false,
-    );
+    const check = (key: string) =>
+      verifyHrisRequest({
+        rawBody: req.body,
+        timestamp: req.headers[HRIS_TIMESTAMP_HEADER],
+        signature: req.headers[HRIS_SIGNATURE_HEADER],
+        secret: key,
+      }).ok;
+    expect(check(secret)).toBe(true);
+    expect(check(`${secret}x`)).toBe(false);
   });
 });

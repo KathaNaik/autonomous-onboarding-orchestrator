@@ -5,11 +5,17 @@ import {
 } from "@aoo/orchestrator";
 import type { GitHubIdentityErrorResponse } from "@aoo/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
-import { OPERATOR_ID_HEADER, operatorAuthorizer } from "./operator-auth.js";
+import {
+  OPERATOR_ID_HEADER,
+  operatorAuthorizer,
+  type OperatorSessionCheck,
+} from "./operator-auth.js";
 
 export interface AdminGitHubIdentityRoutesOptions {
   /** ONBOARDING_ADMIN_TOKEN: the shared HR/onboarding operator bearer token. */
   adminToken: string;
+  /** (M10) Refuses logged-out dashboard sessions. */
+  sessions?: OperatorSessionCheck;
   identities: GitHubIdentityService;
 }
 
@@ -43,7 +49,7 @@ const STATUS_OF: Record<GitHubIdentityError["code"], number> = {
  */
 export const adminGitHubIdentityRoutes: FastifyPluginAsync<
   AdminGitHubIdentityRoutesOptions
-> = async (app, { adminToken, identities }) => {
+> = async (app, { adminToken, identities, sessions }) => {
   app.setErrorHandler((err: { statusCode?: number }, request, reply) => {
     if (err.statusCode === 415) {
       return reject(reply, 415, "UNSUPPORTED_MEDIA_TYPE", "content-type must be application/json");
@@ -56,8 +62,10 @@ export const adminGitHubIdentityRoutes: FastifyPluginAsync<
   });
 
   // onRequest: before body parsing, so unauthenticated requests learn nothing about the payload.
-  const authorize = operatorAuthorizer(adminToken, (reply) =>
-    reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+  const authorize = operatorAuthorizer(
+    adminToken,
+    (reply) => reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+    sessions,
   );
 
   const handle = async (reply: FastifyReply, fn: () => Promise<unknown>) => {

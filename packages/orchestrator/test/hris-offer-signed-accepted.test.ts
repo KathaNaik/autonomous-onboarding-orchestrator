@@ -50,14 +50,18 @@ describe("hris.offer_signed.accepted handler", () => {
     const workflows = fakeWorkflows("RECEIVED", 1);
     const result = await createHrisOfferSignedAcceptedHandler(workflows)(envelope(), ctx);
 
-    expect(workflows.transition).toHaveBeenCalledWith({
-      workflowId,
-      to: "ACCESS_PLANNING",
-      expectedVersion: 1,
-      actor: "outbox-worker",
-      correlationId: "hris:evt-1",
-      idempotencyKey: workflowStartKey(workflowId),
-    });
+    expect(workflows.transition).toHaveBeenCalledWith(
+      {
+        workflowId,
+        to: "ACCESS_PLANNING",
+        expectedVersion: 1,
+        actor: "outbox-worker",
+        correlationId: "hris:evt-1",
+        idempotencyKey: workflowStartKey(workflowId),
+      },
+      // (M10) the access-planning request commits with the start
+      { effects: expect.any(Function) },
+    );
     expect(result).toEqual({
       status: "processed",
       detail: { workflowId, state: "ACCESS_PLANNING", version: 2 },

@@ -123,10 +123,11 @@ export const BLOCKERS = {
     blockerClass: "DETERMINISTIC_FAILURE",
     schedule: "NONE",
   },
+  // (M10) Configuration is fixed by a redeploy, which is not an event: re-check periodically.
   PROVIDER_NOT_CONFIGURED: {
     code: "PROVIDER_NOT_CONFIGURED",
     blockerClass: "DETERMINISTIC_FAILURE",
-    schedule: "NONE",
+    schedule: "RECONCILE",
   },
   RESOURCE_NOT_IN_CATALOG: {
     code: "RESOURCE_NOT_IN_CATALOG",
@@ -184,6 +185,12 @@ export function classifyDispatchError(err: {
   if (err.code === "DEPENDENCIES_NOT_READY") return BLOCKERS.DEPENDENCIES_NOT_READY;
   if (err.code === "PROVISIONING_FAILED") return BLOCKERS.PROVISIONING_FAILED;
   if (err.retryable) return BLOCKERS.TRANSIENT_PROVIDER_FAILURE;
+  // (M10) A missing provider target (e.g. OKTA_TARGET_NOT_CONFIGURED) is deployment
+  // configuration: still a deterministic failure, but re-checked at the reconcile interval so a
+  // redeploy that configures it is picked up without any event.
+  if (/_TARGET_NOT_CONFIGURED$/.test(err.code)) {
+    return { code: err.code, blockerClass: "DETERMINISTIC_FAILURE", schedule: "RECONCILE" };
+  }
   return { code: err.code, blockerClass: "DETERMINISTIC_FAILURE", schedule: "NONE" };
 }
 

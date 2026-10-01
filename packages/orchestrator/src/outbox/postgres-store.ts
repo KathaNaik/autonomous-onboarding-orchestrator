@@ -26,6 +26,7 @@ export interface RedriveResult {
 }
 
 export interface PostgresOutboxStore extends OutboxStore {
+  renew(claim: ClaimedEvent, leaseMs: number): Promise<Date>;
   /** Returns DEAD_LETTERED events to PENDING with a fresh retry cycle. Only touches dead letters. */
   redrive(params: { eventIds: string[]; actor: string; reason: string }): Promise<RedriveResult>;
   listDeadLetters(limit?: number): Promise<OutboxEvent[]>;
@@ -142,6 +143,24 @@ export function createPostgresOutboxStore(db: Database): PostgresOutboxStore {
             detail: { status: result.status, ...result.detail },
           })
           .where(eq(outboxEventAttempts.leaseToken, claim.leaseToken));
+      });
+    },
+
+    async renew(claim, leaseMs) {
+      return db.transaction(async (tx) => {
+        // Fenced like complete/fail: same token, still PENDING, not yet expired. A stale or
+        // reclaimed owner gets LeaseLostError and changes nothing.
+        const [row] = await tx
+          .update(outboxEvents)
+          .set({ leaseExpiresAt: plusMs(leaseMs) })
+          .where(holdsLease(claim))
+          .returning({ leaseExpiresAt: outboxEvents.leaseExpiresAt });
+        if (!row?.leaseExpiresAt) throw new LeaseLostError(claim.id, claim.leaseToken);
+        await tx
+          .update(outboxEventAttempts)
+          .set({ leaseExpiresAt: row.leaseExpiresAt })
+          .where(eq(outboxEventAttempts.leaseToken, claim.leaseToken));
+        return row.leaseExpiresAt;
       });
     },
 

@@ -53,6 +53,17 @@ const EnvSchema = z
       .transform((v) => v === "true"),
     /** (M8) Lease on one plan-generation run; the model deadline is 80% of it. */
     ONBOARDING_PLAN_RUN_LEASE_MS: int(10_000, 3_600_000, 180_000),
+    /**
+     * (M10) Run the Role Access Agent (OpenAI) and the policy authorization automatically on
+     * access.planning.requested. Off by default: Compose never calls OpenAI unless enabled.
+     * Requires OPENAI_API_KEY.
+     */
+    ROLE_ACCESS_AGENT_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** (M10) Lease on one Role Access run; the model deadline is 80% of it. */
+    ROLE_ACCESS_RUN_LEASE_MS: int(10_000, 3_600_000, 180_000),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {
     message: "OUTBOX_BACKOFF_MAX_MS must be >= OUTBOX_BACKOFF_BASE_MS",
@@ -64,6 +75,64 @@ const EnvSchema = z
   });
 
 export type WorkerConfig = z.infer<typeof EnvSchema>;
+
+/**
+ * (M10) The bounded serverless worker (Vercel Function invoked by a signed QStash schedule).
+ * Only the two signing keys are needed to authenticate deliveries: QSTASH_TOKEN (schedule
+ * management) is deliberately not part of the runtime configuration.
+ */
+const FunctionEnvSchema = z.object({
+  QSTASH_CURRENT_SIGNING_KEY: z.string().trim().min(16, "QSTASH_CURRENT_SIGNING_KEY is required"),
+  QSTASH_NEXT_SIGNING_KEY: z.string().trim().min(16, "QSTASH_NEXT_SIGNING_KEY is required"),
+  /** The exact public URL QStash delivers to; verified against the signature's subject. */
+  WORKER_QSTASH_URL: z.url({ protocol: /^https$/ }),
+  /** Platform limit of the function (Vercel Hobby: 300 s). */
+  WORKER_FUNCTION_MAX_DURATION_MS: int(10_000, 900_000, 300_000),
+  /** Stop claiming new work after this long; in-flight handlers then finish. */
+  WORKER_RUN_DEADLINE_MS: int(1_000, 900_000, 230_000),
+  /** Upper bound of events claimed in one invocation. */
+  WORKER_RUN_MAX_EVENTS: int(1, 10_000, 500),
+});
+export type WorkerFunctionConfig = z.infer<typeof FunctionEnvSchema>;
+
+/** Margin for sweeps, acknowledgement and connection teardown after the last handler. */
+export const FUNCTION_SAFETY_MARGIN_MS = 10_000;
+
+/**
+ * Longest a single claimed event can take: a coordination stops dispatching at half the lease
+ * and its in-flight provider operation is bounded by 0.8 × the lease; a plan-generation or
+ * Role Access model call is bounded by 0.8 × its run lease.
+ */
+export function maxHandlerMs(config: WorkerConfig): number {
+  return Math.max(
+    Math.ceil(config.OUTBOX_LEASE_MS * (0.5 + EXTERNAL_CALL_LEASE_FRACTION)),
+    Math.ceil(config.ONBOARDING_PLAN_RUN_LEASE_MS * 0.8),
+    Math.ceil(config.ROLE_ACCESS_RUN_LEASE_MS * 0.8),
+  );
+}
+
+/** Errors name variables only, never values. Refuses a deadline that could outlive the platform. */
+export function loadWorkerFunctionConfig(
+  config: WorkerConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): WorkerFunctionConfig {
+  const parsed = FunctionEnvSchema.safeParse(env);
+  if (!parsed.success) {
+    throw new Error(
+      `invalid worker function configuration: ${parsed.error.issues.map((i) => i.path.join(".")).join(", ")}`,
+    );
+  }
+  const fn = parsed.data;
+  const worstCase = fn.WORKER_RUN_DEADLINE_MS + maxHandlerMs(config) + FUNCTION_SAFETY_MARGIN_MS;
+  if (worstCase > fn.WORKER_FUNCTION_MAX_DURATION_MS) {
+    throw new Error(
+      `WORKER_RUN_DEADLINE_MS (${fn.WORKER_RUN_DEADLINE_MS}) + longest handler (${maxHandlerMs(config)}) + margin ` +
+        `exceeds WORKER_FUNCTION_MAX_DURATION_MS (${fn.WORKER_FUNCTION_MAX_DURATION_MS}); ` +
+        "lower the deadline, OUTBOX_LEASE_MS or ONBOARDING_PLAN_RUN_LEASE_MS.",
+    );
+  }
+  return fn;
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return EnvSchema.parse(env);

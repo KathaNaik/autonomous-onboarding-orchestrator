@@ -712,7 +712,9 @@ export function createProvisioningCoordinator(
       .where(
         and(
           eq(workflowProvisioningPlans.status, "ACTIVE"),
-          sql`${accessRequests.nextReconcileAt} <= clock_timestamp()`,
+          // (M10) Configuration blockers recorded before they were re-checked periodically have
+          // no schedule; treat them as due so a configuring redeploy is picked up.
+          sql`(${accessRequests.nextReconcileAt} <= clock_timestamp() OR (${accessRequests.nextReconcileAt} IS NULL AND (${accessRequests.orchestrationBlocker} = 'PROVIDER_NOT_CONFIGURED' OR ${accessRequests.orchestrationBlocker} LIKE '%\_TARGET\_NOT\_CONFIGURED')))`,
           inArray(accessRequests.status, ["READY_FOR_PROVISIONING", "PROVISIONING"]),
         ),
       )

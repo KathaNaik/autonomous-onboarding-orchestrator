@@ -1,0 +1,15 @@
+# (M10) Never upload local secrets or build artifacts with a CLI deployment.
+.env
+.env.*
+**/.env
+**/.env.*
+.git
+.vercel
+**/.vercel
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/coverage
+**/.DS_Store

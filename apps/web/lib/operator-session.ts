@@ -24,7 +24,13 @@ const PayloadSchema = z.strictObject({
   exp: z.number().int(),
   n: z.string().regex(/^[0-9a-f-]{36}$/),
 });
-export type OperatorSession = { operatorId: string; issuedAt: number; expiresAt: number };
+export type OperatorSession = {
+  operatorId: string;
+  issuedAt: number;
+  expiresAt: number;
+  /** (M10) Per-session id: sent to the API, which refuses it after logout (revocation). */
+  nonce: string;
+};
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
 const signingKey = (adminToken: string) =>
@@ -78,7 +84,7 @@ export function verifySessionValue(
   const p = parsed.data;
   if (p.exp <= nowSeconds || p.iat > nowSeconds + 60 || p.exp - p.iat > SESSION_TTL_SECONDS)
     return null;
-  return { operatorId: p.op, issuedAt: p.iat, expiresAt: p.exp };
+  return { operatorId: p.op, issuedAt: p.iat, expiresAt: p.exp, nonce: p.n };
 }
 
 /** Set-Cookie attributes: HttpOnly, SameSite=Strict, path-restricted, short-lived; Secure on https. */
@@ -102,6 +108,14 @@ export function clearSessionCookieHeader(secure: boolean): string {
     "SameSite=Strict",
     ...(secure ? ["Secure"] : []),
   ].join("; ");
+}
+
+/**
+ * Secure cookies whenever the request reached us over https (directly or via a proxy), and
+ * (M10) always in production deployments.
+ */
+export function useSecureCookies(request: Request, production: boolean): boolean {
+  return production || isSecureRequest(request);
 }
 
 /** Secure cookies whenever the request reached us over https (directly or via a proxy). */

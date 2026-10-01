@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 const MESSAGES: Record<string, string> = {
   unauthorized: "Unauthorized. Check the operator token and operator id.",
   unavailable: "The operator dashboard is not configured on this server.",
+  expired: "Your session has ended. Sign in again.",
 };
 
 /**
@@ -22,6 +23,12 @@ export default async function LoginPage({
       <p>Internal onboarding operators only.</p>
       {error && <p role="alert">{error}</p>}
       {params.loggedOut === "1" && <p role="status">Signed out.</p>}
+      {params.loggedOut === "unconfirmed" && (
+        <p role="status">
+          Signed out in this browser. The server could not confirm the revocation; the session
+          expires on its own within 30 minutes.
+        </p>
+      )}
       <form method="post" action="/admin/onboarding/session" autoComplete="off">
         <p>
           <label htmlFor="token">Operator token</label>{" "}

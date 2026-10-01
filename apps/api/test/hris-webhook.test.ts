@@ -4,11 +4,12 @@ import {
   type HrisIntakeService,
 } from "@aoo/orchestrator";
 import { HrisWebhookAcceptedResponseSchema, HrisWebhookErrorResponseSchema } from "@aoo/shared";
-import { HRIS_SIGNATURE_HEADER } from "@aoo/webhooks";
+import { createHmac } from "node:crypto";
+import { HRIS_SIGNATURE_HEADER, HRIS_TIMESTAMP_HEADER, signHrisPayload } from "@aoo/webhooks";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
-import { offerSignedEvent, signedRequest, testConfig } from "./helpers.js";
+import { TEST_SECRET, offerSignedEvent, signedRequest, testConfig } from "./helpers.js";
 
 const WORKFLOW_ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const acceptOfferSigned = vi.fn<HrisIntakeService["acceptOfferSigned"]>();
@@ -155,5 +156,61 @@ describe("routing", () => {
   it("only accepts POST on the webhook path", async () => {
     const res = await app.inject({ method: "GET", url: "/webhooks/hris" });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /webhooks/hris: timestamp and replay window (M10)", () => {
+  it("A: accepts a fresh, correctly signed request", async () => {
+    const res = await post(signedRequest(offerSignedEvent()));
+    expect(res.statusCode).toBe(202);
+    expect(acceptOfferSigned).toHaveBeenCalledOnce();
+  });
+
+  it("B: rejects a request without X-AOO-Timestamp", async () => {
+    const req = signedRequest(offerSignedEvent());
+    delete (req.headers as Record<string, string>)[HRIS_TIMESTAMP_HEADER];
+    expectRejected(await post(req), 401, "SIGNATURE_MISSING");
+  });
+
+  it("C: rejects a correctly signed request older than the window", async () => {
+    expectRejected(
+      await post(signedRequest(offerSignedEvent(), TEST_SECRET, Date.now() - 301_000)),
+      401,
+      "SIGNATURE_STALE",
+    );
+  });
+
+  it("D: rejects a correctly signed request too far in the future", async () => {
+    expectRejected(
+      await post(signedRequest(offerSignedEvent(), TEST_SECRET, Date.now() + 301_000)),
+      401,
+      "SIGNATURE_STALE",
+    );
+  });
+
+  it("E: rejects the legacy body-only signature", async () => {
+    const req = signedRequest(offerSignedEvent());
+    req.headers[HRIS_SIGNATURE_HEADER] =
+      `sha256=${createHmac("sha256", TEST_SECRET).update(req.body).digest("hex")}`;
+    expectRejected(await post(req), 401, "SIGNATURE_INVALID");
+  });
+
+  it("F: rejects a timestamp changed after signing (cannot refresh an old capture)", async () => {
+    const old = signedRequest(offerSignedEvent(), TEST_SECRET, Date.now() - 600_000);
+    old.headers[HRIS_TIMESTAMP_HEADER] = String(Date.now());
+    expectRejected(await post(old), 401, "SIGNATURE_INVALID");
+  });
+
+  it("G: rejects a non-numeric timestamp and a signature for another timestamp", async () => {
+    const req = signedRequest(offerSignedEvent());
+    req.headers[HRIS_TIMESTAMP_HEADER] = "2026-09-30T10:00:00Z";
+    expectRejected(await post(req), 401, "SIGNATURE_INVALID");
+    const other = signedRequest(offerSignedEvent());
+    other.headers[HRIS_SIGNATURE_HEADER] = signHrisPayload(
+      other.body,
+      TEST_SECRET,
+      String(Date.now() - 1),
+    );
+    expectRejected(await post(other), 401, "SIGNATURE_INVALID");
   });
 });

@@ -6,8 +6,15 @@ import {
   type WorkflowListResponse,
   type WorkflowObservabilityView,
 } from "@aoo/shared";
+import { OPERATOR_SESSION_HEADER } from "@aoo/shared";
 import { z } from "zod";
 import { loadWebConfig } from "./config";
+
+/** The authenticated dashboard session the call is made for (operator id + session nonce). */
+export interface SessionCaller {
+  operatorId: string;
+  nonce: string;
+}
 
 export type ReadResult<T> =
   | { ok: true; status: number; body: T }
@@ -24,13 +31,13 @@ const NOT_FOUND: ObservabilityErrorResponse = {
 
 /**
  * (M9) Server-side client for the API's read-only operator routes. Runs only on the Next.js
- * server: it attaches the server-only ONBOARDING_ADMIN_TOKEN and the authenticated session's
- * operator id. Every response is validated against the M9 contracts. Browser code never calls it.
+ * server: it attaches the server-only ONBOARDING_ADMIN_TOKEN, the authenticated session's
+ * operator id and (M10) its session nonce, which the API refuses once the session is logged out. Every response is validated against the M9 contracts. Browser code never calls it.
  */
 async function get<T>(
   schema: z.ZodType<T>,
   path: string,
-  operatorId: string,
+  caller: SessionCaller,
   fetchImpl: typeof fetch,
 ): Promise<ReadResult<T>> {
   const config = loadWebConfig();
@@ -41,7 +48,8 @@ async function get<T>(
       method: "GET",
       headers: {
         authorization: `Bearer ${config.ONBOARDING_ADMIN_TOKEN}`,
-        "x-operator-id": operatorId,
+        "x-operator-id": caller.operatorId,
+        [OPERATOR_SESSION_HEADER]: caller.nonce,
       },
       cache: "no-store",
       redirect: "error",
@@ -79,28 +87,23 @@ export function listQuery(input: Record<string, string | string[] | undefined>):
 
 export function fetchWorkflowList(
   params: URLSearchParams,
-  operatorId: string,
+  caller: SessionCaller,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ReadResult<WorkflowListResponse>> {
   const qs = params.toString();
   return get(
     WorkflowListResponseSchema,
     `/admin/onboarding${qs ? `?${qs}` : ""}`,
-    operatorId,
+    caller,
     fetchImpl,
   );
 }
 
 export async function fetchWorkflowView(
   workflowId: string,
-  operatorId: string,
+  caller: SessionCaller,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ReadResult<WorkflowObservabilityView>> {
   if (!z.uuid().safeParse(workflowId).success) return { ok: false, status: 404, body: NOT_FOUND };
-  return get(
-    WorkflowObservabilityViewSchema,
-    `/admin/onboarding/${workflowId}`,
-    operatorId,
-    fetchImpl,
-  );
+  return get(WorkflowObservabilityViewSchema, `/admin/onboarding/${workflowId}`, caller, fetchImpl);
 }

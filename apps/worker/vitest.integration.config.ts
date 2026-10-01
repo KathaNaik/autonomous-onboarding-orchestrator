@@ -8,6 +8,8 @@ export default defineProject({
     environment: "node",
     include: ["test/integration/**/*.test.ts"],
     globalSetup: ["test/integration/global-setup.ts"],
+    // Files share one outbox: run them sequentially (see the shared-outbox convention).
+    fileParallelism: false,
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

@@ -48,10 +48,9 @@ import {
   type ServiceNowConfig,
 } from "@aoo/servicenow";
 import {
-  HRIS_SIGNATURE_HEADER,
   SN_CALLBACK_SIGNATURE_HEADER,
   SN_CALLBACK_TIMESTAMP_HEADER,
-  signHrisPayload,
+  hrisSignatureHeaders,
   signServiceNowCallback,
 } from "@aoo/webhooks";
 import { and, eq } from "drizzle-orm";
@@ -204,7 +203,7 @@ describe("M7D live: authorization → automatic ServiceNow fulfillment → autho
       url: "/webhooks/hris",
       headers: {
         "content-type": "application/json",
-        [HRIS_SIGNATURE_HEADER]: signHrisPayload(body, hrisSecret),
+        ...hrisSignatureHeaders(body, hrisSecret),
       },
       payload: body,
     });

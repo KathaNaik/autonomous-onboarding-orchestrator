@@ -17,6 +17,7 @@ export const OUTBOX_EVENT_TYPES = {
   approvalCallbackReceived: "servicenow.approval_callback.received",
   provisioningWorkflowWake: "provisioning.workflow.wake",
   onboardingPlanGenerate: "onboarding.plan.generate",
+  accessPlanningRequested: "access.planning.requested",
 } as const;
 
 /** Asks a worker to execute (or resume/reconcile) one durable external operation. */
@@ -68,3 +69,22 @@ export const OnboardingPlanGeneratePayloadSchema = z.object({
   reason: z.enum(ONBOARDING_PLAN_GENERATE_REASONS),
 });
 export type OnboardingPlanGeneratePayload = z.infer<typeof OnboardingPlanGeneratePayloadSchema>;
+
+/** M10: why access planning was requested (diagnostics only). */
+export const ACCESS_PLANNING_REASONS = [
+  /** Written in the same transaction as RECEIVED → ACCESS_PLANNING. */
+  "WORKFLOW_STARTED",
+  /** The periodic sweeper found a workflow in ACCESS_PLANNING/POLICY_REVIEW still to plan. */
+  "SCHEDULED_RECOVERY",
+] as const;
+
+/**
+ * M10: asks a worker to run the Role Access Agent for a started workflow and authorize its
+ * recommendations with the policy engine. Duplicates are harmless: one logical agent run, one
+ * decision per resource.
+ */
+export const AccessPlanningRequestedPayloadSchema = z.object({
+  workflowId: z.uuid(),
+  reason: z.enum(ACCESS_PLANNING_REASONS),
+});
+export type AccessPlanningRequestedPayload = z.infer<typeof AccessPlanningRequestedPayloadSchema>;

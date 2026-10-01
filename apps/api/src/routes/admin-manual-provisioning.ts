@@ -5,11 +5,17 @@ import {
 } from "@aoo/orchestrator";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
-import { OPERATOR_ID_HEADER, operatorAuthorizer } from "./operator-auth.js";
+import {
+  OPERATOR_ID_HEADER,
+  operatorAuthorizer,
+  type OperatorSessionCheck,
+} from "./operator-auth.js";
 
 export interface AdminManualProvisioningRoutesOptions {
   /** ONBOARDING_ADMIN_TOKEN (the M7B operator trust boundary). */
   adminToken: string;
+  /** (M10) Refuses logged-out dashboard sessions. */
+  sessions?: OperatorSessionCheck;
   manual: ManualProvisioningService;
 }
 
@@ -55,7 +61,7 @@ function reject(reply: FastifyReply, status: number, error: ErrorCode, message: 
  */
 export const adminManualProvisioningRoutes: FastifyPluginAsync<
   AdminManualProvisioningRoutesOptions
-> = async (app, { adminToken, manual }) => {
+> = async (app, { adminToken, manual, sessions }) => {
   app.setErrorHandler((err: { statusCode?: number }, request, reply) => {
     if (err.statusCode === 415) {
       return reject(reply, 415, "UNSUPPORTED_MEDIA_TYPE", "content-type must be application/json");
@@ -66,8 +72,10 @@ export const adminManualProvisioningRoutes: FastifyPluginAsync<
     request.log.error({ err }, "manual completion failed");
     return reject(reply, 500, "INTERNAL_ERROR", "request failed; try again");
   });
-  const authorize = operatorAuthorizer(adminToken, (reply) =>
-    reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+  const authorize = operatorAuthorizer(
+    adminToken,
+    (reply) => reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+    sessions,
   );
 
   app.post<{ Params: { accessRequestId: string }; Body: unknown }>(

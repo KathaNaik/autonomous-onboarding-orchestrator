@@ -375,6 +375,7 @@ export const OBSERVABILITY_ERROR_CODES = [
   "OPERATOR_UNAUTHORIZED",
   "OPERATOR_ID_INVALID",
   "INVALID_QUERY",
+  "INVALID_PAYLOAD",
   "WORKFLOW_NOT_FOUND",
   "INTERNAL_ERROR",
 ] as const;
@@ -383,3 +384,15 @@ export const ObservabilityErrorResponseSchema = z.object({
   message: z.string(),
 });
 export type ObservabilityErrorResponse = z.infer<typeof ObservabilityErrorResponseSchema>;
+
+/**
+ * (M10) Operator session revocation (logout). The web server sends it after the operator logs
+ * out; the API then rejects that session (`X-Operator-Session`) before any read or write.
+ */
+export const OPERATOR_SESSION_HEADER = "x-operator-session";
+export const OperatorSessionRevokeRequestSchema = z.strictObject({
+  sessionNonce: z.uuid(),
+  expiresAt: z.iso.datetime(),
+});
+export type OperatorSessionRevokeRequest = z.infer<typeof OperatorSessionRevokeRequestSchema>;
+export const OperatorSessionRevokeResponseSchema = z.object({ revoked: z.literal(true) });

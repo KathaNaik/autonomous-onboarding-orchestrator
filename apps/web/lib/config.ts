@@ -13,7 +13,20 @@ const WebEnvSchema = z.object({
     blankAsUnset,
     z.string().min(32, "ONBOARDING_ADMIN_TOKEN must be at least 32 characters").optional(),
   ),
+  /** (M10) `production` (or Vercel's VERCEL_ENV=production) forces Secure session cookies. */
+  AOO_ENVIRONMENT: z.preprocess(
+    blankAsUnset,
+    z.enum(["local", "preview", "production"]).default("local"),
+  ),
+  VERCEL_ENV: z.preprocess(blankAsUnset, z.string().optional()),
 });
+
+/** (M10) Production deployments always issue Secure cookies, whatever the request looked like. */
+export function isProductionDeployment(
+  config: Pick<ReturnType<typeof loadWebConfig>, "AOO_ENVIRONMENT" | "VERCEL_ENV">,
+): boolean {
+  return config.AOO_ENVIRONMENT === "production" || config.VERCEL_ENV === "production";
+}
 
 /** The only place the web app reads process.env (server-side). Errors name variables only. */
 export function loadWebConfig(env: Record<string, string | undefined> = process.env) {

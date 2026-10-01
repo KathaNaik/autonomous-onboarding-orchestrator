@@ -136,6 +136,22 @@ describe("login and logout (server-side handlers)", () => {
   });
 
   it.each([
+    ["AOO_ENVIRONMENT", "production"],
+    ["VERCEL_ENV", "production"],
+  ])("(M10) %s=%s forces Secure cookies even for a plain-http request", async (name, value) => {
+    vi.stubEnv(name, value);
+    const res = await login(form({ token: ADMIN_TOKEN, operatorId: "ops.alice" }));
+    expect(res.headers.get("set-cookie")).toContain("Secure");
+    const out = await logout(
+      new Request("http://web/admin/onboarding/logout", {
+        method: "POST",
+        headers: { origin: "http://web" },
+      }),
+    );
+    expect(out.headers.get("set-cookie")).toContain("Secure");
+  });
+
+  it.each([
     [
       "a wrong token",
       { token: "wrong-token-000000000000000000000000000", operatorId: "ops.alice" },
@@ -243,7 +259,8 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
 
   it("a valid session reads through the server: the API gets the server-only token and the session's operator id", async () => {
     const fetchMock = apiFetch();
-    jar.set(SESSION_COOKIE, createSessionValue("ops.alice", ADMIN_TOKEN));
+    const cookie = createSessionValue("ops.alice", ADMIN_TOKEN);
+    jar.set(SESSION_COOKIE, cookie);
     const html = renderToStaticMarkup(
       await DetailPage({ params: Promise.resolve({ workflowId: WF }) }),
     );
@@ -254,6 +271,8 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
     expect(init.headers).toEqual({
       authorization: `Bearer ${ADMIN_TOKEN}`,
       "x-operator-id": "ops.alice",
+      // (M10) the session nonce, which the API refuses after logout
+      "x-operator-session": verifySessionValue(cookie, ADMIN_TOKEN)!.nonce,
     });
     expect(html).not.toContain(ADMIN_TOKEN); // never serialized into the page
     const list = renderToStaticMarkup(
@@ -308,10 +327,9 @@ describe("browser secret boundary (source scan)", () => {
         );
       }
     }
-    const dashboard = sources.filter(
-      ({ file }) =>
-        file.includes(join("app", "admin", "onboarding")) &&
-        !file.includes(`${join("[workflowId]", "github")}`),
+    // (M10) The M7B GitHub-identity page is part of the session-protected dashboard now.
+    const dashboard = sources.filter(({ file }) =>
+      file.includes(join("app", "admin", "onboarding")),
     );
     expect(dashboard.length).toBeGreaterThan(5);
     for (const { file, src } of dashboard) {
@@ -322,10 +340,61 @@ describe("browser secret boundary (source scan)", () => {
     }
   });
 
-  it("the old browser-side dashboard proxies are gone (only the M7B HR proxy remains)", () => {
-    const apiRoutes = sources.filter(({ file }) => file.includes(join("app", "api", "admin")));
-    expect(apiRoutes.map(({ file }) => file.slice(file.indexOf(join("app", "api"))))).toEqual([
-      join("app", "api", "admin", "onboarding", "[workflowId]", "github-identity", "route.ts"),
-    ]);
+  it("no browser-side admin proxy remains (M10: the M7B HR proxy was removed too)", () => {
+    expect(sources.filter(({ file }) => file.includes(join("app", "api", "admin")))).toEqual([]);
+    for (const { file, src } of sources) {
+      expect(src, file).not.toMatch(/authorization["']?\s*:\s*request\.headers/i);
+      expect(src, file).not.toMatch(/Operator token[\s\S]*type="password"[\s\S]*github/i);
+    }
+  });
+});
+
+describe("(M10) server-side logout revocation", () => {
+  it("logout revokes the session's nonce at the API (server token, operator id), then clears the cookie", async () => {
+    const cookie = createSessionValue("ops.alice", ADMIN_TOKEN);
+    jar.set(SESSION_COOKIE, cookie);
+    const fetchMock = vi.fn(async () => Response.json({ revoked: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await logout(form({}, {}, "http://web/admin/onboarding/logout"));
+    expect(res.headers.get("location")).toBe("/admin/onboarding/login?loggedOut=1");
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(String(url)).toBe("http://api.internal:4000/admin/operator-sessions/revoke");
+    expect(init.headers).toMatchObject({
+      authorization: `Bearer ${ADMIN_TOKEN}`,
+      "x-operator-id": "ops.alice",
+    });
+    const session = verifySessionValue(cookie, ADMIN_TOKEN)!;
+    expect(JSON.parse(init.body as string)).toEqual({
+      sessionNonce: session.nonce,
+      expiresAt: new Date(session.expiresAt * 1000).toISOString(),
+    });
+  });
+
+  it("an unconfirmed revocation still clears the cookie and says so", async () => {
+    jar.set(SESSION_COOKIE, createSessionValue("ops.alice", ADMIN_TOKEN));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("down", { status: 503 })),
+    );
+    const res = await logout(form({}, {}, "http://web/admin/onboarding/logout"));
+    expect(res.headers.get("location")).toBe("/admin/onboarding/login?loggedOut=unconfirmed");
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("a revoked session (API 401) is sent back to login, never shown a partial page", async () => {
+    jar.set(SESSION_COOKIE, createSessionValue("ops.alice", ADMIN_TOKEN));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "OPERATOR_UNAUTHORIZED", message: "no" }, { status: 401 }),
+      ),
+    );
+    expect(await redirectOf(DetailPage({ params: Promise.resolve({ workflowId: WF }) }))).toBe(
+      "/admin/onboarding/login?error=expired",
+    );
+    expect(await redirectOf(ListPage({ searchParams: Promise.resolve({}) }))).toBe(
+      "/admin/onboarding/login?error=expired",
+    );
   });
 });

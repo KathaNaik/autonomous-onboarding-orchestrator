@@ -4,6 +4,7 @@ import {
   createApprovalService,
   createGitHubIdentityService,
   createManualProvisioningService,
+  createOperatorSessionService,
   createServiceNowFulfillmentCallbackService,
   createHrisIntakeService,
   createWorkflowReadService,
@@ -11,6 +12,7 @@ import {
   type ApprovalService,
   type GitHubIdentityService,
   type ManualProvisioningService,
+  type OperatorSessionService,
   type ServiceNowFulfillmentCallbackService,
   type HrisIntakeService,
   type WorkflowReadService,
@@ -22,6 +24,7 @@ import { normalizeRequestId, registerRequestObservability } from "./observabilit
 import { adminOnboardingReadRoutes } from "./routes/admin-onboarding-read.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
+import { adminOperatorSessionRoutes } from "./routes/admin-operator-sessions.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
 import { resourceRoutes } from "./routes/resources.js";
@@ -42,6 +45,8 @@ export interface AppDependencies {
   fulfillmentCallbacks: ServiceNowFulfillmentCallbackService;
   /** (M9) Read-only operator read models (dashboard). */
   workflowReads: WorkflowReadService;
+  /** (M10) Server-side logout for dashboard sessions. */
+  operatorSessions: OperatorSessionService;
 }
 
 /**
@@ -51,7 +56,7 @@ export interface AppDependencies {
 export async function buildApp(
   config: Config,
   overrides: Partial<AppDependencies> = {},
-  options: { logStream?: { write(line: string): void } } = {},
+  options: { logStream?: { write(line: string): void }; databaseMaxConnections?: number } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -81,6 +86,7 @@ export async function buildApp(
   const catalog = overrides.catalog ?? catalogs.current;
 
   const database = createDatabase(config.DATABASE_URL, {
+    ...(options.databaseMaxConnections && { maxConnections: options.databaseMaxConnections }),
     onIdleClientError: (err) => app.log.warn({ err: err.message }, "database idle connection lost"),
   });
   app.addHook("onClose", () => database.close());
@@ -94,6 +100,7 @@ export async function buildApp(
     manualProvisioning: createManualProvisioningService(database.db, { catalogs }),
     fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
     workflowReads: createWorkflowReadService(database.db, { catalogs }),
+    operatorSessions: createOperatorSessionService(database.db),
     ...overrides,
   };
 
@@ -102,6 +109,7 @@ export async function buildApp(
   await app.register(hrisWebhookRoutes, {
     secret: config.HRIS_WEBHOOK_SECRET,
     bodyLimit: config.HRIS_WEBHOOK_BODY_LIMIT_BYTES,
+    maxSkewMs: config.HRIS_WEBHOOK_MAX_SKEW_MS,
     intake: deps.hrisIntake,
   });
 
@@ -120,17 +128,25 @@ export async function buildApp(
   }
 
   if (config.ONBOARDING_ADMIN_TOKEN) {
+    const sessions = deps.operatorSessions;
     await app.register(adminGitHubIdentityRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       identities: deps.githubIdentities,
+      sessions,
     });
     await app.register(adminManualProvisioningRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       manual: deps.manualProvisioning,
+      sessions,
     });
     await app.register(adminOnboardingReadRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       reads: deps.workflowReads,
+      sessions,
+    });
+    await app.register(adminOperatorSessionRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      sessions,
     });
   }
 

@@ -1,4 +1,4 @@
-import { signHrisPayload, HRIS_SIGNATURE_HEADER } from "@aoo/webhooks";
+import { hrisSignatureHeaders } from "@aoo/webhooks";
 import { loadConfig, type Config } from "../src/config.js";
 
 export const TEST_SECRET = "test-hris-secret-0123456789abcdef-0123";
@@ -37,13 +37,16 @@ export function offerSignedEvent(overrides: Record<string, unknown> = {}) {
 }
 
 /** Headers + body exactly as the HRIS simulator sends them. */
-export function signedRequest(payload: unknown, secret = TEST_SECRET) {
+export function signedRequest(payload: unknown, secret = TEST_SECRET, now?: number) {
   const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...hrisSignatureHeaders(body, secret, now),
+  };
   return {
     body,
     headers: {
-      "content-type": "application/json",
-      [HRIS_SIGNATURE_HEADER]: signHrisPayload(body, secret),
+      ...headers,
     },
   };
 }

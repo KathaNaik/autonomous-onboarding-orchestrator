@@ -24,7 +24,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:generate:custom": "drizzle-kit generate --custom",
-    "db:migrate": "tsx --conditions=source src/bin/migrate.ts"
+    "db:migrate": "tsx --conditions=source src/bin/migrate.ts",
+    "db:migrate:production": "tsx --conditions=source src/bin/migrate-production.ts"
   },
   "dependencies": {
     "@aoo/shared": "workspace:*",

@@ -160,7 +160,9 @@ describe("duplicate deliveries", () => {
       .where(eq(outboxEvents.id, accepted.outboxId));
     const summary = await runner("w2").runOnce();
 
-    expect(summary.succeeded).toBe(1);
+    // (M10) the batch may also hold the access-planning request written by the start.
+    expect(summary).toMatchObject({ retried: 0, deadLettered: 0, leaseLost: 0 });
+    expect(summary.succeeded).toBe(summary.claimed);
     expectStartedOnce(await workflowHistory(accepted.workflowId));
     expect((await store.listAttempts(accepted.outboxId)).map((a) => a.outcome)).toEqual([
       "SUCCEEDED",
@@ -269,7 +271,8 @@ describe("worker crashes and lease recovery", () => {
     expect((await outboxRow(accepted.outboxId)).status).toBe("PENDING");
 
     await sleep(LEASE_MS + 100);
-    expect((await runner("rescuer", { leaseMs: LEASE_MS }).runOnce()).succeeded).toBe(1);
+    // (M10) plus the access-planning request the committed start wrote
+    expect((await runner("rescuer", { leaseMs: LEASE_MS }).runOnce()).succeeded).toBe(2);
 
     const h = await workflowHistory(accepted.workflowId);
     expectStartedOnce(h); // no duplicate step or audit event
@@ -331,13 +334,135 @@ describe("worker crashes and lease recovery", () => {
         return handlers["hris.offer_signed.accepted"]!(e, ctx);
       },
     };
-    const summary = await runner("slow", { leaseMs: LEASE_MS, handlers: slowHandlers }).runOnce();
+    const summary = await runner("slow", {
+      leaseMs: LEASE_MS,
+      handlers: slowHandlers,
+      heartbeatIntervalMs: false, // a stalled process: no heartbeat
+    }).runOnce();
     expect(summary).toMatchObject({ claimed: 1, succeeded: 0, leaseLost: 1 });
     expect((await outboxRow(accepted.outboxId)).status).toBe("PENDING");
 
-    // Recovery: the next worker finishes it without a second start.
-    expect((await runner("next").runOnce()).succeeded).toBe(1);
+    // Recovery: the next worker finishes it without a second start (M10: plus the
+    // access-planning request written by the stale run's committed start).
+    expect((await runner("next").runOnce()).succeeded).toBe(2);
     expectStartedOnce(await workflowHistory(accepted.workflowId));
+  });
+});
+
+describe("(M10) lease heartbeat", () => {
+  const LEASE_MS = 300;
+
+  it("a handler running several times longer than its lease keeps it, and no other worker can claim", async () => {
+    const accepted = await acceptHris();
+    let calls = 0;
+    const slowHandlers: EventHandlerRegistry = {
+      "hris.offer_signed.accepted": async (e, ctx) => {
+        calls += 1;
+        await sleep(LEASE_MS * 4);
+        return handlers["hris.offer_signed.accepted"]!(e, ctx);
+      },
+    };
+    const holder = runner("holder", {
+      leaseMs: LEASE_MS,
+      handlers: slowHandlers,
+      heartbeatIntervalMs: 80,
+    }).runOnce();
+    // Meanwhile another worker keeps polling with the same handlers; the lease is always live.
+    for (let i = 0; i < 10; i++) {
+      await sleep(LEASE_MS / 2);
+      await runner("thief", { leaseMs: LEASE_MS, handlers: slowHandlers }).runOnce();
+    }
+    expect(await holder).toMatchObject({ claimed: 1, succeeded: 1, leaseLost: 0 });
+    // The HRIS event was only ever claimed by the holder (the thief may take the follow-up
+    // access-planning request the start wrote, which is a different event).
+    expect((await store.listAttempts(accepted.outboxId)).map((a) => a.workerId)).toEqual([
+      "holder",
+    ]);
+    expect(calls).toBe(1);
+    expectStartedOnce(await workflowHistory(accepted.workflowId));
+    const [attempt] = await store.listAttempts(accepted.outboxId);
+    expect(attempt).toMatchObject({ workerId: "holder", outcome: "SUCCEEDED" });
+    // The attempt's recorded expiry moved forward with the renewals.
+    expect(attempt!.leaseExpiresAt.getTime() - attempt!.claimedAt.getTime()).toBeGreaterThan(
+      LEASE_MS * 2,
+    );
+  });
+
+  it("only the current owner can renew: stale, reclaimed and expired leases are refused", async () => {
+    const accepted = await acceptHris();
+    const [stale] = await store.claim({ workerId: "stale", batchSize: 1, leaseMs: LEASE_MS });
+    const renewed = await store.renew(stale!, LEASE_MS);
+    expect(renewed.getTime()).toBeGreaterThan(stale!.leaseExpiresAt.getTime());
+    await sleep(LEASE_MS + 100);
+    // Expired (nobody reclaimed yet): renewal is refused, the event is recoverable.
+    await expect(store.renew(stale!, LEASE_MS)).rejects.toBeInstanceOf(LeaseLostError);
+    const [fresh] = await store.claim({ workerId: "fresh", batchSize: 1, leaseMs: 30_000 });
+    expect(fresh?.id).toBe(accepted.outboxId);
+    // Reclaimed: the stale owner can neither renew, acknowledge nor fail.
+    await expect(store.renew(stale!, 60_000)).rejects.toBeInstanceOf(LeaseLostError);
+    await expect(store.complete(stale!, { status: "processed" })).rejects.toBeInstanceOf(
+      LeaseLostError,
+    );
+    const row = await outboxRow(accepted.outboxId);
+    expect(row).toMatchObject({ leaseOwner: "fresh", leaseToken: fresh!.leaseToken });
+    expect(row.leaseExpiresAt!.getTime()).toBe(fresh!.leaseExpiresAt.getTime());
+    await store.complete(fresh!, { status: "processed" });
+  });
+
+  it("the heartbeat stops when the handler finishes (no renewal afterwards)", async () => {
+    await acceptHris();
+    let renewals = 0;
+    const counting: PostgresOutboxStore = {
+      ...store,
+      renew: async (claim, leaseMs) => {
+        renewals += 1;
+        return store.renew(claim, leaseMs);
+      },
+    };
+    const summary = await runner(
+      "short",
+      {
+        leaseMs: LEASE_MS,
+        heartbeatIntervalMs: 40,
+        handlers: {
+          "hris.offer_signed.accepted": async (e, ctx) => {
+            await sleep(200);
+            return handlers["hris.offer_signed.accepted"]!(e, ctx);
+          },
+        },
+      },
+      counting,
+    ).runOnce();
+    expect(summary.succeeded).toBe(1);
+    const after = renewals;
+    expect(after).toBeGreaterThan(0);
+    await sleep(300);
+    expect(renewals).toBe(after);
+  });
+
+  it("a lease lost during the handler stops the heartbeat and the result is discarded", async () => {
+    const accepted = await acceptHris();
+    const slow: EventHandlerRegistry = {
+      "hris.offer_signed.accepted": async (e, ctx) => {
+        // Simulate a pause longer than the lease (e.g. a frozen instance): force expiry + reclaim.
+        await handle.db.execute(
+          sql`UPDATE outbox_events SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = ${accepted.outboxId}`,
+        );
+        await store.claim({ workerId: "rescuer", batchSize: 1, leaseMs: 30_000 });
+        await sleep(200);
+        return handlers["hris.offer_signed.accepted"]!(e, ctx);
+      },
+    };
+    const summary = await runner("paused", {
+      leaseMs: LEASE_MS,
+      heartbeatIntervalMs: 40,
+      handlers: slow,
+    }).runOnce();
+    expect(summary).toMatchObject({ succeeded: 0, leaseLost: 1 });
+    expect(await outboxRow(accepted.outboxId)).toMatchObject({
+      status: "PENDING",
+      leaseOwner: "rescuer",
+    });
   });
 });
 

@@ -666,6 +666,32 @@ describe("manual and unsupported providers", () => {
         .from(externalOperations)
         .where(eq(externalOperations.workflowId, a.workflowId)),
     ).toHaveLength(0);
+    // (M10) Configuration is fixed by a redeploy: the blocker is re-checked on the reconcile
+    // interval (the sweep then wakes the plan), not left waiting for an event that never comes.
+    const row = await rowFor(a.agentRunId, "slack-engineering");
+    expect(row.nextReconcileAt).not.toBeNull();
+    expect(row.nextReconcileAt!.getTime()).toBeGreaterThan(Date.now() + 500_000);
+    // A row blocked before this rule (no schedule) is still swept as due.
+    await handle.db
+      .update(accessRequests)
+      .set({ nextReconcileAt: null })
+      .where(eq(accessRequests.id, row.id));
+    await coordinatorFor(w).enqueueDueWakes();
+    const wakes = await handle.db
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, a.workflowId),
+          sql`${outboxEvents.payload}->>'reason' = 'SCHEDULED_RECONCILIATION'`,
+        ),
+      );
+    expect(wakes).toHaveLength(1);
+    // Leave nothing globally due behind: the sweep is shared by later test files.
+    await handle.db
+      .update(accessRequests)
+      .set({ nextReconcileAt: sql`clock_timestamp() + interval '1 day'` })
+      .where(eq(accessRequests.id, row.id));
   });
 });
 

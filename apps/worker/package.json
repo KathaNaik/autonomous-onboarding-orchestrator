@@ -8,24 +8,26 @@
     "dev": "tsx watch --conditions=source src/main.ts",
     "start": "node dist/main.js",
     "admin": "tsx --conditions=source src/admin.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "qstash:schedule": "tsx --conditions=source src/bin/qstash-schedule.ts"
   },
   "dependencies": {
-    "@aoo/db": "workspace:*",
-    "@aoo/orchestrator": "workspace:*",
-    "pino": "^10.0.0",
-    "zod": "^4.6.5",
-    "@aoo/servicenow": "workspace:*",
-    "@aoo/catalog": "workspace:*",
-    "@aoo/okta": "workspace:*",
-    "@aoo/github": "workspace:*",
-    "drizzle-orm": "^0.45.3",
     "@aoo/agents": "workspace:*",
+    "@aoo/catalog": "workspace:*",
+    "@aoo/db": "workspace:*",
+    "@aoo/github": "workspace:*",
+    "@aoo/okta": "workspace:*",
+    "@aoo/orchestrator": "workspace:*",
     "@aoo/policy": "workspace:*",
-    "@aoo/telemetry": "workspace:*"
+    "@aoo/servicenow": "workspace:*",
+    "@aoo/telemetry": "workspace:*",
+    "@upstash/qstash": "^2.12.0",
+    "drizzle-orm": "^0.45.3",
+    "pino": "^10.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "tsx": "^4.23.15",
-    "@aoo/shared": "workspace:*"
+    "@aoo/shared": "workspace:*",
+    "tsx": "^4.23.15"
   }
 }

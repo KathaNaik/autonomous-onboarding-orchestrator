@@ -47,6 +47,12 @@ export interface OutboxStore {
   complete(claim: ClaimedEvent, result: HandlerResult): Promise<void>;
   /** Throws LeaseLostError if the lease expired or was taken over. */
   fail(claim: ClaimedEvent, disposition: FailureDisposition): Promise<void>;
+  /**
+   * (M10) Heartbeat: extends this exact, still-valid lease to now + leaseMs and returns the new
+   * expiry. Only the current owner (lease token) can renew, and only before the lease expires;
+   * otherwise throws LeaseLostError. Optional: a store without it gets no heartbeat.
+   */
+  renew?(claim: ClaimedEvent, leaseMs: number): Promise<Date>;
 }
 
 /** The worker no longer holds a valid lease, so its result is discarded (another worker owns it). */

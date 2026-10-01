@@ -5,11 +5,17 @@ import {
   type ObservabilityErrorResponse,
 } from "@aoo/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
-import { OPERATOR_ID_HEADER, operatorAuthorizer } from "./operator-auth.js";
+import {
+  OPERATOR_ID_HEADER,
+  operatorAuthorizer,
+  type OperatorSessionCheck,
+} from "./operator-auth.js";
 
 export interface AdminOnboardingReadRoutesOptions {
   /** ONBOARDING_ADMIN_TOKEN: the existing shared operator bearer token (no second secret). */
   adminToken: string;
+  /** (M10) Refuses logged-out dashboard sessions. */
+  sessions?: OperatorSessionCheck;
   reads: WorkflowReadService;
 }
 
@@ -35,7 +41,7 @@ function reject(
  */
 export const adminOnboardingReadRoutes: FastifyPluginAsync<
   AdminOnboardingReadRoutesOptions
-> = async (app, { adminToken, reads }) => {
+> = async (app, { adminToken, reads, sessions }) => {
   app.setErrorHandler((err: { code?: string; name?: string }, request, reply) => {
     request.log.error({ errType: err.code ?? err.name ?? "Error" }, "operator read failed");
     return reject(reply, 500, "INTERNAL_ERROR", "request failed; try again");
@@ -43,8 +49,10 @@ export const adminOnboardingReadRoutes: FastifyPluginAsync<
 
   app.addHook(
     "onRequest",
-    operatorAuthorizer(adminToken, (reply) =>
-      reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+    operatorAuthorizer(
+      adminToken,
+      (reply) => reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
+      sessions,
     ),
   );
   app.addHook("onRequest", async (request, reply) => {

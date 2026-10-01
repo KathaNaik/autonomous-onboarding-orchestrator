@@ -1,9 +1,9 @@
-import { loadWebConfig } from "@/lib/config";
+import { isProductionDeployment, loadWebConfig } from "@/lib/config";
 import {
   OPERATOR_ID_PATTERN,
   createSessionValue,
   isSameOriginPost,
-  isSecureRequest,
+  useSecureCookies,
   isValidAdminToken,
   sessionCookieHeader,
 } from "@/lib/operator-session";
@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const cookie = sessionCookieHeader(
     createSessionValue(operatorId.trim(), ONBOARDING_ADMIN_TOKEN),
-    isSecureRequest(request),
+    useSecureCookies(request, isProductionDeployment(loadWebConfig())),
   );
   return redirectTo("/admin/onboarding", { "set-cookie": cookie });
 }

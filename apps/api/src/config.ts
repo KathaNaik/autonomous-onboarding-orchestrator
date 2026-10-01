@@ -17,6 +17,14 @@ const EnvSchema = z
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     HRIS_WEBHOOK_SECRET: z.string().min(32, "HRIS_WEBHOOK_SECRET must be at least 32 characters"),
     HRIS_WEBHOOK_BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(65_536),
+    /** (M10) Replay window for the HRIS X-AOO-Timestamp header. */
+    HRIS_WEBHOOK_MAX_SKEW_MS: z.coerce.number().int().min(1000).max(3_600_000).default(300_000),
+    /**
+     * (M10) Deployment environment. `production` (or Vercel's VERCEL_ENV=production) refuses
+     * the public development-only default secrets.
+     */
+    AOO_ENVIRONMENT: z.enum(["local", "preview", "production"]).default("local"),
+    VERCEL_ENV: optional(z.string()),
     // ServiceNow approval callbacks (M4C). All three set = enabled; none set = endpoint absent.
     SERVICENOW_CALLBACK_SECRET: optional(
       z.string().min(32, "SERVICENOW_CALLBACK_SECRET must be at least 32 characters"),
@@ -74,8 +82,30 @@ const EnvSchema = z
 
 export type Config = z.infer<typeof EnvSchema>;
 
+/** Public, committed development defaults (docker-compose, .env.example): never valid in production. */
+export const DEVELOPMENT_ONLY_SECRET = /^dev-only-/;
+
+export function isProductionDeployment(config: Pick<Config, "AOO_ENVIRONMENT" | "VERCEL_ENV">) {
+  return config.AOO_ENVIRONMENT === "production" || config.VERCEL_ENV === "production";
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config = EnvSchema.parse(env);
+  if (isProductionDeployment(config)) {
+    const leaked = (
+      [
+        ["HRIS_WEBHOOK_SECRET", config.HRIS_WEBHOOK_SECRET],
+        ["ONBOARDING_ADMIN_TOKEN", config.ONBOARDING_ADMIN_TOKEN],
+        ["SERVICENOW_CALLBACK_SECRET", config.SERVICENOW_CALLBACK_SECRET],
+      ] as const
+    ).filter(([, value]) => value !== undefined && DEVELOPMENT_ONLY_SECRET.test(value));
+    if (leaked.length > 0) {
+      // Names only, never values.
+      throw new Error(
+        `production refuses development-only default secrets: ${leaked.map(([n]) => n).join(", ")}`,
+      );
+    }
+  }
   // The callback secret must never double as a ServiceNow API credential.
   const apiPasswords = [env.SERVICENOW_PASSWORD, env.SERVICENOW_SCHEMA_PASSWORD].filter(Boolean);
   if (

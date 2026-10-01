@@ -26,3 +26,11 @@ export async function currentOperatorSession(): Promise<OperatorSession | null> 
   if (!ONBOARDING_ADMIN_TOKEN) return null;
   return verifySessionValue((await cookies()).get(SESSION_COOKIE)?.value, ONBOARDING_ADMIN_TOKEN);
 }
+
+/**
+ * (M10) A 401 from the API on a session's behalf means the session was revoked (logged out
+ * elsewhere) or the server token changed: back to login, never a partial page.
+ */
+export function redirectIfUnauthorized(status: number): void {
+  if (status === 401) redirect(`${LOGIN_PATH}?error=expired`);
+}

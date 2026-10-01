@@ -11,9 +11,10 @@ import { createWorkflowService } from "@aoo/orchestrator";
 import { HrisOfferSignedAcceptedPayloadSchema, OUTBOX_EVENT_TYPES } from "@aoo/shared";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { HRIS_SIGNATURE_HEADER, HRIS_TIMESTAMP_HEADER } from "@aoo/webhooks";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../../src/app.js";
-import { offerSignedEvent, signedRequest, testConfig } from "../helpers.js";
+import { TEST_SECRET, offerSignedEvent, signedRequest, testConfig } from "../helpers.js";
 
 let app: FastifyInstance;
 let handle: DatabaseHandle;
@@ -135,6 +136,43 @@ describe("valid event", () => {
 });
 
 describe("rejected events persist nothing", () => {
+  it("(M10) stale or future timestamp → 401 SIGNATURE_STALE, nothing written", async () => {
+    for (const offset of [-301_000, 301_000]) {
+      const event = offerSignedEvent();
+      const req = signedRequest(event, TEST_SECRET, Date.now() + offset);
+      const res = await app.inject({
+        method: "POST",
+        url: "/webhooks/hris",
+        payload: req.body,
+        headers: req.headers,
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ error: "SIGNATURE_STALE" });
+      await expectNothingPersisted(event);
+    }
+  });
+
+  it("(M10) a captured request replayed inside the window is a durable duplicate", async () => {
+    const event = offerSignedEvent();
+    const req = signedRequest(event);
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: "/webhooks/hris",
+        payload: req.body,
+        headers: req.headers,
+      });
+    const first = await send();
+    const replay = await send();
+    expect(first.statusCode).toBe(202);
+    expect(replay.statusCode).toBe(202);
+    expect(replay.json()).toMatchObject({ duplicate: true, workflowId: first.json().workflowId });
+    const p = await persisted(event);
+    expect(p.receipts).toHaveLength(1);
+    expect(p.workflows).toHaveLength(1);
+    expect(p.outbox).toHaveLength(1);
+  });
+
   it("invalid signature → 401", async () => {
     const event = offerSignedEvent();
     const res = await deliver(app, event, "wrong-secret-wrong-secret-wrong-secret!");
@@ -330,5 +368,131 @@ describe("transaction rollback", () => {
     const retry = await deliver(app, event);
     expect(retry.statusCode).toBe(202);
     expect(retry.json()).toMatchObject({ workflowCreated: true, duplicate: false });
+  });
+});
+
+describe("(M10) HRIS replay window: production signing contract", () => {
+  const counts = async () => {
+    type Counts = {
+      receipts: number;
+      employees: number;
+      workflows: number;
+      versions: number;
+      outbox: number;
+      audit: number;
+    };
+    const { rows } = await handle.db.execute<Counts>(sql`
+      SELECT (SELECT count(*)::int FROM hris_event_receipts) AS receipts,
+             (SELECT count(*)::int FROM employees) AS employees,
+             (SELECT count(*)::int FROM onboarding_workflows) AS workflows,
+             (SELECT coalesce(sum(version), 0)::int FROM onboarding_workflows) AS versions,
+             (SELECT count(*)::int FROM outbox_events) AS outbox,
+             (SELECT count(*)::int FROM audit_events) AS audit`);
+    return rows[0]!;
+  };
+  const post = (req: { body: string; headers: Record<string, string> }) =>
+    app.inject({ method: "POST", url: "/webhooks/hris", payload: req.body, headers: req.headers });
+
+  it("valid → accepted (one of each); the same event inside the window → idempotent duplicate", async () => {
+    const event = offerSignedEvent();
+    const before = await counts();
+    const first = await post(signedRequest(event));
+    expect(first.statusCode).toBe(202);
+    const mid = await counts();
+    expect(mid).toMatchObject({
+      receipts: before.receipts + 1,
+      employees: before.employees + 1,
+      workflows: before.workflows + 1,
+      outbox: before.outbox + 1,
+    });
+    // Re-signed 4 minutes later (still inside the 5-minute window): durable duplicate.
+    const again = await post(signedRequest(event, TEST_SECRET, Date.now() + 240_000 - 1_000));
+    expect(again.statusCode).toBe(202);
+    expect(again.json()).toMatchObject({ duplicate: true, workflowId: first.json().workflowId });
+    expect(await counts()).toEqual(mid);
+  });
+
+  it.each([
+    [
+      "the same logical signed request outside the window (captured 301 s ago)",
+      () => signedRequest(offerSignedEvent(), TEST_SECRET, Date.now() - 301_000),
+      "SIGNATURE_STALE",
+    ],
+    [
+      "a timestamp too far in the future",
+      () => signedRequest(offerSignedEvent(), TEST_SECRET, Date.now() + 301_000),
+      "SIGNATURE_STALE",
+    ],
+    [
+      "an altered timestamp (signature made for another timestamp)",
+      () => {
+        const r = signedRequest(offerSignedEvent());
+        r.headers[HRIS_TIMESTAMP_HEADER] = String(Number(r.headers[HRIS_TIMESTAMP_HEADER]) + 1);
+        return r;
+      },
+      "SIGNATURE_INVALID",
+    ],
+    [
+      "a malformed (non-numeric) timestamp",
+      () => {
+        const r = signedRequest(offerSignedEvent());
+        r.headers[HRIS_TIMESTAMP_HEADER] = "2026-09-30T18:00:00Z";
+        return r;
+      },
+      "SIGNATURE_INVALID",
+    ],
+    [
+      "a malformed (too short) timestamp",
+      () => {
+        const r = signedRequest(offerSignedEvent());
+        r.headers[HRIS_TIMESTAMP_HEADER] = "12345";
+        return r;
+      },
+      "SIGNATURE_INVALID",
+    ],
+    [
+      "a missing timestamp",
+      () => {
+        const r = signedRequest(offerSignedEvent());
+        delete r.headers[HRIS_TIMESTAMP_HEADER];
+        return r;
+      },
+      "SIGNATURE_MISSING",
+    ],
+    [
+      "an invalid signature (wrong secret)",
+      () => signedRequest(offerSignedEvent(), "wrong-secret-wrong-secret-wrong-secret!"),
+      "SIGNATURE_INVALID",
+    ],
+    [
+      "an invalid signature (garbage)",
+      () => {
+        const r = signedRequest(offerSignedEvent());
+        r.headers[HRIS_SIGNATURE_HEADER] = `sha256=${"0".repeat(64)}`;
+        return r;
+      },
+      "SIGNATURE_INVALID",
+    ],
+  ])(
+    "rejects %s with 0 receipts, employees, workflows, outbox or audit writes",
+    async (_, make, code) => {
+      const req = make();
+      const before = await counts();
+      const res = await post(req);
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ status: "rejected", error: code });
+      expect(await counts()).toEqual(before);
+      await expectNothingPersisted(JSON.parse(req.body) as Event);
+    },
+  );
+
+  it("an accepted event replayed outside the window is rejected and changes nothing", async () => {
+    const event = offerSignedEvent();
+    expect((await post(signedRequest(event))).statusCode).toBe(202);
+    const before = await counts();
+    const stale = await post(signedRequest(event, TEST_SECRET, Date.now() - 600_000));
+    expect(stale.statusCode).toBe(401);
+    expect(stale.json()).toMatchObject({ error: "SIGNATURE_STALE" });
+    expect(await counts()).toEqual(before);
   });
 });

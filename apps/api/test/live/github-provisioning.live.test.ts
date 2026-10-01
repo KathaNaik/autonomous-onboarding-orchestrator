@@ -56,7 +56,7 @@ import {
   type GitHubProvisioningError,
 } from "@aoo/orchestrator";
 import { loadPolicyRegistry } from "@aoo/policy";
-import { HRIS_SIGNATURE_HEADER, signHrisPayload } from "@aoo/webhooks";
+import { hrisSignatureHeaders } from "@aoo/webhooks";
 import { and, eq, like } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -225,7 +225,7 @@ describe("M7B live: HR-recorded GitHub identity → real org and team membership
       url: "/webhooks/hris",
       headers: {
         "content-type": "application/json",
-        [HRIS_SIGNATURE_HEADER]: signHrisPayload(body, hrisSecret),
+        ...hrisSignatureHeaders(body, hrisSecret),
       },
       payload: body,
     });

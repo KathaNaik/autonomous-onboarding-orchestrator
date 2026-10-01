@@ -18,8 +18,13 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "pnpm --filter @aoo/db db:generate",
     "db:migrate": "pnpm --filter @aoo/db db:migrate",
+    "db:migrate:production": "pnpm --silent --filter @aoo/db db:migrate:production",
     "hris:simulate": "pnpm --silent --filter @aoo/hris-simulator start",
     "worker:admin": "pnpm --silent --filter @aoo/worker admin",
+    "qstash:schedule:check": "pnpm --silent --filter @aoo/worker qstash:schedule check",
+    "qstash:schedule:apply": "pnpm --silent --filter @aoo/worker qstash:schedule apply",
+    "qstash:schedule:delete": "pnpm --silent --filter @aoo/worker qstash:schedule delete",
+    "qstash:worker:wake": "pnpm --silent --filter @aoo/worker qstash:schedule wake",
     "servicenow:check": "pnpm --silent --filter @aoo/servicenow check",
     "servicenow:fulfillment:check": "pnpm --silent --filter @aoo/servicenow fulfillment:check",
     "servicenow:export:check": "pnpm --silent --filter @aoo/servicenow export:check",
@@ -35,6 +40,7 @@
     "github:check": "pnpm --silent --filter @aoo/github check",
     "test:github:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/github-provisioning.live.test.ts",
     "test:servicenow:fulfillment:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/servicenow-fulfillment.live.test.ts",
+    "test:deployed:e2e": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/deployed-e2e.live.test.ts",
     "test:provisioning:live": "vitest run --config apps/api/vitest.live.config.ts apps/api/test/live/provisioning.live.test.ts"
   },
   "devDependencies": {

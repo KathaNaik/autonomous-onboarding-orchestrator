@@ -1,7 +1,7 @@
 import type { WorkflowObservabilityView } from "@aoo/shared";
 import type { ReactNode } from "react";
 import { AUTH_LABELS, PHASE_LABELS, formatTime, humanize } from "@/lib/dashboard-model";
-import { Badge } from "../badge";
+import { Badge } from "@/components/badge";
 
 /**
  * (M9) The complete, read-only lifecycle of one workflow, rendered purely from the backend read

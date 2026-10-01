@@ -50,7 +50,7 @@ import {
   type GitHubGateway,
 } from "@aoo/orchestrator";
 import { loadPolicyRegistry } from "@aoo/policy";
-import { HRIS_SIGNATURE_HEADER, signHrisPayload } from "@aoo/webhooks";
+import { hrisSignatureHeaders } from "@aoo/webhooks";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -216,7 +216,7 @@ describe("M7C live: authorization → automatic, dependency-aware GitHub provisi
       url: "/webhooks/hris",
       headers: {
         "content-type": "application/json",
-        [HRIS_SIGNATURE_HEADER]: signHrisPayload(body, hrisSecret),
+        ...hrisSignatureHeaders(body, hrisSecret),
       },
       payload: body,
     });

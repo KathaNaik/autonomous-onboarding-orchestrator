@@ -1,7 +1,7 @@
 import type { WorkflowSummary } from "@aoo/shared";
 import Link from "next/link";
 import { formatTime, humanize } from "@/lib/dashboard-model";
-import { Badge } from "./badge";
+import { Badge } from "@/components/badge";
 
 /** (M9) Recent workflows (pure; no data fetching). */
 export function WorkflowTable({ items }: { items: readonly WorkflowSummary[] }) {

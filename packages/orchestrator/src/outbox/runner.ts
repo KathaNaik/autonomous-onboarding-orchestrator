@@ -24,6 +24,13 @@ export interface OutboxRunnerOptions {
   handlers: EventHandlerRegistry;
   logger?: EventLogger;
   random?: () => number;
+  /**
+   * (M10) Lease heartbeat while a handler runs: renews the outbox lease every interval (default
+   * a third of the lease) so a long model or provider call never loses its lease. `false`
+   * disables it. A renewal refused because the lease was lost stops the heartbeat; the result
+   * is then discarded at acknowledgement (fencing), exactly as without a heartbeat.
+   */
+  heartbeatIntervalMs?: number | false;
 }
 
 export interface RunSummary {
@@ -35,8 +42,11 @@ export interface RunSummary {
 }
 
 export interface OutboxRunner {
-  /** Claims one batch, runs handlers concurrently, and records each outcome. */
-  runOnce(): Promise<RunSummary>;
+  /**
+   * Claims one batch (at most `batchSize`, default the configured size), runs handlers
+   * concurrently, and records each outcome.
+   */
+  runOnce(options?: { batchSize?: number }): Promise<RunSummary>;
 }
 
 /** Serializes an error and (up to 5 levels of) its cause chain, keeping codes. */
@@ -56,6 +66,46 @@ export function describeError(err: unknown, depth = 0): ErrorInfo {
 
 export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOptions): OutboxRunner {
   const logger = options.logger ?? noopLogger;
+  const heartbeatMs =
+    options.heartbeatIntervalMs === false
+      ? undefined
+      : (options.heartbeatIntervalMs ?? Math.max(10, Math.floor(options.leaseMs / 3)));
+
+  /** Renews the claim's lease until stopped or until the lease is lost. Never throws. */
+  function startHeartbeat(claim: ClaimedEvent, log: Record<string, unknown>) {
+    if (heartbeatMs === undefined || !store.renew) return { stop: async () => {} };
+    const renew = store.renew.bind(store);
+    let stopped = false;
+    let inFlight: Promise<void> | undefined;
+    const timer = setInterval(() => {
+      if (stopped || inFlight) return;
+      inFlight = renew(claim, options.leaseMs)
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          if (err instanceof LeaseLostError) {
+            stopped = true;
+            clearInterval(timer);
+            logger.warn(log, "outbox lease renewal refused: lease lost");
+          } else {
+            // Transient (e.g. database blip): keep trying until the lease actually expires.
+            logger.warn(
+              { ...log, err: err instanceof Error ? err.message : String(err) },
+              "outbox lease renewal failed",
+            );
+          }
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+    }, heartbeatMs);
+    return {
+      async stop() {
+        stopped = true;
+        clearInterval(timer);
+        await inFlight;
+      },
+    };
+  }
 
   /**
    * (M9) One span per delivery, parented on the trace context persisted with the event (request →
@@ -100,7 +150,13 @@ export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOpti
       try {
         const handler = options.handlers[claim.eventType];
         if (!handler) throw new PermanentEventError(`no handler for event type ${claim.eventType}`);
-        const result = await handler(envelope, { logger });
+        const heartbeat = startHeartbeat(claim, log);
+        let result: Awaited<ReturnType<typeof handler>>;
+        try {
+          result = await handler(envelope, { logger });
+        } finally {
+          await heartbeat.stop(); // never renews after the handler has finished
+        }
         await store.complete(claim, result);
         summary.succeeded += 1;
         annotateActiveSpan({ outcome: result.status });
@@ -144,10 +200,10 @@ export function createOutboxRunner(store: OutboxStore, options: OutboxRunnerOpti
   }
 
   return {
-    async runOnce() {
+    async runOnce(run = {}) {
       const claims = await store.claim({
         workerId: options.workerId,
-        batchSize: options.batchSize,
+        batchSize: Math.max(1, Math.min(options.batchSize, run.batchSize ?? options.batchSize)),
         leaseMs: options.leaseMs,
       });
       const summary: RunSummary = {

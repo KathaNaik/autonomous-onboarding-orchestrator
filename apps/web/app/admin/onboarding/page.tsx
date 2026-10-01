@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireOperatorSession } from "@/lib/dashboard-auth";
+import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
 import { WORKFLOW_STATE_OPTIONS, humanize } from "@/lib/dashboard-model";
 import { fetchWorkflowList, listQuery } from "@/lib/onboarding-read-api";
 import { WorkflowTable } from "./workflow-table";
@@ -21,7 +21,8 @@ export default async function OnboardingDashboardPage({
   }
   const query = listQuery({ limit: "25", ...params });
   const state = query.get("state") ?? "";
-  const result = await fetchWorkflowList(query, session.operatorId);
+  const result = await fetchWorkflowList(query, session);
+  if (!result.ok) redirectIfUnauthorized(result.status);
   const next =
     result.ok && result.body.nextCursor
       ? `/admin/onboarding?${new URLSearchParams({ ...(state && { state }), cursor: result.body.nextCursor })}`

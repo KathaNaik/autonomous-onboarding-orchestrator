@@ -1,3 +1,4 @@
+export * from "./access-planning/index.js";
 export * from "./agents/index.js";
 export * from "./approvals/index.js";
 export * from "./authorization/index.js";
@@ -7,6 +8,7 @@ export * from "./external-operations/index.js";
 export * from "./hris-intake.js";
 export * from "./observability/index.js";
 export * from "./onboarding-plan/index.js";
+export * from "./operator-sessions/index.js";
 export * from "./outbox/index.js";
 export * from "./provisioning/index.js";
 export * from "./schemas.js";

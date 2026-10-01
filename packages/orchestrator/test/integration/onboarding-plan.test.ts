@@ -235,7 +235,7 @@ function planService(
 function runnerFor(
   service: OnboardingPlanService,
   s: Settled,
-  opts: { workerId?: string; leaseMs?: number; backoffMs?: number } = {},
+  opts: { workerId?: string; leaseMs?: number; backoffMs?: number; heartbeat?: false } = {},
 ) {
   return createOutboxRunner(createPostgresOutboxStore(handle.db), {
     workerId: opts.workerId ?? "w1",
@@ -253,6 +253,7 @@ function runnerFor(
     }),
     logger: noopLogger,
     random: () => 0,
+    ...(opts.heartbeat === false && { heartbeatIntervalMs: false as const }),
   });
 }
 
@@ -689,6 +690,38 @@ describe("idempotency and concurrency", () => {
     },
   );
 
+  it("(M10) a model call longer than the 30 s outbox lease keeps its lease: one call, one plan, no takeover", async () => {
+    const s = await settled([DEV]);
+    const a = planService([async () => (await sleep(36_000), planOutputOf([DEV]))], {
+      ownerId: "long-worker",
+      leaseMs: 180_000,
+    });
+    // The production defaults: 30 s outbox lease, heartbeat every 10 s.
+    const running = runnerFor(a.service, s, { workerId: "long-worker" }).runOnce();
+    const b = planService([planOutputOf([DEV])], { ownerId: "poller" });
+    const poller = runnerFor(b.service, s, { workerId: "poller" });
+    let stolen = 0;
+    let done = false;
+    void running.finally(() => (done = true));
+    while (!done) {
+      await sleep(2_000);
+      stolen += (await poller.runOnce()).claimed;
+    }
+    // The holder may also claim leftover provisioning wakes of the settled workflow.
+    const summary = await running;
+    expect(summary).toMatchObject({ leaseLost: 0, retried: 0, deadLettered: 0 });
+    expect(summary.succeeded).toBe(summary.claimed);
+    expect(stolen).toBe(0); // the lease never lapsed, even past 30 s
+    expect(a.provider.calls).toHaveLength(1);
+    expect(b.provider.calls).toHaveLength(0);
+    const runs = await runsOf(s.workflowId);
+    expect(runs).toMatchObject([{ status: "SUCCEEDED", attempts: 1 }]);
+    expect(await plansOf(s.workflowId)).toHaveLength(1);
+    expect(await completions(s.workflowId)).toHaveLength(1);
+    const [event] = await planEvents(s.workflowId);
+    expect(event).toMatchObject({ status: "PROCESSED", attempts: 1 });
+  }, 90_000);
+
   it("6 concurrent direct completion attempts produce one plan and one transition", async () => {
     const s = await settled([DEV]);
     const services = Array.from({ length: 6 }, (_, i) =>
@@ -722,7 +755,12 @@ describe("idempotency and concurrency", () => {
     // Worker A hangs forever inside the model call (a crash that leaves leases behind).
     const hang = () => new Promise<ModelResponse>(() => {});
     const a = planService([hang], { leaseMs: 300, ownerId: "worker-a" });
-    const runnerA = runnerFor(a.service, s, { workerId: "worker-a", leaseMs: 300 });
+    // A crashed process renews nothing: no heartbeat.
+    const runnerA = runnerFor(a.service, s, {
+      workerId: "worker-a",
+      leaseMs: 300,
+      heartbeat: false,
+    });
     void runnerA.runOnce();
     await sleep(100);
     const [claimed] = await runsOf(s.workflowId);
