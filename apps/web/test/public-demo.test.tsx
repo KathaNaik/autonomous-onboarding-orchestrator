@@ -24,12 +24,27 @@ afterEach(() => vi.unstubAllGlobals());
 const page = (slug: string) => DemoPage({ params: Promise.resolve({ slug }) });
 
 describe("(M10) public synthetic demo", () => {
-  it("landing page links to the demo and to operator login, and holds no secrets", () => {
+  it("landing page: Swift, the story, Try it, every demo scenario and the tech stack, in that order", () => {
     const html = renderToStaticMarkup(Home());
+    const order = [
+      ">Swift</h1>",
+      "AOO · Autonomous Onboarding Orchestrator",
+      "How it started",
+      "It took me two weeks to finish onboarding at my current contract role.",
+      ">Try it</a>",
+      "Demo scenarios",
+      "Tech stack",
+    ].map((text) => html.indexOf(text));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect(order.slice(2)).toEqual([...order.slice(2)].sort((a, b) => a - b));
+    expect(order[0]).toBeLessThan(order[2]!);
     expect(html).toContain('href="/demo"');
-    expect(html).toContain("View Demo");
+    for (const s of DEMO_SCENARIOS) {
+      expect(html).toContain(`href="/demo/${s.slug}"`);
+      expect(html).toContain(s.title);
+    }
     expect(html).toContain('href="/admin/onboarding/login"');
-    expect(html).toContain("Operator Login");
+    expect(html).not.toMatch(/<form|<input|<script(?![^>]*src)/i);
   });
 
   it("renders the index and every scenario without any network call", async () => {

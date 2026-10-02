@@ -1,53 +1,135 @@
 import Link from "next/link";
+import { Badge } from "@/components/badge";
+import { DEMO_SCENARIOS } from "@/lib/demo-data";
+import styles from "./page.module.css";
 
 export const dynamic = "force-static";
 
-/** (M10) Public landing page. */
+const TECH_STACK: { label: string; items: string[] }[] = [
+  { label: "Frontend", items: ["Next.js 16", "React 19", "TypeScript"] },
+  { label: "Backend", items: ["Node.js 24", "Fastify 5", "Zod 4 contracts"] },
+  {
+    label: "Data & workflow",
+    items: ["PostgreSQL (Neon)", "Drizzle ORM", "Transactional outbox"],
+  },
+  { label: "AI", items: ["OpenAI: two bounded agents", "Strict structured outputs"] },
+  { label: "Integrations", items: ["ServiceNow", "Okta", "GitHub"] },
+  { label: "Infrastructure", items: ["Vercel", "Upstash QStash", "Docker Compose"] },
+  { label: "Quality", items: ["Vitest: 758 unit + 334 integration tests", "OpenTelemetry"] },
+];
+
+/** Public landing page: what Swift is, why it exists, a way to try it, and what it's built with. */
 export default function HomePage() {
   return (
-    <main style={page}>
-      <h1>Autonomous Onboarding Orchestrator</h1>
-      <p style={{ fontSize: 18 }}>
-        Event-driven employee onboarding: a signed HRIS event starts a durable workflow; an AI agent
-        recommends access from a versioned catalog; a deterministic policy engine authorizes each
-        resource; humans approve and fulfill in ServiceNow; adapters provision Okta and GitHub; a
-        second agent writes the onboarding checklist.
-      </p>
-      <blockquote style={quote}>
-        Agents recommend. Policies authorize. Adapters execute. The orchestrator owns state.
-      </blockquote>
-      <p style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-        <Link href="/demo" style={primary}>
-          View Demo
-        </Link>
-        <Link href="/admin/onboarding/login" style={secondary}>
-          Operator Login
-        </Link>
-      </p>
-      <h2>How it runs</h2>
-      <ul>
-        <li>PostgreSQL is the system of record: workflow state, transactional outbox, audit.</li>
-        <li>
-          A bounded worker drains the outbox when woken by a signed scheduler (business hours); work
-          that arrives off-hours waits durably and resumes on the next run.
-        </li>
-        <li>Every external write is idempotent, reconciled and read back before it counts.</li>
-      </ul>
-      <p>
-        <small>The public demo uses synthetic data only. The operator dashboard is internal.</small>
-      </p>
-    </main>
+    <div className={styles.page}>
+      <header className={styles.topbar}>
+        <div className={`${styles.container} ${styles.topbarInner}`}>
+          <Link href="/" className={styles.wordmark}>
+            Swift
+          </Link>
+          <Link href="/admin/onboarding/login" className={styles.topLink}>
+            Operator login
+          </Link>
+        </div>
+      </header>
+
+      <main>
+        <section className={styles.hero}>
+          <div className={styles.container}>
+            <p className={styles.eyebrow}>AOO · Autonomous Onboarding Orchestrator</p>
+            <h1 className={styles.title}>Swift</h1>
+            <p className={styles.lead}>
+              Swift gets a new hire ready to work without the wait. As soon as an offer is signed,
+              it works out which tools the person needs, asks a human to approve anything sensitive,
+              sets up their accounts, and hands them a plan for their first month.
+            </p>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="story">
+          <div className={styles.container}>
+            <h2 id="story" className={styles.sectionTitle}>
+              How it started
+            </h2>
+            <div className={styles.story}>
+              <blockquote className={styles.quote}>
+                It took me two weeks to finish onboarding at my current contract role.
+              </blockquote>
+              <p className={styles.storyText}>
+                Swift is my attempt to make that path fast: the requests, approvals and account
+                setup happen automatically, and people only step in for the decisions that need
+                them.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.cta} aria-label="Try it">
+          <div className={styles.container}>
+            <p className={styles.ctaText}>
+              See a full onboarding, from signed offer to first-month plan.
+            </p>
+            <Link href="/demo" className={styles.tryIt}>
+              Try it
+            </Link>
+          </div>
+        </section>
+
+        <section id="scenarios" className={styles.section} aria-labelledby="scenarios-title">
+          <div className={styles.container}>
+            <h2 id="scenarios-title" className={styles.sectionTitle}>
+              Demo scenarios
+            </h2>
+            <p className={styles.sectionIntro}>
+              Three example onboardings with made-up people. Nothing here touches real accounts.
+            </p>
+            <div className={styles.cards}>
+              {DEMO_SCENARIOS.map((s) => (
+                <article key={s.slug} className={styles.card}>
+                  <div>
+                    <Badge value={s.state} />
+                  </div>
+                  <h3 className={styles.cardTitle}>{s.title}</h3>
+                  <p className={styles.cardRole}>{s.hire.jobTitle}</p>
+                  <p className={styles.cardSummary}>{s.summary}</p>
+                  <Link href={`/demo/${s.slug}`} className={styles.cardLink}>
+                    Open scenario →
+                  </Link>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="stack-title">
+          <div className={styles.container}>
+            <h2 id="stack-title" className={styles.sectionTitle}>
+              Tech stack
+            </h2>
+            <div className={styles.stack}>
+              {TECH_STACK.map((group) => (
+                <div key={group.label} className={styles.stackGroup}>
+                  <p className={styles.stackLabel}>{group.label}</p>
+                  <ul className={styles.stackList}>
+                    {group.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className={styles.footer}>
+        <div className={`${styles.container} ${styles.footerInner}`}>
+          <span>Swift · AOO. Demo data is synthetic; integrations use sandbox accounts.</span>
+          <Link href="/admin/onboarding/login" className={styles.topLink}>
+            Operator login
+          </Link>
+        </div>
+      </footer>
+    </div>
   );
 }
-
-const page = {
-  fontFamily: "system-ui, sans-serif",
-  maxWidth: 820,
-  margin: "0 auto",
-  padding: 16,
-  lineHeight: 1.5,
-} as const;
-const quote = { borderLeft: "4px solid #8ab0f0", margin: "16px 0", padding: "4px 12px" } as const;
-const button = { padding: "10px 16px", borderRadius: 6, textDecoration: "none" } as const;
-const primary = { ...button, background: "#1a4a9c", color: "#fff" } as const;
-const secondary = { ...button, border: "1px solid #1a4a9c", color: "#1a4a9c" } as const;

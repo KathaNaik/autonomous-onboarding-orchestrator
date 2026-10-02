@@ -16,6 +16,6 @@ describe("GET /api/health", () => {
 
 describe("HomePage", () => {
   it("renders the product name", () => {
-    expect(renderToStaticMarkup(<HomePage />)).toContain("Autonomous Onboarding Orchestrator");
+    expect(renderToStaticMarkup(<HomePage />)).toContain("Swift");
   });
 });

@@ -6,7 +6,7 @@ export default function DemoLayout({ children }: { children: ReactNode }) {
   return (
     <div style={shell}>
       <header style={bar}>
-        <Link href="/">Autonomous Onboarding Orchestrator</Link>
+        <Link href="/">Swift · AOO</Link>
         <span>
           <strong>Public demo</strong> · synthetic data · read-only
         </span>
