@@ -22,7 +22,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "eval:live": "tsx --conditions=source src/bin/eval-role-access.ts",
-    "eval:onboarding-plan": "tsx --conditions=source src/bin/eval-onboarding-plan.ts"
+    "eval:onboarding-plan": "tsx --conditions=source src/bin/eval-onboarding-plan.ts",
+    "eval:offer-letter": "tsx --conditions=source src/bin/eval-offer-letter.ts"
   },
   "dependencies": {
     "@aoo/catalog": "workspace:*",

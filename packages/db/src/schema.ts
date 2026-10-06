@@ -1046,3 +1046,58 @@ export const operatorSessionRevocations = pgTable(
   (t) => [index("operator_session_revocations_expires_idx").on(t.expiresAt)],
 );
 export type OperatorSessionRevocation = typeof operatorSessionRevocations.$inferSelect;
+
+export const offerLetterExtractionStatusEnum = pgEnum("offer_letter_extraction_status", [
+  "EXTRACTED",
+  "SUBMITTED",
+]);
+
+/**
+ * (M11) One row per uploaded offer letter. The PDF itself is never stored: only its SHA-256 and
+ * size, the Offer Letter Extractor's provenance, the proposed display fields (compensation and
+ * personal identifiers removed) and, once an operator submits, the confirmed fields, the HRIS-
+ * equivalent event id and the resulting workflow. Written only by @aoo/orchestrator.
+ */
+export const offerLetterExtractions = pgTable(
+  "offer_letter_extractions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    status: offerLetterExtractionStatusEnum("status").notNull().default("EXTRACTED"),
+    fileSha256: text("file_sha256").notNull(),
+    fileBytes: integer("file_bytes").notNull(),
+    uploadedBy: text("uploaded_by").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    modelProvider: text("model_provider").notNull(),
+    model: text("model").notNull(),
+    modelConfig: text("model_config").notNull(),
+    servedModel: text("served_model"),
+    providerResponseId: text("provider_response_id"),
+    modelCalls: integer("model_calls").notNull(),
+    latencyMs: integer("latency_ms").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    proposal: jsonb("proposal").$type<Record<string, unknown>>().notNull(),
+    confirmed: jsonb("confirmed").$type<Record<string, unknown>>(),
+    submittedBy: text("submitted_by"),
+    hrisEventId: text("hris_event_id").unique(),
+    workflowId: uuid("workflow_id").references(() => onboardingWorkflows.id, {
+      onDelete: "restrict",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("offer_letter_extractions_created_idx").on(t.createdAt),
+    check(
+      "offer_letter_extractions_submitted_chk",
+      sql`(${t.status} = 'SUBMITTED') = (${t.workflowId} IS NOT NULL AND ${t.submittedAt} IS NOT NULL AND ${t.submittedBy} IS NOT NULL AND ${t.confirmed} IS NOT NULL AND ${t.hrisEventId} IS NOT NULL)`,
+    ),
+    check(
+      "offer_letter_extractions_size_chk",
+      sql`${t.fileBytes} > 0 AND ${t.fileBytes} <= 4194304`,
+    ),
+  ],
+);
+export type OfferLetterExtraction = typeof offerLetterExtractions.$inferSelect;

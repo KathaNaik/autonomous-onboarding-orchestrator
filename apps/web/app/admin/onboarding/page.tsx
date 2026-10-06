@@ -29,8 +29,34 @@ export default async function OnboardingDashboardPage({
       : null;
   return (
     <main>
-      <h1>Onboarding workflows</h1>
-      <p>Internal operator view. Read-only: nothing on this page changes a workflow.</p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <h1>Onboarding workflows</h1>
+        <Link
+          href="/admin/onboarding/new"
+          style={{
+            background: "#1d4ed8",
+            color: "#fff",
+            padding: "8px 16px",
+            borderRadius: 8,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          New onboarding
+        </Link>
+      </div>
+      <p>
+        Internal operator view. Start a new onboarding from a signed offer letter, or inspect
+        existing ones.
+      </p>
       <form method="get" action="/admin/onboarding" style={{ margin: "8px 0" }}>
         <label htmlFor="state">State</label>{" "}
         <select id="state" name="state" defaultValue={state}>

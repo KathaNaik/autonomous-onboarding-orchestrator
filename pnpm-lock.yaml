@@ -181,6 +181,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@aoo/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@aoo/catalog':
         specifier: workspace:*
         version: link:../../packages/catalog
@@ -206,9 +209,6 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
-      '@aoo/agents':
-        specifier: workspace:*
-        version: link:../../packages/agents
       '@aoo/github':
         specifier: workspace:*
         version: link:../../packages/github

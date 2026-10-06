@@ -76,7 +76,23 @@ export function createOpenAIProvider(
           body: JSON.stringify({
             model: config.model,
             instructions: request.system,
-            input: request.user,
+            // (M11) With attached files the user turn carries them as input_file parts; a
+            // text-only request is unchanged.
+            input: request.files?.length
+              ? [
+                  {
+                    role: "user",
+                    content: [
+                      ...request.files.map((f) => ({
+                        type: "input_file",
+                        filename: f.filename,
+                        file_data: `data:${f.mimeType};base64,${f.dataBase64}`,
+                      })),
+                      { type: "input_text", text: request.user },
+                    ],
+                  },
+                ]
+              : request.user,
             text: {
               format: {
                 type: "json_schema",

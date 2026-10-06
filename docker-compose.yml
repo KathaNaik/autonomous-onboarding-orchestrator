@@ -45,6 +45,10 @@ services:
       # M9: OpenTelemetry is opt-in and best-effort (no collector is needed or started).
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_SERVICE_NAME: aoo-api
+      # M11: offer-letter intake (calls OpenAI) is off unless enabled explicitly.
+      OFFER_LETTER_INTAKE_ENABLED: ${OFFER_LETTER_INTAKE_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${API_PORT:-4000}:4000"

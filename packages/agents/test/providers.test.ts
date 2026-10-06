@@ -274,3 +274,37 @@ describe("evaluation scoring (pure; not a substitute for live results)", () => {
     }
   });
 });
+
+describe("(M11) OpenAI provider: attached files", () => {
+  it("sends a PDF as an input_file part before the text, still with no tools and store:false", async () => {
+    const { provider, seen } = providerWith(() =>
+      json(200, completed(JSON.stringify({ ok: true }))),
+    );
+    const signal = new AbortController().signal;
+    await provider.generate(
+      {
+        ...request,
+        files: [
+          { filename: "offer-letter.pdf", mimeType: "application/pdf", dataBase64: "JVBERi0x" },
+        ],
+      },
+      { signal },
+    );
+    const body = JSON.parse(String(seen[0]!.init.body));
+    expect(body.input).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_file",
+            filename: "offer-letter.pdf",
+            file_data: "data:application/pdf;base64,JVBERi0x",
+          },
+          { type: "input_text", text: "user message" },
+        ],
+      },
+    ]);
+    expect(body).toMatchObject({ store: false, instructions: "system prompt" });
+    expect(body).not.toHaveProperty("tools");
+  });
+});

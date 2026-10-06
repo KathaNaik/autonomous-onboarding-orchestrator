@@ -6,12 +6,24 @@
 export interface ModelRequest {
   readonly system: string;
   readonly user: string;
+  /**
+   * (M11) Documents attached to the user turn (e.g. an offer letter PDF). Data only: the model
+   * reads them; they never become instructions.
+   */
+  readonly files?: readonly ModelFile[];
   /** The response must be a JSON object matching this strict schema. Data only, no actions. */
   readonly structuredOutput: {
     readonly name: string;
     /** Strict JSON Schema of the output object. */
     readonly schema: Record<string, unknown>;
   };
+}
+
+export interface ModelFile {
+  readonly filename: string;
+  readonly mimeType: "application/pdf";
+  /** Base64 of the exact file bytes. */
+  readonly dataBase64: string;
 }
 
 export interface ModelUsage {

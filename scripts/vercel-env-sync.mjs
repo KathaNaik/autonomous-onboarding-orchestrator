@@ -78,6 +78,13 @@ const CORE = {
   },
 };
 const PROVIDERS = {
+  "aoo-api": {
+    // M11 offer-letter intake: the flag travels with the key, so the API can never be enabled
+    // without it (it would refuse to start); on only with --enable-features.
+    OPENAI_API_KEY: from("OPENAI_API_KEY", true),
+    OPENAI_MODEL: from("OPENAI_MODEL", false),
+    OFFER_LETTER_INTAKE_ENABLED: fixed(FEATURES),
+  },
   "aoo-worker": {
     SERVICENOW_INSTANCE_URL: from("SERVICENOW_INSTANCE_URL", false),
     SERVICENOW_ACCESS_REQUEST_TABLE: from("SERVICENOW_ACCESS_REQUEST_TABLE", false),

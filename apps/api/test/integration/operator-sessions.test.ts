@@ -102,6 +102,18 @@ describe("(M10) server-side operator session revocation", () => {
     expect((await read(old)).statusCode).toBe(200); // the session itself would be expired anyway
   });
 
+  it("(M11) the session-status check answers 200 for an active session and 401 once revoked", async () => {
+    const current = (headers: Record<string, string>) =>
+      app.inject({ method: "GET", url: "/admin/operator-sessions/current", headers });
+    const nonce = randomUUID();
+    const res = await current({ ...auth, "x-operator-session": nonce });
+    expect([res.statusCode, res.json()]).toEqual([200, { active: true }]);
+    expect((await current(auth)).statusCode).toBe(400); // a session check needs a session
+    expect((await current({ "x-operator-session": nonce })).statusCode).toBe(401);
+    await revoke(nonce);
+    expect((await current({ ...auth, "x-operator-session": nonce })).statusCode).toBe(401);
+  });
+
   it("revocation requires operator authorization, an operator id and an exact body", async () => {
     const before = await handle.db.execute<{ n: number }>(
       sql`SELECT count(*)::int AS n FROM operator_session_revocations`,

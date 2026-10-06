@@ -36,12 +36,17 @@ export interface HrisIntakeService {
    * receipt, creates or reuses the employee's active workflow, and writes one outbox event.
    * Redelivery of the same event returns the original result with duplicate=true.
    */
-  acceptOfferSigned(event: HrisOfferSignedEvent): Promise<HrisIntakeResult>;
+  acceptOfferSigned(
+    event: HrisOfferSignedEvent,
+    /** (M11) Audit actor for operator-started onboardings (offer-letter intake); default HRIS. */
+    options?: { actor?: string },
+  ): Promise<HrisIntakeResult>;
 }
 
 export function createHrisIntakeService(db: Database): HrisIntakeService {
   return {
-    async acceptOfferSigned(rawEvent) {
+    async acceptOfferSigned(rawEvent, options = {}) {
+      const actor = options.actor ?? HRIS_ACTOR;
       const event = HrisOfferSignedEventSchema.parse(rawEvent);
       if (!isOnboardingEligible(event)) {
         throw new HrisEventNotEligibleError(
@@ -103,7 +108,7 @@ export function createHrisIntakeService(db: Database): HrisIntakeService {
           active ??
           (await insertWorkflow(tx, {
             employee,
-            actor: HRIS_ACTOR,
+            actor,
             correlationId,
             auditPayload: { hrisEventId: event.eventId },
           }));
@@ -127,7 +132,7 @@ export function createHrisIntakeService(db: Database): HrisIntakeService {
           await tx.insert(auditEvents).values({
             workflowId: workflow.id,
             eventType: "hris.offer_signed.linked",
-            actor: HRIS_ACTOR,
+            actor,
             workflowVersion: workflow.version,
             correlationId,
             payload: { hrisEventId: event.eventId, receiptId: receipt.id },

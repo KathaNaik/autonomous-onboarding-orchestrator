@@ -1,5 +1,9 @@
 import type { OperatorSessionService } from "@aoo/orchestrator";
-import { OperatorSessionRevokeRequestSchema, type ObservabilityErrorResponse } from "@aoo/shared";
+import {
+  OPERATOR_SESSION_HEADER,
+  OperatorSessionRevokeRequestSchema,
+  type ObservabilityErrorResponse,
+} from "@aoo/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { OPERATOR_ID_HEADER, operatorAuthorizer } from "./operator-auth.js";
 
@@ -37,6 +41,21 @@ export const adminOperatorSessionRoutes: FastifyPluginAsync<
       reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required"),
     ),
   );
+
+  // (M11) GET /admin/operator-sessions/current: 200 only for a session that is not revoked. For
+  // pages that make no other API call, so a copied cookie stops working everywhere after logout.
+  // (This plugin's hook deliberately skips the revocation check so revoking stays idempotent; the
+  // check is made here.) Reads only.
+  app.get("/admin/operator-sessions/current", async (request, reply) => {
+    const nonce = request.headers[OPERATOR_SESSION_HEADER];
+    if (typeof nonce !== "string") {
+      return reject(reply, 400, "INVALID_PAYLOAD", "session header required");
+    }
+    if (await sessions.isRevoked(nonce)) {
+      return reject(reply, 401, "OPERATOR_UNAUTHORIZED", "operator authorization required");
+    }
+    return reply.code(200).send({ active: true });
+  });
 
   app.post("/admin/operator-sessions/revoke", { bodyLimit: 1024 }, async (request, reply) => {
     const operatorId = request.headers[OPERATOR_ID_HEADER];

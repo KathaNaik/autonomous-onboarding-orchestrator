@@ -40,3 +40,21 @@ describe("(M10) production refuses development-only default secrets", () => {
     expect(isProductionDeployment(loadConfig({ ...base, VERCEL_ENV: "preview" }))).toBe(false);
   });
 });
+
+describe("(M11) offer-letter intake configuration", () => {
+  it("is off by default and needs OPENAI_API_KEY when enabled (names the variable only)", () => {
+    expect(loadConfig(base).offerLetterAgent).toBeUndefined();
+    expect(() => loadConfig({ ...base, OFFER_LETTER_INTAKE_ENABLED: "true" })).toThrow(
+      /OPENAI_API_KEY/,
+    );
+    const on = loadConfig({
+      ...base,
+      OFFER_LETTER_INTAKE_ENABLED: "true",
+      OPENAI_API_KEY: "sk-test-value-not-real-000000000000",
+    });
+    expect(on.offerLetterAgent).toMatchObject({
+      OFFER_LETTER_AGENT_TIMEOUT_MS: 40_000,
+      OFFER_LETTER_AGENT_MAX_ATTEMPTS: 1,
+    });
+  });
+});

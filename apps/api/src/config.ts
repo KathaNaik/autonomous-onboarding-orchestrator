@@ -1,3 +1,4 @@
+import { loadOfferLetterAgentConfig, type OfferLetterAgentConfig } from "@aoo/agents";
 import { z } from "zod";
 
 const optional = (schema: z.ZodString) =>
@@ -24,6 +25,14 @@ const EnvSchema = z
      * the public development-only default secrets.
      */
     AOO_ENVIRONMENT: z.enum(["local", "preview", "production"]).default("local"),
+    /**
+     * (M11) Offer-letter intake for signed-in operators (uploads go to the Offer Letter Extractor,
+     * i.e. OpenAI). Off by default; when on, OPENAI_API_KEY is required.
+     */
+    OFFER_LETTER_INTAKE_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
     VERCEL_ENV: optional(z.string()),
     // ServiceNow approval callbacks (M4C). All three set = enabled; none set = endpoint absent.
     SERVICENOW_CALLBACK_SECRET: optional(
@@ -80,7 +89,10 @@ const EnvSchema = z
     },
   );
 
-export type Config = z.infer<typeof EnvSchema>;
+export type Config = z.infer<typeof EnvSchema> & {
+  /** (M11) Present only when OFFER_LETTER_INTAKE_ENABLED=true. */
+  offerLetterAgent?: OfferLetterAgentConfig;
+};
 
 /** Public, committed development defaults (docker-compose, .env.example): never valid in production. */
 export const DEVELOPMENT_ONLY_SECRET = /^dev-only-/;
@@ -116,6 +128,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (config.ONBOARDING_ADMIN_TOKEN && apiPasswords.includes(config.ONBOARDING_ADMIN_TOKEN)) {
     throw new Error("ONBOARDING_ADMIN_TOKEN must not reuse a ServiceNow API password");
+  }
+  if (config.OFFER_LETTER_INTAKE_ENABLED) {
+    // Names a missing or invalid variable only, never a value.
+    return { ...config, offerLetterAgent: loadOfferLetterAgentConfig(env) };
   }
   return config;
 }

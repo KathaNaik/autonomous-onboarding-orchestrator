@@ -107,3 +107,13 @@ export async function fetchWorkflowView(
   if (!z.uuid().safeParse(workflowId).success) return { ok: false, status: 404, body: NOT_FOUND };
   return get(WorkflowObservabilityViewSchema, `/admin/onboarding/${workflowId}`, caller, fetchImpl);
 }
+
+/** (M11) Whether the API still accepts this session (a logged-out session's nonce is revoked). */
+export function fetchSessionStatus(caller: SessionCaller, fetchImpl: typeof fetch = fetch) {
+  return get(
+    z.object({ active: z.literal(true) }),
+    "/admin/operator-sessions/current",
+    caller,
+    fetchImpl,
+  );
+}

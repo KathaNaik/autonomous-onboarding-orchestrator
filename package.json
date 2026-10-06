@@ -34,6 +34,7 @@
     "agent:eval:live": "pnpm --silent --filter @aoo/agents eval:live",
     "test:onboarding-plan:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/onboarding-plan.live.test.ts",
     "test:onboarding-plan:eval": "pnpm --silent --filter @aoo/agents eval:onboarding-plan",
+    "test:offer-letter:eval": "pnpm --silent --filter @aoo/agents eval:offer-letter",
     "test:m6b:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/authorization.live.test.ts",
     "okta:check": "pnpm --silent --filter @aoo/okta check",
     "test:okta:live": "vitest run --config packages/orchestrator/vitest.live.config.ts packages/orchestrator/test/live/okta-provisioning.live.test.ts",

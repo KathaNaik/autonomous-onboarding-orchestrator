@@ -141,6 +141,13 @@
       "when": 1790838347465,
       "tag": "0019_operator_session_revocations",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791273942206,
+      "tag": "0020_offer_letter_extractions",
+      "breakpoints": true
     }
   ]
 }

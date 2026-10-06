@@ -17,14 +17,14 @@
     "@aoo/orchestrator": "workspace:*",
     "@aoo/webhooks": "workspace:*",
     "@aoo/catalog": "workspace:*",
-    "@aoo/telemetry": "workspace:*"
+    "@aoo/telemetry": "workspace:*",
+    "@aoo/agents": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
     "drizzle-orm": "^0.45.3",
     "@aoo/servicenow": "workspace:*",
     "@aoo/policy": "workspace:*",
-    "@aoo/github": "workspace:*",
-    "@aoo/agents": "workspace:*"
+    "@aoo/github": "workspace:*"
   }
 }

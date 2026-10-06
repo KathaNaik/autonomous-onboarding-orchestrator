@@ -1,9 +1,11 @@
+import { createOfferLetterAgent, createOfferLetterProviderFromConfig } from "@aoo/agents";
 import { loadCatalogRegistry, type ResourceCatalog } from "@aoo/catalog";
 import { createDatabase } from "@aoo/db";
 import {
   createApprovalService,
   createGitHubIdentityService,
   createManualProvisioningService,
+  createOfferLetterService,
   createOperatorSessionService,
   createServiceNowFulfillmentCallbackService,
   createHrisIntakeService,
@@ -12,6 +14,7 @@ import {
   type ApprovalService,
   type GitHubIdentityService,
   type ManualProvisioningService,
+  type OfferLetterService,
   type OperatorSessionService,
   type ServiceNowFulfillmentCallbackService,
   type HrisIntakeService,
@@ -24,6 +27,7 @@ import { normalizeRequestId, registerRequestObservability } from "./observabilit
 import { adminOnboardingReadRoutes } from "./routes/admin-onboarding-read.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
+import { adminOfferLetterRoutes } from "./routes/admin-offer-letters.js";
 import { adminOperatorSessionRoutes } from "./routes/admin-operator-sessions.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
@@ -47,6 +51,8 @@ export interface AppDependencies {
   workflowReads: WorkflowReadService;
   /** (M10) Server-side logout for dashboard sessions. */
   operatorSessions: OperatorSessionService;
+  /** (M11) Offer-letter intake (agent present only when OFFER_LETTER_INTAKE_ENABLED). */
+  offerLetters: OfferLetterService;
 }
 
 /**
@@ -101,6 +107,16 @@ export async function buildApp(
     fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
     workflowReads: createWorkflowReadService(database.db, { catalogs }),
     operatorSessions: createOperatorSessionService(database.db),
+    offerLetters: createOfferLetterService(database.db, {
+      ...(config.offerLetterAgent && {
+        agent: createOfferLetterAgent({
+          provider: createOfferLetterProviderFromConfig(config.offerLetterAgent),
+          maxAttempts: config.offerLetterAgent.OFFER_LETTER_AGENT_MAX_ATTEMPTS,
+        }),
+      }),
+      intake: createHrisIntakeService(database.db),
+      logger: app.log,
+    }),
     ...overrides,
   };
 
@@ -148,6 +164,13 @@ export async function buildApp(
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       sessions,
     });
+    if (config.OFFER_LETTER_INTAKE_ENABLED) {
+      await app.register(adminOfferLetterRoutes, {
+        adminToken: config.ONBOARDING_ADMIN_TOKEN,
+        sessions,
+        offerLetters: deps.offerLetters,
+      });
+    }
   }
 
   return app;

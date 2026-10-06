@@ -105,3 +105,4 @@ export function planOutputOf(
     responseId: "resp_scripted",
   };
 }
+export { syntheticOfferLetter, syntheticPdf } from "./eval/synthetic-pdf.js";

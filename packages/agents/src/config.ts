@@ -77,3 +77,40 @@ export function createOnboardingPlanProviderFromConfig(
     maxOutputTokens: config.ONBOARDING_PLAN_AGENT_MAX_TOKENS,
   });
 }
+
+/**
+ * (M11) Offer Letter Extractor configuration. Same OpenAI key, model and base URL as the other agents;
+ * its own timeout (it runs synchronously inside the API request), attempts and token limit.
+ */
+const OfferLetterAgentConfigSchema = RoleAccessAgentConfigSchema.pick({
+  OPENAI_API_KEY: true,
+  OPENAI_MODEL: true,
+  OPENAI_BASE_URL: true,
+}).extend({
+  OFFER_LETTER_AGENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(55_000).default(40_000),
+  OFFER_LETTER_AGENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(3).default(1),
+  OFFER_LETTER_AGENT_MAX_TOKENS: z.coerce.number().int().min(256).max(16_384).default(4096),
+});
+export type OfferLetterAgentConfig = z.infer<typeof OfferLetterAgentConfigSchema>;
+
+/** Errors name the variable, never its value. */
+export function loadOfferLetterAgentConfig(
+  env: Record<string, string | undefined> = process.env,
+): OfferLetterAgentConfig {
+  const parsed = OfferLetterAgentConfigSchema.safeParse(env);
+  if (!parsed.success) {
+    const names = parsed.error.issues.map((i) => i.path.join(".")).join(", ");
+    throw new Error(`invalid Offer Letter Extractor configuration: ${names}`);
+  }
+  return parsed.data;
+}
+
+export function createOfferLetterProviderFromConfig(config: OfferLetterAgentConfig): ModelProvider {
+  return createOpenAIProvider({
+    apiKey: config.OPENAI_API_KEY,
+    baseUrl: config.OPENAI_BASE_URL,
+    model: config.OPENAI_MODEL,
+    timeoutMs: config.OFFER_LETTER_AGENT_TIMEOUT_MS,
+    maxOutputTokens: config.OFFER_LETTER_AGENT_MAX_TOKENS,
+  });
+}
