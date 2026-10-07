@@ -355,4 +355,55 @@ describe("(M11) offer-letter intake", () => {
     });
     expect(started.workflowCreated).toBe(true);
   });
+
+  it("(M12) daily caps: per operator and overall, checked before the model; failed calls count, invalid files don't", async () => {
+    const operator = `cap.${Math.random().toString(36).slice(2, 8)}@example.com`;
+    const provider = createScriptedModelProvider([
+      { output: proposal },
+      new ModelProviderError("PROVIDER_UNAVAILABLE", "503"),
+    ]);
+    const capped = createOfferLetterService(handle.db, {
+      agent: createOfferLetterAgent({ provider, maxAttempts: 1, sleep: async () => {} }),
+      intake: createHrisIntakeService(handle.db),
+      limits: { perOperatorPerDay: 2, totalPerDay: 100_000 },
+    });
+    await capped.extract({ pdf, operatorId: operator }); // 1: extracted
+    await expect(capped.extract({ pdf, operatorId: operator })).rejects.toMatchObject({
+      code: "EXTRACTION_FAILED", // 2: reached the model, failed: still counts
+    });
+    // An invalid file never reaches the model and never counts.
+    await expect(
+      capped.extract({ pdf: new Uint8Array(Buffer.from("not a pdf")), operatorId: operator }),
+    ).rejects.toMatchObject({ code: "INVALID_DOCUMENT" });
+    expect(provider.calls).toHaveLength(2);
+    const before = await counts();
+    await expect(capped.extract({ pdf, operatorId: operator })).rejects.toMatchObject({
+      code: "UPLOAD_LIMIT_REACHED",
+    });
+    expect(provider.calls).toHaveLength(2); // the capped upload never reached the model
+    expect(await counts()).toEqual(before);
+    const [failed] = await handle.db
+      .select()
+      .from(auditEvents)
+      .where(
+        sql`${auditEvents.eventType} = 'offer_letter.extraction_failed' AND ${auditEvents.actor} = ${`hr:${operator}`}`,
+      );
+    expect(failed!.payload).toEqual({ category: "PROVIDER_UNAVAILABLE", attempts: 1 });
+    // The overall cap stops everyone once reached.
+    const { rows } = await handle.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM audit_events
+      WHERE event_type IN ('offer_letter.extracted', 'offer_letter.extraction_failed')
+        AND occurred_at > clock_timestamp() - interval '24 hours'`);
+    const everyone = createOfferLetterService(handle.db, {
+      agent: createOfferLetterAgent({
+        provider: createScriptedModelProvider([{ output: proposal }]),
+        maxAttempts: 1,
+      }),
+      intake: createHrisIntakeService(handle.db),
+      limits: { perOperatorPerDay: 100, totalPerDay: rows[0]!.n },
+    });
+    await expect(everyone.extract({ pdf, operatorId: "someone.else" })).rejects.toMatchObject({
+      code: "UPLOAD_LIMIT_REACHED",
+    });
+  });
 });

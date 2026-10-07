@@ -1047,6 +1047,35 @@ export const operatorSessionRevocations = pgTable(
 );
 export type OperatorSessionRevocation = typeof operatorSessionRevocations.$inferSelect;
 
+/**
+ * (M12) Self-registered operator accounts. The lower-cased email is the operator id. Only a salted
+ * scrypt hash of the password is stored. Failed sign-ins lock the account for a while.
+ */
+export const operatorAccounts = pgTable(
+  "operator_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    passwordHash: text("password_hash").notNull(),
+    failedSignIns: integer("failed_sign_ins").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("operator_accounts_created_idx").on(t.createdAt),
+    check(
+      "operator_accounts_email_check",
+      sql`${t.email} = lower(${t.email}) AND char_length(${t.email}) BETWEEN 3 AND 64`,
+    ),
+    check("operator_accounts_hash_check", sql`${t.passwordHash} LIKE 'scrypt$%'`),
+    check("operator_accounts_failed_check", sql`${t.failedSignIns} >= 0`),
+  ],
+);
+export type OperatorAccount = typeof operatorAccounts.$inferSelect;
+
 export const offerLetterExtractionStatusEnum = pgEnum("offer_letter_extraction_status", [
   "EXTRACTED",
   "SUBMITTED",

@@ -6,6 +6,7 @@ import {
   createGitHubIdentityService,
   createManualProvisioningService,
   createOfferLetterService,
+  createOperatorAccountService,
   createOperatorSessionService,
   createServiceNowFulfillmentCallbackService,
   createHrisIntakeService,
@@ -15,6 +16,7 @@ import {
   type GitHubIdentityService,
   type ManualProvisioningService,
   type OfferLetterService,
+  type OperatorAccountService,
   type OperatorSessionService,
   type ServiceNowFulfillmentCallbackService,
   type HrisIntakeService,
@@ -28,6 +30,7 @@ import { adminOnboardingReadRoutes } from "./routes/admin-onboarding-read.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
 import { adminOfferLetterRoutes } from "./routes/admin-offer-letters.js";
+import { adminOperatorAccountRoutes } from "./routes/admin-operator-accounts.js";
 import { adminOperatorSessionRoutes } from "./routes/admin-operator-sessions.js";
 import { healthRoutes } from "./routes/health.js";
 import { hrisWebhookRoutes } from "./routes/hris-webhook.js";
@@ -51,6 +54,7 @@ export interface AppDependencies {
   workflowReads: WorkflowReadService;
   /** (M10) Server-side logout for dashboard sessions. */
   operatorSessions: OperatorSessionService;
+  operatorAccounts: OperatorAccountService;
   /** (M11) Offer-letter intake (agent present only when OFFER_LETTER_INTAKE_ENABLED). */
   offerLetters: OfferLetterService;
 }
@@ -107,6 +111,9 @@ export async function buildApp(
     fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
     workflowReads: createWorkflowReadService(database.db, { catalogs }),
     operatorSessions: createOperatorSessionService(database.db),
+    operatorAccounts: createOperatorAccountService(database.db, {
+      signupDailyLimit: config.OPERATOR_SIGNUP_DAILY_LIMIT,
+    }),
     offerLetters: createOfferLetterService(database.db, {
       ...(config.offerLetterAgent && {
         agent: createOfferLetterAgent({
@@ -116,6 +123,10 @@ export async function buildApp(
       }),
       intake: createHrisIntakeService(database.db),
       logger: app.log,
+      limits: {
+        perOperatorPerDay: config.OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR,
+        totalPerDay: config.OFFER_LETTER_DAILY_LIMIT_TOTAL,
+      },
     }),
     ...overrides,
   };
@@ -159,6 +170,10 @@ export async function buildApp(
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       reads: deps.workflowReads,
       sessions,
+    });
+    await app.register(adminOperatorAccountRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      accounts: deps.operatorAccounts,
     });
     await app.register(adminOperatorSessionRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,

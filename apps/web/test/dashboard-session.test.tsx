@@ -19,18 +19,15 @@ vi.mock("next/navigation", () => ({
 }));
 
 const ADMIN_TOKEN = "server-only-admin-token-0123456789-abcdefXYZ";
-const {
-  SESSION_COOKIE,
-  SESSION_TTL_SECONDS,
-  createSessionValue,
-  isValidAdminToken,
-  verifySessionValue,
-} = await import("@/lib/operator-session");
+const { SESSION_COOKIE, SESSION_TTL_SECONDS, createSessionValue, verifySessionValue } =
+  await import("@/lib/operator-session");
 const { POST: login } = await import("@/app/admin/onboarding/session/route");
 const { POST: logout } = await import("@/app/admin/onboarding/logout/route");
 const { default: ListPage } = await import("@/app/admin/onboarding/page");
 const { default: DetailPage } = await import("@/app/admin/onboarding/[workflowId]/page");
 const { default: LoginPage } = await import("@/app/admin/onboarding/login/page");
+const { default: SignUpPage } = await import("@/app/admin/onboarding/signup/page");
+const { POST: signUp } = await import("@/app/admin/onboarding/signup/create/route");
 
 beforeEach(() => {
   vi.stubEnv("ONBOARDING_ADMIN_TOKEN", ADMIN_TOKEN);
@@ -103,19 +100,33 @@ describe("session tokens (signed, short-lived, no admin token inside)", () => {
     ).toBeNull(); // future
     expect(verifySessionValue(value, "a-rotated-admin-token-0123456789abcdefgh")).toBeNull(); // rotation
   });
-
-  it("checks the submitted token in constant time and refuses odd input", () => {
-    expect(isValidAdminToken(ADMIN_TOKEN, ADMIN_TOKEN)).toBe(true);
-    for (const bad of ["", "wrong", `${ADMIN_TOKEN} `, null, 42, "x".repeat(1000)])
-      expect(isValidAdminToken(bad, ADMIN_TOKEN)).toBe(false);
-  });
 });
 
-describe("login and logout (server-side handlers)", () => {
-  it("valid login sets only an HttpOnly, SameSite=Strict, path-restricted, short-lived session and redirects", async () => {
-    const res = await login(form({ token: ADMIN_TOKEN, operatorId: "ops.alice" }));
+const PASSWORD = "correct horse battery staple";
+const EMAIL = "ops.alice@example.com";
+/** The API's operator-account routes, as seen from the web server. */
+const accountApi = (status = 200, body: unknown = { operatorId: EMAIL }) => {
+  const mock = vi.fn(async () => Response.json(body, { status }));
+  vi.stubGlobal("fetch", mock);
+  return mock;
+};
+const sentTo = (mock: ReturnType<typeof accountApi>, i = 0) => {
+  const [url, init] = mock.mock.calls[i] as unknown as [URL, RequestInit];
+  return { url: String(url), init, body: JSON.parse(init.body as string) };
+};
+
+describe("(M12) sign-in with an operator account (server-side handlers)", () => {
+  it("valid sign-in: the API checks the password; the browser gets only an HttpOnly, SameSite=Strict, path-restricted, short-lived session", async () => {
+    const api = accountApi();
+    const res = await login(form({ email: ` ${EMAIL} `, password: PASSWORD, extra: "x" }));
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/admin/onboarding");
+    const call = sentTo(api);
+    expect(call.url).toBe("http://api.internal:4000/admin/operator-accounts/sign-in");
+    expect((call.init.headers as Record<string, string>).authorization).toBe(
+      `Bearer ${ADMIN_TOKEN}`,
+    );
+    expect(call.body).toEqual({ email: EMAIL, password: PASSWORD });
     const cookie = res.headers.get("set-cookie")!;
     expect(cookie).toMatch(new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+;`));
     for (const attr of [
@@ -127,10 +138,13 @@ describe("login and logout (server-side handlers)", () => {
       expect(cookie).toContain(attr);
     }
     expect(cookie).not.toContain("Secure"); // plain http
+    const value = cookie.split(";")[0]!.split("=")[1]!;
+    expect(verifySessionValue(value, ADMIN_TOKEN)?.operatorId).toBe(EMAIL);
     const everything = JSON.stringify([...res.headers.entries()]) + (await res.text());
     expect(everything).not.toContain(ADMIN_TOKEN);
+    expect(everything).not.toContain(PASSWORD);
     const secure = await login(
-      form({ token: ADMIN_TOKEN, operatorId: "ops.alice" }, { "x-forwarded-proto": "https" }),
+      form({ email: EMAIL, password: PASSWORD }, { "x-forwarded-proto": "https" }),
     );
     expect(secure.headers.get("set-cookie")).toContain("Secure");
   });
@@ -140,7 +154,8 @@ describe("login and logout (server-side handlers)", () => {
     ["VERCEL_ENV", "production"],
   ])("(M10) %s=%s forces Secure cookies even for a plain-http request", async (name, value) => {
     vi.stubEnv(name, value);
-    const res = await login(form({ token: ADMIN_TOKEN, operatorId: "ops.alice" }));
+    accountApi();
+    const res = await login(form({ email: EMAIL, password: PASSWORD }));
     expect(res.headers.get("set-cookie")).toContain("Secure");
     const out = await logout(
       new Request("http://web/admin/onboarding/logout", {
@@ -151,15 +166,9 @@ describe("login and logout (server-side handlers)", () => {
     expect(out.headers.get("set-cookie")).toContain("Secure");
   });
 
-  it.each([
-    [
-      "a wrong token",
-      { token: "wrong-token-000000000000000000000000000", operatorId: "ops.alice" },
-    ],
-    ["a missing token", { operatorId: "ops.alice" }],
-    ["an invalid operator id", { token: ADMIN_TOKEN, operatorId: "not valid!" }],
-  ])("%s → generic unauthorized, no cookie", async (_, fields) => {
-    const res = await login(form(fields as Record<string, string>));
+  it("wrong credentials (API 401) → generic unauthorized, no cookie", async () => {
+    accountApi(401, { error: "INVALID_CREDENTIALS", message: "x" });
+    const res = await login(form({ email: EMAIL, password: "wrong password 123" }));
     expect([res.status, res.headers.get("location")]).toEqual([
       303,
       "/admin/onboarding/login?error=unauthorized",
@@ -167,11 +176,32 @@ describe("login and logout (server-side handlers)", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
+  it("the old shared-token form (token + operator id) is not a sign-in: no API call, no cookie", async () => {
+    const api = accountApi();
+    const res = await login(form({ token: ADMIN_TOKEN, operatorId: "ops.alice" }));
+    expect(res.headers.get("location")).toBe("/admin/onboarding/login?error=unauthorized");
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it("an unreachable API → 'unavailable', no cookie", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("down");
+      }),
+    );
+    const res = await login(form({ email: EMAIL, password: PASSWORD }));
+    expect(res.headers.get("location")).toBe("/admin/onboarding/login?error=unavailable");
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
   it("accepts same-site posts behind a proxy/container (Origin vs Host), refuses cross-site ones", async () => {
+    accountApi();
     // Inside a container request.url carries an internal host; the browser's Origin matches Host.
     const proxied = await login(
       form(
-        { token: ADMIN_TOKEN, operatorId: "ops.a" },
+        { email: EMAIL, password: PASSWORD },
         { origin: "http://localhost:3000", host: "localhost:3000" },
         "http://0.0.0.0:3000/admin/onboarding/session",
       ),
@@ -180,7 +210,7 @@ describe("login and logout (server-side handlers)", () => {
     expect(proxied.headers.get("set-cookie")).toContain("HttpOnly");
     const spoof = await login(
       form(
-        { token: ADMIN_TOKEN, operatorId: "ops.a" },
+        { email: EMAIL, password: PASSWORD },
         { origin: "https://evil.example", host: "localhost:3000" },
         "http://0.0.0.0:3000/admin/onboarding/session",
       ),
@@ -188,21 +218,23 @@ describe("login and logout (server-side handlers)", () => {
     expect(spoof.status).toBe(403);
   });
 
-  it("refuses cross-site login and logout posts", async () => {
+  it("refuses cross-site sign-in, sign-up and logout posts", async () => {
+    const api = accountApi();
+    const evil = { origin: "https://evil.example" };
+    expect((await login(form({ email: EMAIL, password: PASSWORD }, evil))).status).toBe(403);
     expect(
       (
-        await login(
-          form({ token: ADMIN_TOKEN, operatorId: "ops.a" }, { origin: "https://evil.example" }),
+        await signUp(
+          form(
+            { email: EMAIL, password: PASSWORD, confirm: PASSWORD },
+            evil,
+            "http://web/admin/onboarding/signup/create",
+          ),
         )
       ).status,
     ).toBe(403);
-    expect(
-      (
-        await logout(
-          form({}, { origin: "https://evil.example" }, "http://web/admin/onboarding/logout"),
-        )
-      ).status,
-    ).toBe(403);
+    expect((await logout(form({}, evil, "http://web/admin/onboarding/logout"))).status).toBe(403);
+    expect(api).not.toHaveBeenCalled();
   });
 
   it("logout clears the session cookie", async () => {
@@ -216,7 +248,7 @@ describe("login and logout (server-side handlers)", () => {
     );
   });
 
-  it("the login page is a plain server form posting to the handler (no client script, no token value)", async () => {
+  it("the sign-in page is a plain server form: email + password, a sign-up link, no token field", async () => {
     const html = renderToStaticMarkup(
       await LoginPage({ searchParams: Promise.resolve({ error: "unauthorized" }) }),
     );
@@ -224,9 +256,60 @@ describe("login and logout (server-side handlers)", () => {
     expect(formTag).toContain('action="/admin/onboarding/session"');
     expect(formTag).toContain('method="post"');
     expect(html).not.toContain("<script");
-    expect(html).toContain('type="password"');
-    expect(html).toContain("Unauthorized.");
+    expect(html).toContain('name="email"');
+    expect(html).toMatch(/name="password"[^>]*type="password"|type="password"[^>]*name="password"/);
+    expect(html).not.toMatch(/Operator token|name="token"/);
+    expect(html).toContain('href="/admin/onboarding/signup"');
+    expect(html).toContain("Sign-in failed.");
     expect(html).not.toContain(ADMIN_TOKEN);
+  });
+});
+
+describe("(M12) create an operator account", () => {
+  const signUpForm = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
+    form(fields, headers, "http://web/admin/onboarding/signup/create");
+
+  it("creates the account at the API and signs the operator in", async () => {
+    const api = accountApi(201);
+    const res = await signUp(signUpForm({ email: EMAIL, password: PASSWORD, confirm: PASSWORD }));
+    expect(res.headers.get("location")).toBe("/admin/onboarding");
+    expect(sentTo(api).url).toBe("http://api.internal:4000/admin/operator-accounts");
+    expect(sentTo(api).body).toEqual({ email: EMAIL, password: PASSWORD });
+    const value = res.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
+    expect(verifySessionValue(value, ADMIN_TOKEN)?.operatorId).toBe(EMAIL);
+    expect(JSON.stringify([...res.headers.entries()])).not.toContain(PASSWORD);
+  });
+
+  it("mismatched passwords never reach the API", async () => {
+    const api = accountApi(201);
+    const res = await signUp(
+      signUpForm({ email: EMAIL, password: PASSWORD, confirm: `${PASSWORD}!` }),
+    );
+    expect(res.headers.get("location")).toBe("/admin/onboarding/signup?error=PASSWORD_MISMATCH");
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [400, "INVALID_PAYLOAD", "INVALID_PAYLOAD"],
+    [409, "ACCOUNT_UNAVAILABLE", "ACCOUNT_UNAVAILABLE"],
+    [429, "SIGNUP_LIMIT_REACHED", "SIGNUP_LIMIT_REACHED"],
+    [500, "INTERNAL_ERROR", "unavailable"],
+  ])("API %s %s → page error %s, no cookie", async (status, error, shown) => {
+    accountApi(status, { error, message: "x" });
+    const res = await signUp(signUpForm({ email: EMAIL, password: PASSWORD, confirm: PASSWORD }));
+    expect(res.headers.get("location")).toBe(`/admin/onboarding/signup?error=${shown}`);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("the sign-up page is a plain server form with a confirmation field", async () => {
+    const html = renderToStaticMarkup(
+      await SignUpPage({ searchParams: Promise.resolve({ error: "SIGNUP_LIMIT_REACHED" }) }),
+    );
+    expect(html).toContain('action="/admin/onboarding/signup/create"');
+    for (const n of ['name="email"', 'name="password"', 'name="confirm"'])
+      expect(html).toContain(n);
+    expect(html).not.toContain("<script");
+    expect(html).toContain("No more accounts can be created today.");
   });
 });
 

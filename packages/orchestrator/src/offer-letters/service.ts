@@ -1,4 +1,5 @@
 import {
+  assertOfferLetterPdf,
   OfferLetterAgentError,
   type OfferLetterAgent,
   type OfferLetterProposal,
@@ -25,7 +26,8 @@ export type OfferLetterErrorCode =
   | "EXTRACTION_NOT_FOUND"
   | "INVALID_PAYLOAD"
   | "ALREADY_SUBMITTED"
-  | "EVENT_CONFLICT";
+  | "EVENT_CONFLICT"
+  | "UPLOAD_LIMIT_REACHED";
 
 export class OfferLetterError extends Error {
   constructor(
@@ -68,9 +70,37 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function createOfferLetterService(
   db: Database,
-  deps: { agent?: OfferLetterAgent; intake: HrisIntakeService; logger?: EventLogger },
+  deps: {
+    agent?: OfferLetterAgent;
+    intake: HrisIntakeService;
+    logger?: EventLogger;
+    /** (M12) Model-reaching uploads allowed in any rolling 24 hours; unset = unlimited. */
+    limits?: { perOperatorPerDay: number; totalPerDay: number };
+  },
 ): OfferLetterService {
   const logger = deps.logger ?? noopLogger;
+
+  // (M12) Every upload that reaches the model is audited (extracted or failed), so the caps also
+  // count failed calls. Checked before the model call; concurrent uploads may overshoot by the
+  // number in flight.
+  const MODEL_EVENTS = sql`event_type IN ('offer_letter.extracted', 'offer_letter.extraction_failed')
+    AND occurred_at > clock_timestamp() - interval '24 hours'`;
+  async function assertWithinLimits(operatorId: string) {
+    if (!deps.limits) return;
+    const { rows } = await db.execute<{ mine: number; total: number }>(sql`
+      SELECT count(*) FILTER (WHERE actor = ${`hr:${operatorId}`})::int AS mine,
+             count(*)::int AS total
+      FROM audit_events WHERE ${MODEL_EVENTS}`);
+    const { mine = 0, total = 0 } = rows[0] ?? {};
+    if (mine >= deps.limits.perOperatorPerDay || total >= deps.limits.totalPerDay) {
+      throw new OfferLetterError(
+        "UPLOAD_LIMIT_REACHED",
+        mine >= deps.limits.perOperatorPerDay
+          ? "this account reached its daily offer-letter limit"
+          : "the daily offer-letter limit is reached",
+      );
+    }
+  }
 
   const view = (row: typeof offerLetterExtractions.$inferSelect): OfferLetterExtractionView =>
     OfferLetterExtractionViewSchema.parse({
@@ -90,6 +120,16 @@ export function createOfferLetterService(
           "offer-letter extraction is not configured",
         );
       }
+      // Cheap, deterministic file checks first: an invalid file never counts toward the caps.
+      try {
+        assertOfferLetterPdf(pdf);
+      } catch (err) {
+        if (err instanceof OfferLetterAgentError) {
+          throw new OfferLetterError("INVALID_DOCUMENT", err.message);
+        }
+        throw err;
+      }
+      await assertWithinLimits(operatorId);
       let result;
       try {
         result = await deps.agent.extract({ pdf });
@@ -98,6 +138,13 @@ export function createOfferLetterService(
           if (err.category === "INVALID_DOCUMENT") {
             throw new OfferLetterError("INVALID_DOCUMENT", err.message);
           }
+          // Metadata only; counted toward the daily caps like a successful extraction.
+          await db.insert(auditEvents).values({
+            workflowId: null,
+            eventType: "offer_letter.extraction_failed",
+            actor: `hr:${operatorId}`,
+            payload: { category: err.category, attempts: err.attempts },
+          });
           logger.warn(
             { category: err.category, attempts: err.attempts },
             "offer letter extraction failed",

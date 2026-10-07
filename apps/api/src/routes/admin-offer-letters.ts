@@ -33,6 +33,7 @@ const STATUS_OF: Record<OfferLetterError["code"], number> = {
   INVALID_PAYLOAD: 400,
   ALREADY_SUBMITTED: 409,
   EVENT_CONFLICT: 409,
+  UPLOAD_LIMIT_REACHED: 429,
 };
 
 /**

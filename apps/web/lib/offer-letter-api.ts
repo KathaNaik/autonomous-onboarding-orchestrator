@@ -144,5 +144,7 @@ export const OFFER_ERROR_MESSAGES: Record<string, string> = {
     "Some details are missing or invalid. Check every field, the department/role combination and the confirmation box.",
   ALREADY_SUBMITTED: "This offer letter already started an onboarding with different details.",
   EVENT_CONFLICT: "This offer letter already started an onboarding with different details.",
+  UPLOAD_LIMIT_REACHED:
+    "The daily offer-letter limit is reached (per account or overall). Nothing was read; try again tomorrow.",
   INTERNAL_ERROR: "Something went wrong. Try again.",
 };

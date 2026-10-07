@@ -79,6 +79,8 @@ export const OFFER_LETTER_ERROR_CODES = [
   "EXTRACTION_NOT_FOUND",
   "ALREADY_SUBMITTED",
   "EVENT_CONFLICT",
+  /** (M12) The daily upload cap (per operator or overall) is reached; nothing reached the model. */
+  "UPLOAD_LIMIT_REACHED",
   "INTERNAL_ERROR",
 ] as const;
 export const OfferLetterErrorResponseSchema = z.object({

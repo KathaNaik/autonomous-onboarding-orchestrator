@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -32,18 +32,10 @@ export type OperatorSession = {
   nonce: string;
 };
 
-const digest = (value: string) => createHash("sha256").update(value).digest();
 const signingKey = (adminToken: string) =>
   createHmac("sha256", adminToken).update(KEY_LABEL).digest();
 const sign = (adminToken: string, body: string) =>
   createHmac("sha256", signingKey(adminToken)).update(body).digest("base64url");
-
-/** Constant-time check of a submitted token against the server-only admin token. */
-export function isValidAdminToken(candidate: unknown, adminToken: string): boolean {
-  if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 512)
-    return false;
-  return timingSafeEqual(digest(candidate), digest(adminToken));
-}
 
 /** A signed session cookie value for this operator (seconds since epoch). */
 export function createSessionValue(

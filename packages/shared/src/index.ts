@@ -8,3 +8,4 @@ export * from "./outbox.js";
 export * from "./servicenow-fulfillment.js";
 export * from "./workflow.js";
 export * from "./offer-letter.js";
+export * from "./operator-accounts.js";

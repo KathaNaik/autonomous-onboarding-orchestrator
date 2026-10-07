@@ -1,14 +1,18 @@
+import Link from "next/link";
+
 export const dynamic = "force-dynamic";
 
 const MESSAGES: Record<string, string> = {
-  unauthorized: "Unauthorized. Check the operator token and operator id.",
-  unavailable: "The operator dashboard is not configured on this server.",
+  unauthorized:
+    "Sign-in failed. Check your email and password. After 5 failed attempts, wait 15 minutes.",
+  unavailable: "Sign-in is unavailable right now. Try again shortly.",
   expired: "Your session has ended. Sign in again.",
 };
 
 /**
- * (M9) Dashboard login. A plain HTML form that posts directly to the server-side session handler:
- * the token is never held in React state or client-side JavaScript. Internal operators only.
+ * Dashboard sign-in. A plain HTML form that posts directly to the server-side session handler:
+ * the password is never held in React state or client-side JavaScript. (M12) Operators sign in
+ * with their own account (email + password); anyone can create one.
  */
 export default async function LoginPage({
   searchParams,
@@ -20,7 +24,7 @@ export default async function LoginPage({
   return (
     <main>
       <h1>Operator sign-in</h1>
-      <p>Internal onboarding operators only.</p>
+      <p>Sign in as an HR / onboarding operator to run onboardings.</p>
       {error && <p role="alert">{error}</p>}
       {params.loggedOut === "1" && <p role="status">Signed out.</p>}
       {params.loggedOut === "unconfirmed" && (
@@ -29,22 +33,35 @@ export default async function LoginPage({
           expires on its own within 30 minutes.
         </p>
       )}
-      <form method="post" action="/admin/onboarding/session" autoComplete="off">
+      <form method="post" action="/admin/onboarding/session">
         <p>
-          <label htmlFor="token">Operator token</label>{" "}
-          <input id="token" name="token" type="password" required autoComplete="off" />
+          <label htmlFor="email">Email</label>{" "}
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            maxLength={64}
+            autoComplete="username"
+          />
         </p>
         <p>
-          <label htmlFor="operatorId">Operator id</label>{" "}
+          <label htmlFor="password">Password</label>{" "}
           <input
-            id="operatorId"
-            name="operatorId"
+            id="password"
+            name="password"
+            type="password"
             required
-            pattern="[A-Za-z0-9][A-Za-z0-9._@-]{0,63}"
+            minLength={12}
+            maxLength={128}
+            autoComplete="current-password"
           />
         </p>
         <button type="submit">Sign in</button>
       </form>
+      <p>
+        New here? <Link href="/admin/onboarding/signup">Create an operator account</Link>
+      </p>
     </main>
   );
 }

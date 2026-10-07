@@ -58,3 +58,19 @@ describe("(M11) offer-letter intake configuration", () => {
     });
   });
 });
+
+describe("(M12) usage caps", () => {
+  it("default to 20 sign-ups, 3 uploads per operator and 30 uploads overall per day", () => {
+    const c = loadConfig(base);
+    expect([
+      c.OPERATOR_SIGNUP_DAILY_LIMIT,
+      c.OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR,
+      c.OFFER_LETTER_DAILY_LIMIT_TOTAL,
+    ]).toEqual([20, 3, 30]);
+    expect(
+      loadConfig({ ...base, OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR: "5" })
+        .OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR,
+    ).toBe(5);
+    expect(() => loadConfig({ ...base, OPERATOR_SIGNUP_DAILY_LIMIT: "-1" })).toThrow();
+  });
+});

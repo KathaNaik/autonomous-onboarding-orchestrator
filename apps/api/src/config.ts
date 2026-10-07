@@ -33,6 +33,10 @@ const EnvSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    /** (M12) Caps: new self-registered accounts and model-reaching offer-letter uploads per 24 h. */
+    OPERATOR_SIGNUP_DAILY_LIMIT: z.coerce.number().int().min(0).max(10_000).default(20),
+    OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR: z.coerce.number().int().min(0).max(1000).default(3),
+    OFFER_LETTER_DAILY_LIMIT_TOTAL: z.coerce.number().int().min(0).max(10_000).default(30),
     VERCEL_ENV: optional(z.string()),
     // ServiceNow approval callbacks (M4C). All three set = enabled; none set = endpoint absent.
     SERVICENOW_CALLBACK_SECRET: optional(
