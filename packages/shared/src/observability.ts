@@ -37,6 +37,8 @@ export const ResourceProgressSchema = z.object({
 
 export const BlockerSummarySchema = z.object({
   resourceId: id,
+  /** (M13 UI) Catalog display name from the plan's exact release, when resolvable. */
+  displayName: z.string().nullable(),
   status: z.string(),
   blocker: z.string().nullable(),
   blockerClass: z.string().nullable(),
@@ -54,6 +56,8 @@ export const WorkflowSummarySchema = z.object({
   employee: z.object({
     hrisEmployeeId: id,
     displayName: z.string().max(300),
+    /** (M13 UI) Job title display text from the facts-supplying receipt, when present. */
+    jobTitle: z.string().max(300).nullable(),
     facts: EmployeeFactsViewSchema.nullable(),
   }),
   createdAt: iso,
@@ -68,8 +72,36 @@ export const WorkflowSummarySchema = z.object({
 });
 export type WorkflowSummary = z.infer<typeof WorkflowSummarySchema>;
 
+/**
+ * (M13 UI) What makes a workflow "need attention": an unsettled resource of its current plan that
+ * waits on a person (approver, fulfiller, HR, operator) or failed deterministically, or a FAILED
+ * workflow. Shared by the read model's counts and the console's per-row summaries.
+ */
+export const ATTENTION_REQUEST_STATUSES = [
+  "AWAITING_APPROVAL",
+  "MANUAL_ACTION_REQUIRED",
+  "PROVISIONING_FAILED",
+] as const;
+export const ATTENTION_BLOCKERS = [
+  "GITHUB_IDENTITY_CLAIM_REQUIRED",
+  "GITHUB_INVITATION_PENDING",
+  "SERVICENOW_FULFILLMENT_PENDING",
+  "SERVICENOW_FULFILLMENT_IN_PROGRESS",
+] as const;
+export const ATTENTION_BLOCKER_CLASSES = ["MANUAL", "DETERMINISTIC_FAILURE"] as const;
+
+export const WorkflowListSummarySchema = z.object({
+  total: z.number().int(),
+  inProgress: z.number().int(),
+  needsAttention: z.number().int(),
+  completed: z.number().int(),
+  failed: z.number().int(),
+});
+
 export const WorkflowListResponseSchema = z.object({
   items: z.array(WorkflowSummarySchema),
+  /** (M13 UI) Counts over all workflows (not just this page or filter). */
+  summary: WorkflowListSummarySchema,
   /** Opaque keyset cursor for the next page (updated_at DESC, id DESC), or null. */
   nextCursor: z.string().max(200).nullable(),
 });
@@ -79,6 +111,8 @@ export const WorkflowListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   cursor: z.string().max(200).optional(),
   state: z.enum(WORKFLOW_STATES).optional(),
+  /** (M13 UI) Case-insensitive search: employee name, work email, HRIS id or workflow id prefix. */
+  q: z.string().trim().min(1).max(100).optional(),
 });
 export type WorkflowListQuery = z.infer<typeof WorkflowListQuerySchema>;
 

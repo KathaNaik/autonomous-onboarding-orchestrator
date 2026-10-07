@@ -189,7 +189,7 @@ describe("(M11) new onboarding from an offer letter (web)", () => {
     expect(html).toContain("Compensation or personal details were removed");
     for (const name of ["departmentCode", "roleFamilyCode", "employmentType"]) {
       const select = html.match(
-        new RegExp(`<select name="${name}"[^>]*>([\\s\\S]*?)</select>`),
+        new RegExp(`<select[^>]*name="${name}"[^>]*>([\\s\\S]*?)</select>`),
       )![1]!;
       expect(select).toMatch(/<option value="" disabled="" selected="">Choose…<\/option>/);
       expect(select.match(/selected=""/g)).toHaveLength(1);
@@ -265,7 +265,7 @@ describe("(M11) new onboarding from an offer letter (web)", () => {
       await ReviewPage({ ...ctx, searchParams: Promise.resolve({}) }),
     );
     expect(html).toContain(`href="/admin/onboarding/${WF}"`);
-    expect(html).not.toContain("<form");
+    expect(html).not.toContain(`action="/admin/onboarding/new/${ID}/start"`);
   });
 
   it("start sends only the listed fields (attestation true only when ticked) and opens the workflow", async () => {

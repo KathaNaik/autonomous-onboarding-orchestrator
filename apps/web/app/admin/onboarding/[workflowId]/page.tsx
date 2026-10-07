@@ -1,11 +1,12 @@
-import Link from "next/link";
+import { ConsoleShell } from "@/components/console/shell";
+import { BackLink, Callout, PageHeader } from "@/components/console/ui";
 import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
 import { fetchWorkflowView } from "@/lib/onboarding-read-api";
 import { WorkflowView } from "./workflow-view";
 
 export const dynamic = "force-dynamic";
 
-/** (M9) Internal operator view of one onboarding workflow. Server-rendered, read-only. */
+/** One onboarding workflow, explained. Server-rendered, read-only. */
 export default async function WorkflowDetailPage({
   params,
 }: {
@@ -16,29 +17,31 @@ export default async function WorkflowDetailPage({
   const result = await fetchWorkflowView(workflowId, session);
   if (!result.ok) redirectIfUnauthorized(result.status);
   return (
-    <main>
-      <p>
-        <Link href="/admin/onboarding">← All workflows</Link>
-      </p>
-      <h1>Onboarding workflow</h1>
-      {result.ok && (
-        <p>
-          <Link href={`/admin/onboarding/${encodeURIComponent(workflowId)}/github`}>
-            Record the employee&apos;s GitHub username
-          </Link>
-        </p>
-      )}
+    <ConsoleShell active="workflows" operatorId={session.operatorId}>
       {result.ok ? (
-        <WorkflowView view={result.body} />
+        <div>
+          <BackLink href="/admin/onboarding" label="All workflows" />
+          <WorkflowView view={result.body} />
+        </div>
       ) : (
-        <p role="alert">
-          {result.status === 404
-            ? "Workflow not found."
-            : result.status === 401
-              ? "Unauthorized."
-              : "Could not load this workflow. Try again."}
-        </p>
+        <>
+          <PageHeader
+            title="Onboarding workflow"
+            back={{ href: "/admin/onboarding", label: "All workflows" }}
+          />
+          <Callout
+            tone={result.status === 404 ? "gray" : "red"}
+            role="alert"
+            title={
+              result.status === 404
+                ? "Workflow not found."
+                : result.status === 401
+                  ? "Unauthorized."
+                  : "Could not load this workflow. Try again."
+            }
+          />
+        </>
       )}
-    </main>
+    </ConsoleShell>
   );
 }

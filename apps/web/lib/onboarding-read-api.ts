@@ -73,6 +73,7 @@ const LIST_QUERY_FIELDS: Record<string, RegExp> = {
   limit: /^\d{1,3}$/,
   cursor: /^[A-Za-z0-9_-]{1,200}$/,
   state: /^[A-Z_]{1,40}$/,
+  q: /^[\p{L}\p{N} @._'-]{1,100}$/u,
 };
 
 export function listQuery(input: Record<string, string | string[] | undefined>): URLSearchParams {

@@ -318,7 +318,11 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
     const fn = vi.fn(async (url: URL) =>
       String(url).includes(`/admin/onboarding/${WF}`)
         ? Response.json(base)
-        : Response.json({ items: [], nextCursor: null }),
+        : Response.json({
+            items: [],
+            summary: { total: 0, inProgress: 0, needsAttention: 0, completed: 0, failed: 0 },
+            nextCursor: null,
+          }),
     );
     vi.stubGlobal("fetch", fn);
     return fn;
@@ -347,7 +351,7 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
     const html = renderToStaticMarkup(
       await DetailPage({ params: Promise.resolve({ workflowId: WF }) }),
     );
-    expect(html).toContain("1. Overview");
+    expect(html).toContain("Role Access Agent");
     expect(html).toContain("non-employee-production-deny");
     const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
     expect(String(url)).toBe(`http://api.internal:4000/admin/onboarding/${WF}`);
@@ -361,7 +365,7 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
     const list = renderToStaticMarkup(
       await ListPage({ searchParams: Promise.resolve({ state: "COMPLETED", evil: "1" }) }),
     );
-    expect(list).toContain("No workflows found.");
+    expect(list).toContain("No workflows match.");
     expect(String(fetchMock.mock.calls[1]![0])).toBe(
       "http://api.internal:4000/admin/onboarding?limit=25&state=COMPLETED",
     );

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AuthShell } from "@/components/console/shell";
+import { Button, Callout, Field, styles as s } from "@/components/console/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -22,20 +24,30 @@ export default async function LoginPage({
   const params = await searchParams;
   const error = typeof params.error === "string" ? MESSAGES[params.error] : undefined;
   return (
-    <main>
-      <h1>Operator sign-in</h1>
-      <p>Sign in as an HR / onboarding operator to run onboardings.</p>
-      {error && <p role="alert">{error}</p>}
-      {params.loggedOut === "1" && <p role="status">Signed out.</p>}
+    <AuthShell
+      title="Sign in"
+      description="Run onboardings as an HR or onboarding operator."
+      footer={
+        <>
+          New here? <Link href="/admin/onboarding/signup">Create an operator account</Link>
+        </>
+      }
+    >
+      {error && <Callout tone="red" title={error} role="alert" />}
+      {params.loggedOut === "1" && <Callout tone="gray" title="Signed out." role="status" />}
       {params.loggedOut === "unconfirmed" && (
-        <p role="status">
-          Signed out in this browser. The server could not confirm the revocation; the session
-          expires on its own within 30 minutes.
-        </p>
+        <Callout tone="amber" title="Signed out in this browser." role="status">
+          The server could not confirm the revocation; the session expires on its own within 30
+          minutes.
+        </Callout>
       )}
-      <form method="post" action="/admin/onboarding/session">
-        <p>
-          <label htmlFor="email">Email</label>{" "}
+      <form
+        method="post"
+        action="/admin/onboarding/session"
+        className={s.stackMd}
+        style={{ gap: 16 }}
+      >
+        <Field label="Email" htmlFor="email">
           <input
             id="email"
             name="email"
@@ -43,10 +55,10 @@ export default async function LoginPage({
             required
             maxLength={64}
             autoComplete="username"
+            className={s.input}
           />
-        </p>
-        <p>
-          <label htmlFor="password">Password</label>{" "}
+        </Field>
+        <Field label="Password" htmlFor="password">
           <input
             id="password"
             name="password"
@@ -55,13 +67,11 @@ export default async function LoginPage({
             minLength={12}
             maxLength={128}
             autoComplete="current-password"
+            className={s.input}
           />
-        </p>
-        <button type="submit">Sign in</button>
+        </Field>
+        <Button block>Sign in</Button>
       </form>
-      <p>
-        New here? <Link href="/admin/onboarding/signup">Create an operator account</Link>
-      </p>
-    </main>
+    </AuthShell>
   );
 }

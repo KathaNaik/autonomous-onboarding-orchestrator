@@ -369,6 +369,38 @@ describe("list read model", () => {
       code: "INVALID_QUERY",
     });
   });
+
+  it("(M13 UI) searches, shows job title and resource names, and counts over all workflows", async () => {
+    const w = await life.build(["aws-dev", "aws-prod"], { decideApprovals: false });
+    const all = await reads().listWorkflows({ limit: 100 });
+    const row = all.items.find((i) => i.workflowId === w.workflowId)!;
+    expect(row.employee.jobTitle).toBeTruthy();
+    expect(row.blockers.find((b) => b.resourceId === "aws-prod")?.displayName).toBe(
+      life.catalogs.current.getResource("aws-prod").displayName,
+    );
+    // Counts cover every workflow, whatever the page or filter.
+    const { rows } = await handle.db.execute<{ n: number; c: number; f: number }>(sql`
+      SELECT count(*)::int AS n, count(*) FILTER (WHERE state = 'COMPLETED')::int AS c,
+             count(*) FILTER (WHERE state = 'FAILED')::int AS f FROM onboarding_workflows`);
+    const filtered = await reads().listWorkflows({ limit: 1, state: "COMPLETED" });
+    expect(filtered.summary).toEqual(all.summary);
+    expect(all.summary).toMatchObject({
+      total: rows[0]!.n,
+      completed: rows[0]!.c,
+      failed: rows[0]!.f,
+    });
+    expect(all.summary.inProgress).toBe(rows[0]!.n - rows[0]!.c - rows[0]!.f);
+    // This workflow waits on a human approval: it needs attention.
+    expect(all.summary.needsAttention).toBeGreaterThanOrEqual(1);
+    // Search by name (case-insensitive), workflow id prefix; wildcards are literal.
+    const name = row.employee.displayName;
+    const byName = await reads().listWorkflows({ limit: 100, q: name.toUpperCase() });
+    expect(byName.items.map((i) => i.workflowId)).toContain(w.workflowId);
+    const byId = await reads().listWorkflows({ limit: 100, q: w.workflowId.slice(0, 8) });
+    expect(byId.items.map((i) => i.workflowId)).toEqual([w.workflowId]);
+    expect((await reads().listWorkflows({ limit: 100, q: "%" })).items).toEqual([]);
+    expect((await reads().listWorkflows({ limit: 100, q: "zz-no-such-hire" })).items).toEqual([]);
+  });
 });
 
 describe("read path safety", () => {
@@ -396,7 +428,7 @@ describe("read path safety", () => {
     expect(b.select).toBeLessThanOrEqual(16);
     const l = counted(readOnly.db);
     await createWorkflowReadService(l.db, { catalogs: life.catalogs }).listWorkflows({ limit: 50 });
-    expect(l.calls).toEqual({ select: 5, write: 0 });
+    expect(l.calls).toEqual({ select: 6, write: 0 }); // (M13 UI) + one summary count
     expect(fetchSpy).not.toHaveBeenCalled();
     expect({ small: [small.sn.posts, small.sn.reads], big: [big.sn.posts, big.sn.reads] }).toEqual(
       snBefore,

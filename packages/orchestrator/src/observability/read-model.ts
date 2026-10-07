@@ -24,6 +24,9 @@ import {
 } from "@aoo/db";
 import {
   PLAN_PHASE_ORDER,
+  ATTENTION_BLOCKER_CLASSES,
+  ATTENTION_BLOCKERS,
+  ATTENTION_REQUEST_STATUSES,
   WorkflowListQuerySchema,
   type TimelineEntry,
   type WorkflowListResponse,
@@ -283,34 +286,87 @@ export function createWorkflowReadService(
   const nameOf = (catalog: ResourceCatalog | null, resourceId: string) =>
     catalog?.hasResource(resourceId) ? catalog.getResource(resourceId).displayName : null;
 
+  /** (M13 UI) Counts over all workflows, one query (the attention rule is shared with the console). */
+  async function listSummary(): Promise<WorkflowListResponse["summary"]> {
+    const statuses = sql.join(
+      ATTENTION_REQUEST_STATUSES.map((v) => sql`${v}`),
+      sql`, `,
+    );
+    const blockers = sql.join(
+      ATTENTION_BLOCKERS.map((v) => sql`${v}`),
+      sql`, `,
+    );
+    const classes = sql.join(
+      ATTENTION_BLOCKER_CLASSES.map((v) => sql`${v}`),
+      sql`, `,
+    );
+    const w = onboardingWorkflows;
+    const open = sql`onboarding_workflows.state::text NOT IN ('COMPLETED', 'FAILED')`;
+    const rows = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        inProgress: sql<number>`count(*) FILTER (WHERE ${open})::int`,
+        completed: sql<number>`count(*) FILTER (WHERE onboarding_workflows.state::text = 'COMPLETED')::int`,
+        failed: sql<number>`count(*) FILTER (WHERE onboarding_workflows.state::text = 'FAILED')::int`,
+        needsAttention: sql<number>`count(*) FILTER (WHERE onboarding_workflows.state::text = 'FAILED' OR (${open} AND EXISTS (
+          SELECT 1 FROM access_requests ar
+          JOIN workflow_provisioning_plans p
+            ON p.workflow_id = ar.workflow_id AND p.agent_run_id = ar.agent_run_id
+           AND p.status::text = 'ACTIVE'
+          WHERE ar.workflow_id = onboarding_workflows.id
+            AND ar.status::text NOT IN ('PROVISIONED', 'DENIED', 'REJECTED')
+            AND (ar.status::text IN (${statuses})
+              OR ar.orchestration_blocker::text IN (${blockers})
+              OR ar.blocker_class::text IN (${classes})))))::int`,
+      })
+      .from(w);
+    return rows[0] ?? { total: 0, inProgress: 0, needsAttention: 0, completed: 0, failed: 0 };
+  }
+
   async function listWorkflows(rawQuery: unknown = {}): Promise<WorkflowListResponse> {
     const parsed = WorkflowListQuerySchema.safeParse(rawQuery);
     if (!parsed.success) throw new ReadModelError("INVALID_QUERY", "invalid list query");
-    const { limit, cursor, state } = parsed.data;
+    const { limit, cursor, state, q } = parsed.data;
     const after = cursor ? decodeCursor(cursor) : null;
     if (cursor && !after) throw new ReadModelError("INVALID_QUERY", "invalid cursor");
     return withSpan("read_model.workflow_list", {}, async () => {
       const conditions: SQL[] = [];
       if (state) conditions.push(eq(onboardingWorkflows.state, state));
+      if (q) {
+        // Literal match: LIKE wildcards in the search text are escaped.
+        const like = `%${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        const prefix = `${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        conditions.push(
+          sql`(lower(${employees.firstName} || ' ' || ${employees.lastName}) LIKE ${like}
+            OR lower(${employees.email}) LIKE ${like}
+            OR lower(${employees.hrisEmployeeId}) LIKE ${like}
+            OR ${onboardingWorkflows.id}::text LIKE ${prefix})`,
+        );
+      }
       if (after) {
         conditions.push(
           sql`(${onboardingWorkflows.updatedAt}, ${onboardingWorkflows.id}) < (${after.u}::timestamptz, ${after.i}::uuid)`,
         );
       }
-      const rows = await db
-        .select({
-          workflow: onboardingWorkflows,
-          employee: employees,
-          updatedAtText: sql<string>`${onboardingWorkflows.updatedAt}::text`,
-        })
-        .from(onboardingWorkflows)
-        .innerJoin(employees, eq(employees.id, onboardingWorkflows.employeeId))
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(onboardingWorkflows.updatedAt), desc(onboardingWorkflows.id))
-        .limit(limit + 1);
+      const [rows, summary] = await Promise.all([
+        db
+          .select({
+            workflow: onboardingWorkflows,
+            employee: employees,
+            updatedAtText: sql<string>`${onboardingWorkflows.updatedAt}::text`,
+            jobTitle: sql<string | null>`${hrisEventReceipts.payload}->>'role'`,
+          })
+          .from(onboardingWorkflows)
+          .innerJoin(employees, eq(employees.id, onboardingWorkflows.employeeId))
+          .leftJoin(hrisEventReceipts, eq(hrisEventReceipts.eventId, employees.factsHrisEventId))
+          .where(conditions.length ? and(...conditions) : undefined)
+          .orderBy(desc(onboardingWorkflows.updatedAt), desc(onboardingWorkflows.id))
+          .limit(limit + 1),
+        listSummary(),
+      ]);
       const page = rows.slice(0, limit);
       const ids = page.map((r) => r.workflow.id);
-      if (ids.length === 0) return { items: [], nextCursor: null };
+      if (ids.length === 0) return { items: [], summary, nextCursor: null };
 
       // Batched per page (fixed query count, no per-row queries).
       const [plans, planRows, runRows] = await Promise.all([
@@ -356,8 +412,9 @@ export function createWorkflowReadService(
             )
         : [];
 
-      const items: WorkflowSummary[] = page.map(({ workflow, employee }) => {
+      const items: WorkflowSummary[] = page.map(({ workflow, employee, jobTitle }) => {
         const plan = current.get(workflow.id) ?? null;
+        const planCatalog = plan ? catalogFor(plan.catalogVersion, plan.catalogHash) : null;
         const reqs = plan
           ? requests
               .filter((r) => r.workflowId === workflow.id && r.agentRunId === plan.agentRunId)
@@ -369,6 +426,7 @@ export function createWorkflowReadService(
           employee: {
             hrisEmployeeId: employee.hrisEmployeeId,
             displayName: safeText(`${employee.firstName} ${employee.lastName}`, 300) ?? "",
+            jobTitle: safeText(jobTitle, 300),
             facts:
               employee.departmentCode && employee.roleFamilyCode && employee.employmentType
                 ? {
@@ -393,6 +451,7 @@ export function createWorkflowReadService(
             .slice(0, 5)
             .map((r) => ({
               resourceId: r.resourceId,
+              displayName: nameOf(planCatalog, r.resourceId),
               status: r.status,
               blocker: r.blocker,
               blockerClass: r.blockerClass,
@@ -402,6 +461,7 @@ export function createWorkflowReadService(
       const last = page[page.length - 1]!;
       return {
         items,
+        summary,
         nextCursor: rows.length > limit ? encodeCursor(last.updatedAtText, last.workflow.id) : null,
       };
     });

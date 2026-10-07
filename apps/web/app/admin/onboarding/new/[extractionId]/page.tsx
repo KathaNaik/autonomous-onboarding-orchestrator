@@ -4,9 +4,27 @@ import {
   ROLE_FAMILY_CODES,
   ROLE_FAMILY_DEPARTMENTS,
 } from "@aoo/shared";
-import Link from "next/link";
+import { ConsoleShell } from "@/components/console/shell";
+import {
+  Button,
+  ButtonLink,
+  Callout,
+  Card,
+  Field,
+  PageHeader,
+  Section,
+  Steps,
+  cx,
+  styles as s,
+} from "@/components/console/ui";
+import {
+  EMPLOYMENT_LABELS,
+  NEW_ONBOARDING_STEPS,
+  PROPOSAL_FIELD_LABELS,
+  ROLE_FAMILY_LABELS,
+  humanize,
+} from "@/lib/console-model";
 import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
-import { humanize } from "@/lib/dashboard-model";
 import { OFFER_ERROR_MESSAGES, fetchOfferLetter } from "@/lib/offer-letter-api";
 
 export const dynamic = "force-dynamic";
@@ -19,16 +37,18 @@ const WARNING_TEXT: Record<string, string> = {
   AMBIGUOUS_START_DATE: "No exact start date was found.",
   EMAIL_UNREADABLE: "No valid work email was found; enter it.",
 };
+const fieldName = (w: string) => {
+  const f = w.split(":")[1] ?? "";
+  return PROPOSAL_FIELD_LABELS[f] ?? humanize(f);
+};
 const warningText = (w: string) =>
   w.startsWith("SENSITIVE_CONTENT_REMOVED:")
-    ? `Compensation or personal details were removed from “${humanize(w.split(":")[1] ?? "")}”.`
+    ? `Compensation or personal details were removed from “${fieldName(w)}”.`
     : w.startsWith("CODE_REMOVED:")
-      ? `A code-like value was removed from “${humanize(w.split(":")[1] ?? "")}”; codes are chosen below, never taken from the letter.`
+      ? `A code-like value was removed from “${fieldName(w)}”; codes are chosen below, never taken from the letter.`
       : w.startsWith("INSTRUCTION_REMOVED:")
-        ? `Text addressed to the AI was removed from “${humanize(w.split(":")[1] ?? "")}”.`
+        ? `Text addressed to the AI was removed from “${fieldName(w)}”.`
         : (WARNING_TEXT[w] ?? humanize(w));
-
-const field = { display: "grid", gap: 4 } as const;
 
 /**
  * (M11) Step 2, review: AI-proposed display fields pre-fill the form; the operator corrects them,
@@ -48,167 +68,263 @@ export default async function ReviewOfferLetterPage({
   const error = typeof query.error === "string" ? OFFER_ERROR_MESSAGES[query.error] : undefined;
   const result = await fetchOfferLetter(extractionId, session);
   if (!result.ok) redirectIfUnauthorized(result.status);
+  const header = (
+    <PageHeader
+      title="Review the new hire"
+      description="Check each field against the letter. You choose the access-driving facts; the AI never does."
+      back={{ href: "/admin/onboarding/new", label: "Upload another letter" }}
+    />
+  );
+  if (!result.ok) {
+    return (
+      <ConsoleShell active="new" operatorId={session.operatorId}>
+        {header}
+        <Callout
+          tone="red"
+          role="alert"
+          title={OFFER_ERROR_MESSAGES[result.body.error] ?? "Could not load this letter."}
+        />
+      </ConsoleShell>
+    );
+  }
+  if (result.body.status === "SUBMITTED" && result.body.workflowId) {
+    return (
+      <ConsoleShell active="new" operatorId={session.operatorId}>
+        {header}
+        <Callout
+          tone="green"
+          role="status"
+          title="This letter already started an onboarding."
+          action={
+            <ButtonLink href={`/admin/onboarding/${result.body.workflowId}`} variant="primary">
+              Open the workflow
+            </ButtonLink>
+          }
+        />
+      </ConsoleShell>
+    );
+  }
+  const p = result.body.proposal;
   return (
-    <main>
-      <p>
-        <Link href="/admin/onboarding/new">← Upload another letter</Link>
-      </p>
-      <h1>Review the new hire</h1>
-      {!result.ok ? (
-        <p role="alert">
-          {OFFER_ERROR_MESSAGES[result.body.error] ?? "Could not load this letter."}
-        </p>
-      ) : result.body.status === "SUBMITTED" && result.body.workflowId ? (
-        <p role="status">
-          This letter already started an onboarding.{" "}
-          <Link href={`/admin/onboarding/${result.body.workflowId}`}>Open the workflow</Link>
-        </p>
-      ) : (
-        <>
-          <p>
-            The fields below were proposed by the Offer Letter Extractor. Check each one against the
-            letter. The access-relevant choices at the bottom are yours: they are not taken from the
-            letter.
-          </p>
-          {result.body.proposal.warnings.length > 0 && (
-            <ul aria-label="warnings">
-              {result.body.proposal.warnings.map((w) => (
-                <li key={w}>{warningText(w)}</li>
-              ))}
-            </ul>
-          )}
-          {error && <p role="alert">{error}</p>}
-          <form
-            method="post"
-            action={`/admin/onboarding/new/${encodeURIComponent(extractionId)}/start`}
-            style={{ display: "grid", gap: 14, maxWidth: 640, marginTop: 12 }}
-          >
-            <fieldset style={{ display: "grid", gap: 12 }}>
-              <legend>Hire (from the letter)</legend>
-              <label style={field}>
-                First name
-                <input
-                  name="firstName"
-                  required
-                  maxLength={100}
-                  defaultValue={result.body.proposal.firstName ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Last name
-                <input
-                  name="lastName"
-                  required
-                  maxLength={100}
-                  defaultValue={result.body.proposal.lastName ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Work email
-                <input
-                  name="email"
-                  type="email"
-                  required
-                  maxLength={254}
-                  defaultValue={result.body.proposal.workEmail ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Job title
-                <input
-                  name="role"
-                  required
-                  maxLength={200}
-                  defaultValue={result.body.proposal.jobTitle ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Department (as written)
-                <input
-                  name="department"
-                  required
-                  maxLength={200}
-                  defaultValue={result.body.proposal.department ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Manager
-                <input
-                  name="managerId"
-                  required
-                  maxLength={200}
-                  defaultValue={result.body.proposal.managerName ?? ""}
-                />
-              </label>
-              <label style={field}>
-                Job description (optional, helps the Role Access Agent)
-                <textarea
-                  name="jobDescription"
-                  rows={4}
-                  maxLength={4000}
-                  defaultValue={result.body.proposal.jobSummary ?? ""}
-                />
-              </label>
-              {result.body.proposal.startDate && (
-                <p style={{ margin: 0 }}>
-                  <small>Start date in the letter: {result.body.proposal.startDate}</small>
-                </p>
-              )}
+    <ConsoleShell active="new" operatorId={session.operatorId}>
+      {header}
+      <Steps steps={NEW_ONBOARDING_STEPS} current={1} />
+      {p.warnings.length > 0 && (
+        <Callout tone="amber" title="Check these before you continue">
+          <ul aria-label="warnings" style={{ paddingLeft: 18, marginTop: 4 }}>
+            {p.warnings.map((w) => (
+              <li key={w}>{warningText(w)}</li>
+            ))}
+          </ul>
+        </Callout>
+      )}
+      {error && <Callout tone="red" role="alert" title={error} />}
+      <form
+        method="post"
+        action={`/admin/onboarding/new/${encodeURIComponent(extractionId)}/start`}
+        className={s.stackMd}
+        style={{ gap: 32 }}
+      >
+        <Section
+          id="extracted"
+          title="Extracted from offer"
+          actor={{ kind: "AI", label: "Proposed by AI" }}
+          description="Pre-filled by the Offer Letter Extractor. Correct anything that doesn't match the letter."
+        >
+          <Card className={s.cardBody}>
+            <fieldset className={s.fieldset}>
+              <legend className={s.skip}>Hire details from the letter</legend>
+              <div className={s.formGrid}>
+                <Field label="First name" htmlFor="firstName">
+                  <input
+                    id="firstName"
+                    name="firstName"
+                    required
+                    maxLength={100}
+                    defaultValue={p.firstName ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field label="Last name" htmlFor="lastName">
+                  <input
+                    id="lastName"
+                    name="lastName"
+                    required
+                    maxLength={100}
+                    defaultValue={p.lastName ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field label="Work email" htmlFor="email">
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    maxLength={254}
+                    defaultValue={p.workEmail ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field label="Job title" htmlFor="role">
+                  <input
+                    id="role"
+                    name="role"
+                    required
+                    maxLength={200}
+                    defaultValue={p.jobTitle ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field label="Department (as written)" htmlFor="department">
+                  <input
+                    id="department"
+                    name="department"
+                    required
+                    maxLength={200}
+                    defaultValue={p.department ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field label="Manager" htmlFor="managerId">
+                  <input
+                    id="managerId"
+                    name="managerId"
+                    required
+                    maxLength={200}
+                    defaultValue={p.managerName ?? ""}
+                    className={s.input}
+                  />
+                </Field>
+                <Field
+                  label="Start date"
+                  htmlFor="startDate"
+                  hint="Read from the letter for reference; it isn't sent with the onboarding."
+                >
+                  <input
+                    id="startDate"
+                    value={p.startDate ?? "Not found in the letter"}
+                    readOnly
+                    disabled
+                    className={s.input}
+                  />
+                </Field>
+                <Field
+                  label="Job description"
+                  htmlFor="jobDescription"
+                  hint="Optional. Helps the Role Access Agent recommend access; it never authorizes anything."
+                  wide
+                >
+                  <textarea
+                    id="jobDescription"
+                    name="jobDescription"
+                    rows={4}
+                    maxLength={4000}
+                    defaultValue={p.jobSummary ?? ""}
+                    className={s.textarea}
+                  />
+                </Field>
+              </div>
             </fieldset>
-            <fieldset style={{ display: "grid", gap: 12 }}>
-              <legend>Access-relevant facts (you choose; the AI never sets these)</legend>
-              <label style={field}>
-                Department code
-                <select name="departmentCode" required defaultValue="">
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  {DEPARTMENT_CODES.map((c) => (
-                    <option key={c} value={c}>
-                      {humanize(c)}
+          </Card>
+        </Section>
+
+        <Section
+          id="facts"
+          title="Access-driving facts"
+          actor={{ kind: "Operator", label: "Chosen by you" }}
+          description="These fields affect access policy and must be selected by an operator. They are never chosen by AI."
+        >
+          <Card className={s.cardBody}>
+            <fieldset className={s.fieldset}>
+              <legend className={s.skip}>Access-driving facts</legend>
+              <div
+                className={s.formGrid}
+                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
+              >
+                <Field label="Department" htmlFor="departmentCode">
+                  <select
+                    id="departmentCode"
+                    name="departmentCode"
+                    required
+                    defaultValue=""
+                    className={s.select}
+                  >
+                    <option value="" disabled>
+                      Choose…
                     </option>
-                  ))}
-                </select>
-              </label>
-              <label style={field}>
-                Role family
-                <select name="roleFamilyCode" required defaultValue="">
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  {ROLE_FAMILY_CODES.map((c) => (
-                    <option key={c} value={c}>
-                      {humanize(c)} ({ROLE_FAMILY_DEPARTMENTS[c].map(humanize).join(", ")})
+                    {DEPARTMENT_CODES.map((c) => (
+                      <option key={c} value={c}>
+                        {humanize(c)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Role family" htmlFor="roleFamilyCode">
+                  <select
+                    id="roleFamilyCode"
+                    name="roleFamilyCode"
+                    required
+                    defaultValue=""
+                    className={s.select}
+                  >
+                    <option value="" disabled>
+                      Choose…
                     </option>
-                  ))}
-                </select>
-              </label>
-              <label style={field}>
-                Employment type
-                <select name="employmentType" required defaultValue="">
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  {EMPLOYMENT_TYPE_CODES.map((c) => (
-                    <option key={c} value={c}>
-                      {humanize(c)}
+                    {ROLE_FAMILY_CODES.map((c) => (
+                      <option key={c} value={c}>
+                        {`${ROLE_FAMILY_LABELS[c] ?? humanize(c)} (${ROLE_FAMILY_DEPARTMENTS[c].map(humanize).join(", ")})`}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Employment type" htmlFor="employmentType">
+                  <select
+                    id="employmentType"
+                    name="employmentType"
+                    required
+                    defaultValue=""
+                    className={s.select}
+                  >
+                    <option value="" disabled>
+                      Choose…
                     </option>
-                  ))}
-                </select>
-              </label>
+                    {EMPLOYMENT_TYPE_CODES.map((c) => (
+                      <option key={c} value={c}>
+                        {EMPLOYMENT_LABELS[c] ?? humanize(c)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
             </fieldset>
-            <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <input type="checkbox" name="offerSignedAndCleared" value="true" required />
-              <span>
+          </Card>
+        </Section>
+
+        <section aria-labelledby="start-title" className={s.stackMd} style={{ gap: 16 }}>
+          <h2 id="start-title" className={s.sectionTitle}>
+            Start onboarding
+          </h2>
+          <label className={s.attest}>
+            <input type="checkbox" name="offerSignedAndCleared" value="true" required />
+            <span className={s.stack}>
+              <span className={s.primaryText}>
                 I confirm the offer is signed and the candidate is cleared to start onboarding.
               </span>
-            </label>
-            <button type="submit" style={{ justifySelf: "start" }}>
-              Start onboarding
-            </button>
-          </form>
-        </>
-      )}
-    </main>
+              <span className={cx(s.small)} style={{ color: "var(--gray-fg)" }}>
+                Nothing starts without this confirmation. Submitting starts the same onboarding as a
+                signed HRIS event, recorded under your name.
+              </span>
+            </span>
+          </label>
+          <div className={s.actions}>
+            <Button>Start onboarding</Button>
+            <ButtonLink href="/admin/onboarding" variant="secondary">
+              Cancel
+            </ButtonLink>
+          </div>
+        </section>
+      </form>
+    </ConsoleShell>
   );
 }

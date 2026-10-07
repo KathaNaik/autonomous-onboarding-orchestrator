@@ -17,7 +17,7 @@ const lines: string[] = [];
 const summary: WorkflowSummary = {
   workflowId: WF,
   state: "COMPLETED",
-  employee: { hrisEmployeeId: "E-1", displayName: "Grace Hopper", facts: null },
+  employee: { hrisEmployeeId: "E-1", displayName: "Grace Hopper", jobTitle: null, facts: null },
   createdAt: "2026-09-30T00:00:00.000Z",
   updatedAt: "2026-09-30T00:00:01.000Z",
   completedAt: "2026-09-30T00:00:01.000Z",
@@ -81,7 +81,11 @@ beforeAll(async () => {
 });
 afterAll(() => app.close());
 beforeEach(() => {
-  listWorkflows.mockReset().mockResolvedValue({ items: [summary], nextCursor: null });
+  listWorkflows.mockReset().mockResolvedValue({
+    items: [summary],
+    summary: { total: 1, inProgress: 0, needsAttention: 0, completed: 1, failed: 0 },
+    nextCursor: null,
+  });
   getWorkflowObservabilityView.mockReset().mockResolvedValue(view());
   lines.length = 0;
 });

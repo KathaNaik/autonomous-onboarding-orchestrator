@@ -6,6 +6,9 @@ export default defineProject({
     alias: {
       "@aoo/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)),
       "@": fileURLToPath(new URL("./", import.meta.url)),
+      "next/font/google": fileURLToPath(
+        new URL("./test/stubs/next-font-google.ts", import.meta.url),
+      ),
     },
   },
   test: {

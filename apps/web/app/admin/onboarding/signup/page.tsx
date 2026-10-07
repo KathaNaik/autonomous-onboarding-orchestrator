@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AuthShell } from "@/components/console/shell";
+import { Button, Callout, Field, styles as s } from "@/components/console/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +26,23 @@ export default async function SignUpPage({
   const params = await searchParams;
   const error = typeof params.error === "string" ? MESSAGES[params.error] : undefined;
   return (
-    <main>
-      <h1>Create an operator account</h1>
-      <p>
-        Act as an HR / onboarding operator: upload offer letters, review the details and start
-        onboardings. Your email becomes your operator name in the audit trail.
-      </p>
-      {error && <p role="alert">{error}</p>}
-      <form method="post" action="/admin/onboarding/signup/create">
-        <p>
-          <label htmlFor="email">Email</label>{" "}
+    <AuthShell
+      title="Create an operator account"
+      description="Upload offer letters, review the details and start onboardings. Your email becomes your operator name in the audit trail."
+      footer={
+        <>
+          Already have an account? <Link href="/admin/onboarding/login">Sign in</Link>
+        </>
+      }
+    >
+      {error && <Callout tone="red" title={error} role="alert" />}
+      <form
+        method="post"
+        action="/admin/onboarding/signup/create"
+        className={s.stackMd}
+        style={{ gap: 16 }}
+      >
+        <Field label="Email" htmlFor="email">
           <input
             id="email"
             name="email"
@@ -41,10 +50,10 @@ export default async function SignUpPage({
             required
             maxLength={64}
             autoComplete="username"
+            className={s.input}
           />
-        </p>
-        <p>
-          <label htmlFor="password">Password (12+ characters)</label>{" "}
+        </Field>
+        <Field label="Password" htmlFor="password" hint="12 to 128 characters.">
           <input
             id="password"
             name="password"
@@ -53,10 +62,10 @@ export default async function SignUpPage({
             minLength={12}
             maxLength={128}
             autoComplete="new-password"
+            className={s.input}
           />
-        </p>
-        <p>
-          <label htmlFor="confirm">Confirm password</label>{" "}
+        </Field>
+        <Field label="Confirm password" htmlFor="confirm">
           <input
             id="confirm"
             name="confirm"
@@ -65,13 +74,11 @@ export default async function SignUpPage({
             minLength={12}
             maxLength={128}
             autoComplete="new-password"
+            className={s.input}
           />
-        </p>
-        <button type="submit">Create account</button>
+        </Field>
+        <Button block>Create account</Button>
       </form>
-      <p>
-        Already have an account? <Link href="/admin/onboarding/login">Sign in</Link>
-      </p>
-    </main>
+    </AuthShell>
   );
 }
