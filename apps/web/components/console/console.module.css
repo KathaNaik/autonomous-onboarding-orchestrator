@@ -854,6 +854,13 @@
   margin: 0;
   padding: 20px 24px;
   gap: 0;
+  align-items: start;
+}
+.lcCompact .lcNote {
+  display: none;
+}
+.lcCompact .lcLabel {
+  font-size: 12px;
 }
 .lcStep {
   position: relative;

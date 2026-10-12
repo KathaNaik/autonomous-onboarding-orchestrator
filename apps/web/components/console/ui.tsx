@@ -331,9 +331,16 @@ const STEP_NOTE: Record<StepStatus, string> = {
   failed: "Stopped here",
 };
 
-export function Lifecycle({ steps }: { steps: { label: string; status: StepStatus }[] }) {
+export function Lifecycle({
+  steps,
+  compact,
+}: {
+  steps: { label: string; status: StepStatus }[];
+  /** Labels only (no per-step status line), for small spaces. */
+  compact?: boolean;
+}) {
   return (
-    <ol className={s.lifecycle} aria-label="Onboarding lifecycle">
+    <ol className={cx(s.lifecycle, compact && s.lcCompact)} aria-label="Onboarding lifecycle">
       {steps.map((st) => (
         <li
           key={st.label}
