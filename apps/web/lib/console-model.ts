@@ -296,6 +296,24 @@ export function describeBlocker(b: BlockerLike): Issue {
         text: `${name}: a required resource isn't authorized`,
         plural: (n) => `${n} resources blocked by dependencies`,
       };
+    case "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE":
+      return {
+        kind: "github-owned",
+        text: `${name}: GitHub account already linked to another employee`,
+        plural: (n) => `${n} resources blocked by a GitHub account linked to another employee`,
+      };
+    case "GITHUB_IDENTITY_NOT_FOUND":
+      return {
+        kind: "github-not-found",
+        text: `${name}: GitHub username not found`,
+        plural: (n) => `${n} resources wait for a valid GitHub username`,
+      };
+    case "GITHUB_IDENTITY_CONFLICT":
+      return {
+        kind: "github-conflict",
+        text: `${name}: GitHub account doesn't match the recorded username`,
+        plural: (n) => `${n} resources blocked by a GitHub account mismatch`,
+      };
     default:
       if (b.blocker?.endsWith("_TARGET_NOT_CONFIGURED"))
         return {
@@ -303,9 +321,10 @@ export function describeBlocker(b: BlockerLike): Issue {
           text: `${name}: target not configured`,
           plural: (n) => `${n} resources need configuration`,
         };
+      // A blocker says more than the status (a READY request can still be blocked).
       return {
         kind: `other:${b.blocker ?? b.status}`,
-        text: `${name}: ${RESOURCE_STATUS_LABELS[b.status] ?? humanize(b.blocker ?? b.status)}`,
+        text: `${name}: ${b.blocker ? humanize(b.blocker) : (RESOURCE_STATUS_LABELS[b.status] ?? humanize(b.status))}`,
         plural: (n) => `${n} resources in progress`,
       };
   }

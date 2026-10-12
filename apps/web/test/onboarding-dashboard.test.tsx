@@ -200,6 +200,22 @@ describe("operator console: workflow list", () => {
         ),
       ])?.headline,
     ).toBe("GitHub username required");
+    const owned = attentionSummary([
+      b(
+        "github-org-membership",
+        "READY_FOR_PROVISIONING",
+        "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE",
+        "GitHub engineering organization",
+      ),
+    ]);
+    expect(owned?.headline).toBe(
+      "GitHub engineering organization: GitHub account already linked to another employee",
+    );
+    expect(JSON.stringify(owned)).not.toContain("Ready");
+    expect(
+      attentionSummary([b("okta", "READY_FOR_PROVISIONING", "SOME_NEW_BLOCKER", "Okta group")])
+        ?.headline,
+    ).toBe("Okta group: Some new blocker");
     expect(
       attentionSummary([
         b("aws-dev", "PROVISIONING", "SERVICENOW_FULFILLMENT_PENDING", "AWS dev"),
