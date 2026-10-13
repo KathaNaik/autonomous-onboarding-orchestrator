@@ -1,0 +1,239 @@
+/* Landing page interactive example (uses the console tokens from .root). */
+.sim {
+  margin: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 30px 60px -20px rgba(0, 0, 0, 0.55),
+    0 10px 20px -10px rgba(0, 0, 0, 0.3);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.toolbarLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.segment {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--gray-bg);
+  border: 1px solid var(--border);
+}
+.segButton {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.segButton:hover {
+  color: var(--text);
+}
+.segButton:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.segActive {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
+}
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 4px;
+}
+.name {
+  font-weight: 600;
+  font-size: 16px;
+}
+.meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.lifecycle {
+  border-bottom: 1px solid var(--border);
+}
+.tableWrap {
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.table thead th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-sunken);
+}
+.table tbody tr {
+  transition: background-color 200ms ease;
+}
+.tool {
+  font-weight: 500;
+}
+.focusRow {
+  background: var(--amber-bg);
+}
+.cellStack {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.why {
+  color: var(--muted);
+  font-size: 12px;
+}
+.conf {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.confTrack {
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--gray-bg);
+  overflow: hidden;
+}
+.confFill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  animation: grow 600ms ease-out;
+}
+@keyframes grow {
+  from {
+    width: 0 !important;
+  }
+}
+.plan {
+  list-style: none;
+  margin: 0;
+  padding: 12px 20px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--green-bg);
+  color: var(--gray-fg);
+}
+.plan li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.plan svg {
+  color: var(--green-fg);
+  flex: none;
+}
+.narration {
+  padding: 14px 20px 4px;
+}
+.narrationHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stepCount {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.narrationTitle {
+  margin: 6px 0 2px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.narrationText {
+  margin: 0;
+  color: var(--gray-fg);
+  font-size: 13px;
+  line-height: 20px;
+  min-height: 40px;
+}
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 16px;
+}
+.controlsRight {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 560px) {
+  .table thead {
+    display: none;
+  }
+  .table,
+  .table tbody,
+  .table tr,
+  .table th,
+  .table td {
+    display: block;
+  }
+  .table tr {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .table th,
+  .table td {
+    border: 0;
+    padding: 3px 0;
+  }
+  .table td {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px;
+  }
+  .table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .confFill {
+    animation: none;
+  }
+  .table tbody tr {
+    transition: none;
+  }
+}

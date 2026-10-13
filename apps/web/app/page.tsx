@@ -1,20 +1,60 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { geistMono, geistSans } from "@/components/console/fonts";
 import * as I from "@/components/console/icons";
-import {
-  ActorChip,
-  ButtonLink,
-  DataTable,
-  Lifecycle,
-  StatusBadge,
-  cx,
-  styles as c,
-} from "@/components/console/ui";
+import { ActorChip, StatusBadge, cx, styles as c } from "@/components/console/ui";
 import { stateLabel, toneOf } from "@/lib/console-model";
 import { DEMO_SCENARIOS } from "@/lib/demo-data";
+import { OnboardingSimulator } from "./onboarding-simulator";
 import styles from "./page.module.css";
 
 export const dynamic = "force-static";
+
+const INTEGRATIONS = ["ServiceNow", "Okta", "GitHub", "OpenAI"];
+
+const STEPS: { actor: "AI" | "Policy" | "Worker"; chip: string; title: string; text: string }[] = [
+  {
+    actor: "AI",
+    chip: "AI recommends",
+    title: "Recommend access",
+    text: "An agent reads the role and suggests tools, only from a versioned catalog. Its output is a request, never a decision.",
+  },
+  {
+    actor: "Policy",
+    chip: "Policy authorizes",
+    title: "Authorize each tool",
+    text: "Deterministic, versioned rules allow, deny or ask for a human approval in ServiceNow, one tool at a time.",
+  },
+  {
+    actor: "Worker",
+    chip: "Swift executes",
+    title: "Set up and verify",
+    text: "A durable workflow sets up Okta, GitHub and ServiceNow access in dependency order, confirms each change and retries safely.",
+  },
+];
+
+const GUARANTEES: { icon: ReactNode; title: string; text: string }[] = [
+  {
+    icon: <I.Shield size={18} />,
+    title: "Decisions you can replay",
+    text: "Every decision records the exact policy and catalog version it used, so it can be explained and re-checked later.",
+  },
+  {
+    icon: <I.Check size={18} />,
+    title: "No duplicate accounts",
+    text: "Each change in ServiceNow, Okta or GitHub is checked before and confirmed after, so a retry never repeats it.",
+  },
+  {
+    icon: <I.Clock size={18} />,
+    title: "Nothing gets lost",
+    text: "Onboardings survive restarts and outages. Work that is waiting on a person picks up again on its own.",
+  },
+  {
+    icon: <I.FileDoc size={18} />,
+    title: "A complete audit trail",
+    text: "An append-only record of every recommendation, decision, approval and change, with who did it.",
+  },
+];
 
 const TECH_STACK: { label: string; items: string[] }[] = [
   { label: "Frontend", items: ["Next.js 16", "React 19", "TypeScript"] },
@@ -33,216 +73,165 @@ const TECH_STACK: { label: string; items: string[] }[] = [
   },
   { label: "Integrations", items: ["ServiceNow", "Okta", "GitHub"] },
   { label: "Infrastructure", items: ["Vercel", "Upstash QStash", "Docker Compose"] },
-  { label: "Quality", items: ["Vitest: 800 unit tests", "368 integration tests", "OpenTelemetry"] },
+  {
+    label: "Quality",
+    items: ["Vitest: 800+ unit tests", "368 integration tests", "OpenTelemetry"],
+  },
   {
     label: "Security",
     items: ["Signed webhooks", "Idempotent provider writes", "Append-only audit"],
   },
 ];
 
-/** A small confidence bar with its percentage (the column header names it). */
-function Confidence({ value }: { value: number }) {
-  return (
-    <span className={c.meter}>
-      <span className={c.meterTrack} aria-hidden="true">
-        <span className={c.meterFill} style={{ width: `${value}%`, display: "block" }} />
-      </span>
-      {value}%
-    </span>
-  );
-}
-
-/** A product fragment for the hero: the console's own components, synthetic data. */
-function ProductFragment() {
-  return (
-    <figure className={styles.product} aria-label="Example onboarding in the Swift console">
-      <div className={styles.productHead}>
-        <div>
-          <div className={styles.productName}>Jordan Rivera</div>
-          <div className={styles.productMeta}>
-            Frontend Software Engineer · Engineering, Full-time
-          </div>
-        </div>
-        <StatusBadge tone="amber" label="Awaiting approval" />
-      </div>
-      <div className={styles.productLifecycle}>
-        <Lifecycle
-          compact
-          steps={[
-            { label: "Intake", status: "done" },
-            { label: "Access planning", status: "done" },
-            { label: "Approval", status: "current" },
-            { label: "Provisioning", status: "upcoming" },
-            { label: "Onboarding plan", status: "upcoming" },
-            { label: "Complete", status: "upcoming" },
-          ]}
-        />
-      </div>
-      <DataTable
-        caption="How each resource is decided"
-        columns={[
-          { key: "resource", label: "Resource", primary: true },
-          { key: "ai", label: "AI recommends" },
-          { key: "policy", label: "Policy authorizes" },
-          { key: "run", label: "Orchestrator executes" },
-        ]}
-        rows={[
-          {
-            key: "gh",
-            cells: {
-              resource: <span className={c.primaryText}>GitHub organization</span>,
-              ai: <Confidence value={92} />,
-              policy: <StatusBadge tone="green" label="Allow" />,
-              run: <StatusBadge tone="green" label="Provisioned" />,
-            },
-          },
-          {
-            key: "dev",
-            cells: {
-              resource: <span className={c.primaryText}>AWS development account</span>,
-              ai: <Confidence value={88} />,
-              policy: <StatusBadge tone="green" label="Allow" />,
-              run: <StatusBadge tone="blue" label="In progress" />,
-            },
-          },
-          {
-            key: "prod",
-            cells: {
-              resource: <span className={c.primaryText}>AWS production account</span>,
-              ai: <Confidence value={71} />,
-              policy: <StatusBadge tone="amber" label="Requires approval" />,
-              run: <span className={c.muted}>Waits for approval</span>,
-            },
-          },
-        ]}
-      />
-      <figcaption className={styles.productNote}>
-        Synthetic example. Each resource is decided and provisioned on its own, so one pending
-        approval never blocks the rest.
-      </figcaption>
-    </figure>
-  );
-}
-
-/** Public landing page: what Swift is, why it exists, how it works, a way to try it, the stack. */
+/** Public landing page: what Swift is, an interactive example, why it exists, how it works. */
 export default function HomePage() {
   return (
     <div className={cx(c.root, geistSans.variable, geistMono.variable, styles.page)}>
-      <header className={styles.topbar}>
-        <div className={cx(styles.container, styles.topbarInner)}>
-          <Link href="/" className={c.brand}>
-            <span className={c.brandMark}>
+      <div className={styles.dark}>
+        <header className={cx(styles.container, styles.topbar)}>
+          <Link href="/" className={styles.brand}>
+            <span className={styles.brandMark}>
               <I.Logo />
             </span>
             Swift
           </Link>
           <nav aria-label="Site" className={styles.topLinks}>
-            <Link href="/demo" className={c.navLink}>
+            <Link href="/demo" className={styles.topLink}>
               Demo
             </Link>
-            <ButtonLink href="/admin/onboarding/login" variant="secondary">
+            <Link href="/admin/onboarding/login" className={styles.topButton}>
               Operator login
-            </ButtonLink>
+            </Link>
           </nav>
-        </div>
-      </header>
+        </header>
 
-      <main>
-        <section className={styles.hero}>
-          <div className={cx(styles.container, styles.heroGrid)}>
-            <div>
-              <h1 className={styles.title}>Swift</h1>
-              <p className={styles.subtitle}>AOO · Autonomous Onboarding Orchestrator</p>
-              <p className={styles.lead}>
-                Swift gets a new hire ready to work without the wait. As soon as an offer is signed,
-                it works out which tools the person needs, asks a human to approve anything
-                sensitive, sets up their accounts, and hands them a plan for their first month.
-              </p>
-              <div className={styles.ctas}>
-                <ButtonLink href="/demo" variant="primary" className={styles.bigButton}>
-                  Explore the demo
-                </ButtonLink>
-                <ButtonLink
-                  href="/admin/onboarding/login"
-                  variant="secondary"
-                  className={styles.bigButton}
-                >
-                  Operator login
-                </ButtonLink>
-              </div>
-              <p className={styles.chain} aria-label="How decisions flow">
-                <ActorChip actor="AI" label="AI recommends" />
-                <span aria-hidden="true">→</span>
-                <ActorChip actor="Policy" label="Policy authorizes" />
-                <span aria-hidden="true">→</span>
-                <ActorChip actor="Worker" label="Orchestrator executes" />
-              </p>
+        <section className={cx(styles.container, styles.hero)}>
+          <div className={styles.heroCopy}>
+            <p className={styles.eyebrow}>Swift · AOO · Autonomous Onboarding Orchestrator</p>
+            <h1 className={styles.title}>
+              New hires ready on day one, <span className={styles.titleAccent}>not week four.</span>
+            </h1>
+            <p className={styles.lead}>
+              As soon as an offer is signed, Swift works out which tools the person needs, asks a
+              human to approve anything sensitive, sets up their accounts and hands them a plan for
+              their first month.
+            </p>
+            <div className={styles.ctas}>
+              <Link href="/demo" className={styles.ctaPrimary}>
+                Explore the demo
+              </Link>
+              <Link href="/admin/onboarding/login" className={styles.ctaSecondary}>
+                Operator login
+              </Link>
             </div>
-            <ProductFragment />
+            <p className={styles.works}>
+              <span>Works with</span>
+              {INTEGRATIONS.map((name) => (
+                <span key={name} className={styles.worksItem}>
+                  {name}
+                </span>
+              ))}
+            </p>
+          </div>
+          <div className={styles.heroDemo}>
+            <p className={styles.demoHint}>
+              <I.Sparkle size={14} /> Interactive example: step through an onboarding
+            </p>
+            <OnboardingSimulator />
           </div>
         </section>
+      </div>
 
+      <main>
         <section className={styles.section} aria-labelledby="story">
           <div className={cx(styles.container, styles.story)}>
             <div>
+              <p className={styles.kicker}>Why Swift</p>
               <h2 id="story" className={styles.sectionTitle}>
                 How it started
               </h2>
               <blockquote className={styles.quote}>
                 It took me four weeks to finish onboarding at my current role.
               </blockquote>
+              <p className={styles.storyText}>
+                Swift is my attempt to make that path fast: the requests, approvals and account
+                setup happen automatically, and people only step in for the decisions that need
+                them. Every step is recorded, so anyone can see what happened to a hire and why.
+              </p>
             </div>
-            <p className={styles.storyText}>
-              Swift is my attempt to make that path fast: the requests, approvals and account setup
-              happen automatically, and people only step in for the decisions that need them. Every
-              step is recorded, so anyone can see what happened to a hire and why.
-            </p>
+            <div className={styles.compare} aria-label="Before and after">
+              <div className={styles.compareCol}>
+                <p className={styles.compareLabel}>The usual way</p>
+                <p className={styles.compareBig}>4 weeks</p>
+                <ul className={styles.compareList}>
+                  <li>Tickets and emails for every tool</li>
+                  <li>Approvals chased by hand</li>
+                  <li>No single view of what&apos;s missing</li>
+                </ul>
+              </div>
+              <div className={cx(styles.compareCol, styles.compareSwift)}>
+                <p className={styles.compareLabel}>With Swift</p>
+                <p className={styles.compareBig}>Minutes</p>
+                <ul className={styles.compareList}>
+                  <li>Access worked out from the role</li>
+                  <li>People only decide what&apos;s sensitive</li>
+                  <li>One page shows who&apos;s waiting on what</li>
+                </ul>
+              </div>
+              <p className={styles.compareNote}>
+                Minutes for the automatic part; human approvals take as long as the approver.
+              </p>
+            </div>
           </div>
         </section>
 
-        <section className={styles.section} aria-labelledby="how">
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="how">
           <div className={styles.container}>
+            <p className={styles.kicker}>How it works</p>
             <h2 id="how" className={styles.sectionTitle}>
-              How it works
+              Three parts, each with one job
             </h2>
             <p className={styles.sectionIntro}>
-              Three separate parts, each with one job. The AI never decides access, and nothing is
-              provisioned without an authorization.
+              The AI never decides access, and nothing is set up without an authorization.
             </p>
             <ol className={styles.steps}>
-              <li className={styles.step}>
-                <ActorChip actor="AI" label="AI recommends" />
-                <p className={styles.stepTitle}>Recommend access</p>
-                <p className={styles.stepText}>
-                  An agent reads the role and suggests tools, only from a versioned catalog. Its
-                  output is a request, never a decision.
-                </p>
-              </li>
-              <li className={styles.step}>
-                <ActorChip actor="Policy" label="Policy authorizes" />
-                <p className={styles.stepTitle}>Authorize each resource</p>
-                <p className={styles.stepText}>
-                  Deterministic, versioned rules allow, deny or require a human approval in
-                  ServiceNow, one resource at a time.
-                </p>
-              </li>
-              <li className={styles.step}>
-                <ActorChip actor="Worker" label="Orchestrator executes" />
-                <p className={styles.stepTitle}>Provision and verify</p>
-                <p className={styles.stepText}>
-                  A durable workflow sets up Okta, GitHub and ServiceNow access in dependency order,
-                  confirms each change and retries safely.
-                </p>
-              </li>
+              {STEPS.map((step, i) => (
+                <li key={step.title} className={styles.step}>
+                  <span className={styles.stepNum}>{String(i + 1).padStart(2, "0")}</span>
+                  <ActorChip actor={step.actor} label={step.chip} />
+                  <p className={styles.stepTitle}>{step.title}</p>
+                  <p className={styles.stepText}>{step.text}</p>
+                </li>
+              ))}
             </ol>
-            <p className={styles.humans}>
-              <I.Person size={16} />
-              <span>
-                People stay in charge: HR confirms every hire, approvers decide sensitive access,
-                and a second agent writes the first-month plan only from access that was actually
-                granted.
+            <div className={styles.humans}>
+              <span className={styles.humansIcon}>
+                <I.Person size={16} />
               </span>
-            </p>
+              <p>
+                <strong>People stay in charge.</strong> HR confirms every hire, approvers decide
+                sensitive access, and a second agent writes the first-month plan only from access
+                that was actually granted.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="guarantees">
+          <div className={styles.container}>
+            <p className={styles.kicker}>Built to be trusted</p>
+            <h2 id="guarantees" className={styles.sectionTitle}>
+              Safe to automate
+            </h2>
+            <div className={styles.guarantees}>
+              {GUARANTEES.map((g) => (
+                <div key={g.title} className={styles.guarantee}>
+                  <span className={styles.guaranteeIcon}>{g.icon}</span>
+                  <p className={styles.guaranteeTitle}>{g.title}</p>
+                  <p className={styles.guaranteeText}>{g.text}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -254,7 +243,7 @@ export default function HomePage() {
               </p>
               <p className={styles.ctaSub}>Synthetic hires; nothing touches real accounts.</p>
             </div>
-            <Link href="/demo" className={cx(c.button, c.primary, styles.bigButton)}>
+            <Link href="/demo" className={styles.ctaPrimary}>
               Try it
             </Link>
           </div>
@@ -262,36 +251,36 @@ export default function HomePage() {
 
         <section className={styles.section} aria-labelledby="scenarios-title">
           <div className={styles.container}>
+            <p className={styles.kicker}>Demo</p>
             <h2 id="scenarios-title" className={styles.sectionTitle}>
               Demo scenarios
             </h2>
             <p className={styles.sectionIntro}>
-              Three example onboardings with made-up people. Nothing here touches real accounts.
+              Three example onboardings with made-up people, shown the way an operator sees them.
             </p>
             <div className={styles.cards}>
               {DEMO_SCENARIOS.map((s) => (
-                <article key={s.slug} className={styles.card}>
-                  <div>
+                <Link key={s.slug} href={`/demo/${s.slug}`} className={styles.card}>
+                  <span>
                     <StatusBadge
                       tone={toneOf(s.state)}
                       label={stateLabel(s.state)}
                       code={s.state}
                     />
-                  </div>
-                  <h3 className={styles.cardTitle}>{s.title}</h3>
-                  <p className={styles.cardRole}>{s.hire.jobTitle}</p>
-                  <p className={styles.cardSummary}>{s.summary}</p>
-                  <Link href={`/demo/${s.slug}`} className={styles.cardLink}>
-                    Open scenario
-                  </Link>
-                </article>
+                  </span>
+                  <span className={styles.cardTitle}>{s.title}</span>
+                  <span className={styles.cardRole}>{s.hire.jobTitle}</span>
+                  <span className={styles.cardSummary}>{s.summary}</span>
+                  <span className={styles.cardLink}>Open scenario →</span>
+                </Link>
               ))}
             </div>
           </div>
         </section>
 
-        <section className={styles.section} aria-labelledby="stack-title">
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="stack-title">
           <div className={styles.container}>
+            <p className={styles.kicker}>Under the hood</p>
             <h2 id="stack-title" className={styles.sectionTitle}>
               Tech stack
             </h2>
@@ -314,7 +303,10 @@ export default function HomePage() {
       <footer className={styles.footer}>
         <div className={cx(styles.container, styles.footerInner)}>
           <span>Swift · AOO. Demo data is synthetic; integrations use sandbox accounts.</span>
-          <Link href="/admin/onboarding/login">Operator login</Link>
+          <span className={styles.footerLinks}>
+            <Link href="/demo">Demo</Link>
+            <Link href="/admin/onboarding/login">Operator login</Link>
+          </span>
         </div>
       </footer>
     </div>

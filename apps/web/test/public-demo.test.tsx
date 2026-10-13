@@ -19,16 +19,21 @@ const { default: DemoIndex } = await import("@/app/demo/page");
 const demoModule = await import("@/app/demo/[slug]/page");
 const { default: DemoPage } = demoModule;
 const { default: Home } = await import("@/app/page");
+const { INITIAL_SIM, LAST_STEP, decisionCell, executeCell, planTasks, simLifecycle, simReducer } =
+  await import("@/lib/landing-simulator");
+type SimState = import("@/lib/landing-simulator").SimState;
+type SimAction = import("@/lib/landing-simulator").SimAction;
 
 afterEach(() => vi.unstubAllGlobals());
 const page = (slug: string) => DemoPage({ params: Promise.resolve({ slug }) });
 
 describe("(M10) public synthetic demo", () => {
-  it("landing page: Swift, the story, Try it, every demo scenario and the tech stack, in that order", () => {
+  it("landing page: Swift, the interactive example, the story, Try it, every demo scenario and the tech stack, in that order", () => {
     const html = renderToStaticMarkup(Home());
     const order = [
-      ">Swift</h1>",
-      "AOO · Autonomous Onboarding Orchestrator",
+      "Swift · AOO · Autonomous Onboarding Orchestrator",
+      "not week four.</span></h1>",
+      "Interactive example",
       "How it started",
       "It took me four weeks to finish onboarding at my current role.",
       ">Try it</a>",
@@ -36,15 +41,50 @@ describe("(M10) public synthetic demo", () => {
       "Tech stack",
     ].map((text) => html.indexOf(text));
     expect(order.every((i) => i >= 0)).toBe(true);
-    expect(order.slice(2)).toEqual([...order.slice(2)].sort((a, b) => a - b));
-    expect(order[0]).toBeLessThan(order[2]!);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(html).toContain('href="/demo"');
     for (const s of DEMO_SCENARIOS) {
       expect(html).toContain(`href="/demo/${s.slug}"`);
       expect(html).toContain(s.title);
     }
     expect(html).toContain('href="/admin/onboarding/login"');
+    // The example opens on the approval: the visitor's first click is a decision.
+    expect(html).toContain("Approve in ServiceNow");
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Full-time engineer/);
     expect(html).not.toMatch(/<form|<input|<script(?![^>]*src)/i);
+  });
+
+  it("interactive example: approve, reject and contractor paths", () => {
+    const run = (s: SimState, ...actions: SimAction[]) => actions.reduce(simReducer, s);
+    // Approval is required before moving on; approving grants production.
+    expect(run(INITIAL_SIM, { type: "next" })).toEqual(INITIAL_SIM);
+    const approved = run(INITIAL_SIM, { type: "decide", approval: "approved" }, { type: "next" });
+    expect(approved.step).toBe(5);
+    expect(decisionCell(approved, "aws-prod")?.label).toBe("Approved");
+    expect(executeCell(approved, "aws-prod").label).toBe("Ready");
+    expect(planTasks(approved)[2]).toMatch(/production access/);
+    // Rejecting never sets production up, and the plan never mentions it.
+    const rejected = run(INITIAL_SIM, { type: "decide", approval: "rejected" }, { type: "next" });
+    expect(executeCell(rejected, "aws-prod").label).toBe("Not granted");
+    expect(planTasks(rejected).join(" ")).not.toMatch(/production/);
+    // Contractors: policy denies production; there is no approval step at all.
+    const contractor = run(INITIAL_SIM, { type: "profile", profile: "contractor" });
+    expect(contractor.step).toBe(2);
+    expect(decisionCell(contractor, "aws-prod")?.label).toBe("Deny");
+    expect(run(contractor, { type: "next" }).step).toBe(4);
+    expect(run(contractor, { type: "next" }, { type: "back" }).step).toBe(2);
+    expect(simLifecycle(run(contractor, { type: "next" }))[2]?.status).toBe("skipped");
+    // Walk to the end and start again.
+    let s = run(contractor, { type: "next" }, { type: "next" }, { type: "next" });
+    expect(s.step).toBe(LAST_STEP);
+    expect(simLifecycle(s).every((x) => x.status === "done" || x.status === "skipped")).toBe(true);
+    s = run(s, { type: "next" });
+    expect(s.step).toBe(LAST_STEP);
+    expect(run(s, { type: "restart" })).toMatchObject({ step: 0, approval: null });
+    // Before policy runs, nothing is decided or set up.
+    const start = run(s, { type: "restart" });
+    expect(decisionCell(start, "github")).toBeNull();
+    expect(executeCell(start, "github").label).toBe("Not started");
   });
 
   it("renders the index and every scenario without any network call", async () => {
