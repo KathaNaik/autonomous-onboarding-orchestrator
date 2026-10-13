@@ -28,17 +28,20 @@ afterEach(() => vi.unstubAllGlobals());
 const page = (slug: string) => DemoPage({ params: Promise.resolve({ slug }) });
 
 describe("(M10) public synthetic demo", () => {
-  it("landing page: Swift, the interactive example, the story, Try it, every demo scenario and the tech stack, in that order", () => {
+  it("landing page: what it does, the example, who does what, real evidence, the story, scenarios and stack, in that order", () => {
     const html = renderToStaticMarkup(Home());
     const order = [
-      "Swift · AOO · Autonomous Onboarding Orchestrator",
-      "not week four.</span></h1>",
-      "Interactive example",
+      "Onboarding without the four weeks of tickets.</h1>",
+      "Swift is for HR and IT teams.",
+      "Approve in ServiceNow",
+      "What you do, and what Swift does",
+      "What a real run looked like",
       "How it started",
       "It took me four weeks to finish onboarding at my current role.",
-      ">Try it</a>",
-      "Demo scenarios",
+      "Three onboardings, as HR sees them",
+      ">Open the demo</a>",
       "Tech stack",
+      "Swift · AOO, the Autonomous Onboarding Orchestrator.",
     ].map((text) => html.indexOf(text));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
@@ -48,8 +51,8 @@ describe("(M10) public synthetic demo", () => {
       expect(html).toContain(s.title);
     }
     expect(html).toContain('href="/admin/onboarding/login"');
+    expect(html).toMatch(/<img[^>]*alt="Swift&#x27;s operator page for a synthetic hire/);
     // The example opens on the approval: the visitor's first click is a decision.
-    expect(html).toContain("Approve in ServiceNow");
     expect(html).toMatch(/aria-pressed="true"[^>]*>Full-time engineer/);
     expect(html).not.toMatch(/<form|<input|<script(?![^>]*src)/i);
   });

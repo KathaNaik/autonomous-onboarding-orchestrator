@@ -1,14 +1,12 @@
 /* Landing page interactive example (uses the console tokens from .root). */
 .sim {
   margin: 0;
-  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
   overflow: hidden;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 30px 60px -20px rgba(0, 0, 0, 0.55),
-    0 10px 20px -10px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px -12px rgba(16, 24, 40, 0.18);
 }
 .toolbar {
   display: flex;
@@ -21,11 +19,9 @@
   flex-wrap: wrap;
 }
 .toolbarLabel {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-fg);
 }
 .segment {
   display: inline-flex;

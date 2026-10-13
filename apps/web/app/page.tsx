@@ -1,8 +1,8 @@
+import Image from "next/image";
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { geistMono, geistSans } from "@/components/console/fonts";
 import * as I from "@/components/console/icons";
-import { ActorChip, StatusBadge, cx, styles as c } from "@/components/console/ui";
+import { StatusBadge, cx, styles as c } from "@/components/console/ui";
 import { stateLabel, toneOf } from "@/lib/console-model";
 import { DEMO_SCENARIOS } from "@/lib/demo-data";
 import { OnboardingSimulator } from "./onboarding-simulator";
@@ -10,50 +10,20 @@ import styles from "./page.module.css";
 
 export const dynamic = "force-static";
 
-const INTEGRATIONS = ["ServiceNow", "Okta", "GitHub", "OpenAI"];
-
-const STEPS: { actor: "AI" | "Policy" | "Worker"; chip: string; title: string; text: string }[] = [
-  {
-    actor: "AI",
-    chip: "AI recommends",
-    title: "Recommend access",
-    text: "An agent reads the role and suggests tools, only from a versioned catalog. Its output is a request, never a decision.",
-  },
-  {
-    actor: "Policy",
-    chip: "Policy authorizes",
-    title: "Authorize each tool",
-    text: "Deterministic, versioned rules allow, deny or ask for a human approval in ServiceNow, one tool at a time.",
-  },
-  {
-    actor: "Worker",
-    chip: "Swift executes",
-    title: "Set up and verify",
-    text: "A durable workflow sets up Okta, GitHub and ServiceNow access in dependency order, confirms each change and retries safely.",
-  },
+const YOU = [
+  "Upload the signed offer letter and confirm the details",
+  "Record the new hire's GitHub username",
+  "Approve sensitive access in ServiceNow, if you're the approver",
+  "Confirm tools that can't be set up automatically",
 ];
 
-const GUARANTEES: { icon: ReactNode; title: string; text: string }[] = [
-  {
-    icon: <I.Shield size={18} />,
-    title: "Decisions you can replay",
-    text: "Every decision records the exact policy and catalog version it used, so it can be explained and re-checked later.",
-  },
-  {
-    icon: <I.Check size={18} />,
-    title: "No duplicate accounts",
-    text: "Each change in ServiceNow, Okta or GitHub is checked before and confirmed after, so a retry never repeats it.",
-  },
-  {
-    icon: <I.Clock size={18} />,
-    title: "Nothing gets lost",
-    text: "Onboardings survive restarts and outages. Work that is waiting on a person picks up again on its own.",
-  },
-  {
-    icon: <I.FileDoc size={18} />,
-    title: "A complete audit trail",
-    text: "An append-only record of every recommendation, decision, approval and change, with who did it.",
-  },
+const SWIFT = [
+  "Works out the access the role needs, from a fixed list of tools",
+  "Checks every tool against versioned access rules",
+  "Opens approval and fulfillment requests in ServiceNow",
+  "Sets up Okta and GitHub, and confirms each change with the provider",
+  "Writes a first-month plan from the access that was actually granted",
+  "Records every step, with who or what did it",
 ];
 
 const TECH_STACK: { label: string; items: string[] }[] = [
@@ -65,244 +35,202 @@ const TECH_STACK: { label: string; items: string[] }[] = [
   },
   {
     label: "AI",
-    items: [
-      "OpenAI: two agents",
-      "One offer-letter extractor",
-      "Strict structured outputs, no tools",
-    ],
+    items: ["OpenAI: two agents", "One offer-letter extractor", "Structured outputs, no tools"],
   },
   { label: "Integrations", items: ["ServiceNow", "Okta", "GitHub"] },
   { label: "Infrastructure", items: ["Vercel", "Upstash QStash", "Docker Compose"] },
-  {
-    label: "Quality",
-    items: ["Vitest: 800+ unit tests", "368 integration tests", "OpenTelemetry"],
-  },
+  { label: "Quality", items: ["800+ unit tests", "368 integration tests", "OpenTelemetry"] },
   {
     label: "Security",
     items: ["Signed webhooks", "Idempotent provider writes", "Append-only audit"],
   },
 ];
 
-/** Public landing page: what Swift is, an interactive example, why it exists, how it works. */
+/** Public landing page: what Swift does, a hands-on example, real evidence, and the story. */
 export default function HomePage() {
   return (
     <div className={cx(c.root, geistSans.variable, geistMono.variable, styles.page)}>
-      <div className={styles.dark}>
-        <header className={cx(styles.container, styles.topbar)}>
-          <Link href="/" className={styles.brand}>
-            <span className={styles.brandMark}>
+      <header className={styles.topbar}>
+        <div className={cx(styles.container, styles.topbarInner)}>
+          <Link href="/" className={c.brand}>
+            <span className={c.brandMark}>
               <I.Logo />
             </span>
             Swift
           </Link>
           <nav aria-label="Site" className={styles.topLinks}>
-            <Link href="/demo" className={styles.topLink}>
+            <Link href="/demo" className={c.navLink}>
               Demo
             </Link>
-            <Link href="/admin/onboarding/login" className={styles.topButton}>
+            <Link href="/admin/onboarding/login" className={cx(c.button, c.secondary)}>
               Operator login
             </Link>
           </nav>
-        </header>
-
-        <section className={cx(styles.container, styles.hero)}>
-          <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>Swift · AOO · Autonomous Onboarding Orchestrator</p>
-            <h1 className={styles.title}>
-              New hires ready on day one, <span className={styles.titleAccent}>not week four.</span>
-            </h1>
-            <p className={styles.lead}>
-              As soon as an offer is signed, Swift works out which tools the person needs, asks a
-              human to approve anything sensitive, sets up their accounts and hands them a plan for
-              their first month.
-            </p>
-            <div className={styles.ctas}>
-              <Link href="/demo" className={styles.ctaPrimary}>
-                Explore the demo
-              </Link>
-              <Link href="/admin/onboarding/login" className={styles.ctaSecondary}>
-                Operator login
-              </Link>
-            </div>
-            <p className={styles.works}>
-              <span>Works with</span>
-              {INTEGRATIONS.map((name) => (
-                <span key={name} className={styles.worksItem}>
-                  {name}
-                </span>
-              ))}
-            </p>
-          </div>
-          <div className={styles.heroDemo}>
-            <p className={styles.demoHint}>
-              <I.Sparkle size={14} /> Interactive example: step through an onboarding
-            </p>
-            <OnboardingSimulator />
-          </div>
-        </section>
-      </div>
+        </div>
+      </header>
 
       <main>
-        <section className={styles.section} aria-labelledby="story">
-          <div className={cx(styles.container, styles.story)}>
+        <section className={cx(styles.container, styles.hero)}>
+          <div>
+            <h1 className={styles.title}>Onboarding without the four weeks of tickets.</h1>
+            <p className={styles.lead}>
+              Swift is for HR and IT teams. Upload a signed offer letter; Swift works out the access
+              the role needs, sends anything sensitive to an approver in ServiceNow, sets up Okta
+              and GitHub, and writes the new hire&apos;s first-month plan. You only step in where a
+              person has to decide.
+            </p>
+            <p className={styles.ctas}>
+              <Link href="/demo" className={cx(c.button, c.primary, styles.bigButton)}>
+                Try the demo
+              </Link>
+              <span className={styles.ctaNote}>
+                Synthetic hires; nothing touches real accounts.
+              </span>
+            </p>
+          </div>
+          <div>
+            <OnboardingSimulator />
+            <p className={styles.simCaption}>
+              A synthetic example you can click through. The approve-or-reject step is the one a
+              real approver does in ServiceNow; nothing is set up that the rules didn&apos;t allow.
+            </p>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="split">
+          <div className={styles.container}>
+            <h2 id="split" className={styles.sectionTitle}>
+              What you do, and what Swift does
+            </h2>
+            <div className={styles.split}>
+              <div>
+                <h3 className={styles.splitTitle}>You (HR or IT)</h3>
+                <ul className={styles.checklist}>
+                  {YOU.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className={styles.splitTitle}>Swift</h3>
+                <ul className={styles.checklist}>
+                  {SWIFT.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <p className={styles.rule}>
+              The AI only suggests. Deciding who gets what is done by rules your team can read, and
+              every decision records the rule version it used.
+            </p>
+          </div>
+        </section>
+
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="run">
+          <div className={cx(styles.container, styles.evidence)}>
             <div>
-              <p className={styles.kicker}>Why Swift</p>
+              <h2 id="run" className={styles.sectionTitle}>
+                What a real run looked like
+              </h2>
+              <p className={styles.body}>
+                We ran a full onboarding on the production deployment, against real ServiceNow, Okta
+                and GitHub sandbox accounts. A signed offer arrived from the HR system. The AI
+                suggested 7 tools; the rules allowed 6 and sent 1 to an approver. The approval was
+                made in ServiceNow, and ServiceNow told Swift over the public internet. Swift then
+                opened 3 fulfillment requests in ServiceNow, created an Okta account with 2 group
+                memberships, confirmed GitHub access, and wrote a 12-task first-month plan.
+              </p>
+              <p className={styles.body}>
+                Halfway through, the run stopped on an Okta group we had forgotten to configure.
+                Once it was added, the next scheduled run carried on from where it stopped.
+              </p>
+              <p className={styles.body}>
+                Afterwards we sent the same HR event again and let the worker run three more times.
+                Nothing changed: still one account, one approval, three fulfillment requests and no
+                new writes anywhere.
+              </p>
+            </div>
+            <figure className={styles.shot}>
+              <Image
+                src="/console-workflow.png"
+                width={1200}
+                height={957}
+                alt="Swift's operator page for a synthetic hire: a status line reading 2 of 6 tools ready, 1 needs you, waiting on 2 people; a lifecycle at the Approval step; a to-do to record the GitHub username; and a table of six tools with their status and who acts next."
+                sizes="(max-width: 1080px) 100vw, 640px"
+              />
+              <figcaption>
+                The operator&apos;s page for a synthetic hire: what needs you, who everyone else is
+                waiting on, and where each tool stands.
+              </figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="story">
+          <div className={styles.container}>
+            <div className={styles.story}>
               <h2 id="story" className={styles.sectionTitle}>
                 How it started
               </h2>
               <blockquote className={styles.quote}>
                 It took me four weeks to finish onboarding at my current role.
               </blockquote>
-              <p className={styles.storyText}>
+              <p className={styles.body}>
                 Swift is my attempt to make that path fast: the requests, approvals and account
                 setup happen automatically, and people only step in for the decisions that need
                 them. Every step is recorded, so anyone can see what happened to a hire and why.
               </p>
             </div>
-            <div className={styles.compare} aria-label="Before and after">
-              <div className={styles.compareCol}>
-                <p className={styles.compareLabel}>The usual way</p>
-                <p className={styles.compareBig}>4 weeks</p>
-                <ul className={styles.compareList}>
-                  <li>Tickets and emails for every tool</li>
-                  <li>Approvals chased by hand</li>
-                  <li>No single view of what&apos;s missing</li>
-                </ul>
-              </div>
-              <div className={cx(styles.compareCol, styles.compareSwift)}>
-                <p className={styles.compareLabel}>With Swift</p>
-                <p className={styles.compareBig}>Minutes</p>
-                <ul className={styles.compareList}>
-                  <li>Access worked out from the role</li>
-                  <li>People only decide what&apos;s sensitive</li>
-                  <li>One page shows who&apos;s waiting on what</li>
-                </ul>
-              </div>
-              <p className={styles.compareNote}>
-                Minutes for the automatic part; human approvals take as long as the approver.
-              </p>
-            </div>
           </div>
         </section>
 
-        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="how">
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="scenarios">
           <div className={styles.container}>
-            <p className={styles.kicker}>How it works</p>
-            <h2 id="how" className={styles.sectionTitle}>
-              Three parts, each with one job
+            <h2 id="scenarios" className={styles.sectionTitle}>
+              Three onboardings, as HR sees them
             </h2>
-            <p className={styles.sectionIntro}>
-              The AI never decides access, and nothing is set up without an authorization.
-            </p>
-            <ol className={styles.steps}>
-              {STEPS.map((step, i) => (
-                <li key={step.title} className={styles.step}>
-                  <span className={styles.stepNum}>{String(i + 1).padStart(2, "0")}</span>
-                  <ActorChip actor={step.actor} label={step.chip} />
-                  <p className={styles.stepTitle}>{step.title}</p>
-                  <p className={styles.stepText}>{step.text}</p>
+            <ul className={styles.scenarios}>
+              {DEMO_SCENARIOS.map((s) => (
+                <li key={s.slug} className={styles.scenario}>
+                  <StatusBadge tone={toneOf(s.state)} label={stateLabel(s.state)} code={s.state} />
+                  <div>
+                    <Link href={`/demo/${s.slug}`} className={styles.scenarioTitle}>
+                      {s.title}
+                    </Link>
+                    <p className={styles.scenarioText}>{s.summary}</p>
+                  </div>
                 </li>
               ))}
-            </ol>
-            <div className={styles.humans}>
-              <span className={styles.humansIcon}>
-                <I.Person size={16} />
-              </span>
-              <p>
-                <strong>People stay in charge.</strong> HR confirms every hire, approvers decide
-                sensitive access, and a second agent writes the first-month plan only from access
-                that was actually granted.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className={styles.section} aria-labelledby="guarantees">
-          <div className={styles.container}>
-            <p className={styles.kicker}>Built to be trusted</p>
-            <h2 id="guarantees" className={styles.sectionTitle}>
-              Safe to automate
-            </h2>
-            <div className={styles.guarantees}>
-              {GUARANTEES.map((g) => (
-                <div key={g.title} className={styles.guarantee}>
-                  <span className={styles.guaranteeIcon}>{g.icon}</span>
-                  <p className={styles.guaranteeTitle}>{g.title}</p>
-                  <p className={styles.guaranteeText}>{g.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className={styles.cta} aria-label="Try it">
-          <div className={cx(styles.container, styles.ctaInner)}>
-            <div>
-              <p className={styles.ctaText}>
-                See a full onboarding, from signed offer to first-month plan.
-              </p>
-              <p className={styles.ctaSub}>Synthetic hires; nothing touches real accounts.</p>
-            </div>
-            <Link href="/demo" className={styles.ctaPrimary}>
-              Try it
-            </Link>
-          </div>
-        </section>
-
-        <section className={styles.section} aria-labelledby="scenarios-title">
-          <div className={styles.container}>
-            <p className={styles.kicker}>Demo</p>
-            <h2 id="scenarios-title" className={styles.sectionTitle}>
-              Demo scenarios
-            </h2>
-            <p className={styles.sectionIntro}>
-              Three example onboardings with made-up people, shown the way an operator sees them.
+            </ul>
+            <p className={styles.more}>
+              <Link href="/demo" className={cx(c.button, c.secondary)}>
+                Open the demo
+              </Link>
             </p>
-            <div className={styles.cards}>
-              {DEMO_SCENARIOS.map((s) => (
-                <Link key={s.slug} href={`/demo/${s.slug}`} className={styles.card}>
-                  <span>
-                    <StatusBadge
-                      tone={toneOf(s.state)}
-                      label={stateLabel(s.state)}
-                      code={s.state}
-                    />
-                  </span>
-                  <span className={styles.cardTitle}>{s.title}</span>
-                  <span className={styles.cardRole}>{s.hire.jobTitle}</span>
-                  <span className={styles.cardSummary}>{s.summary}</span>
-                  <span className={styles.cardLink}>Open scenario →</span>
-                </Link>
-              ))}
-            </div>
           </div>
         </section>
 
-        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="stack-title">
+        <section className={styles.section} aria-labelledby="stack">
           <div className={styles.container}>
-            <p className={styles.kicker}>Under the hood</p>
-            <h2 id="stack-title" className={styles.sectionTitle}>
+            <h2 id="stack" className={styles.sectionTitle}>
               Tech stack
             </h2>
-            <div className={styles.stack}>
+            <dl className={styles.stack}>
               {TECH_STACK.map((group) => (
-                <div key={group.label} className={styles.stackGroup}>
-                  <p className={styles.stackLabel}>{group.label}</p>
-                  <ul className={styles.stackList}>
-                    {group.items.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
+                <div key={group.label}>
+                  <dt>{group.label}</dt>
+                  <dd>{group.items.join(" · ")}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           </div>
         </section>
       </main>
 
       <footer className={styles.footer}>
         <div className={cx(styles.container, styles.footerInner)}>
-          <span>Swift · AOO. Demo data is synthetic; integrations use sandbox accounts.</span>
+          <span>Swift · AOO, the Autonomous Onboarding Orchestrator. Demo data is synthetic.</span>
           <span className={styles.footerLinks}>
             <Link href="/demo">Demo</Link>
             <Link href="/admin/onboarding/login">Operator login</Link>

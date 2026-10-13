@@ -93,7 +93,7 @@ const RAW: DemoScenario[] = [
     slug: "completed",
     title: "Completed onboarding: backend engineer",
     summary:
-      "A full-time backend engineer from offer to finished checklist: policy-authorized access, one human-approved production grant, ServiceNow fulfillment, GitHub and Okta provisioning, then the generated onboarding plan.",
+      "Every tool is set up, including production access once an approver signed off, and the new hire has a first-month plan.",
     state: "COMPLETED",
     hire: {
       displayName: "Ada Example",
@@ -216,7 +216,7 @@ const RAW: DemoScenario[] = [
     slug: "awaiting-approval",
     title: "Contractor waiting on a human approval",
     summary:
-      "An engineering contractor: production access is denied by policy, a developer-tool license waits for an approver in ServiceNow, and unrelated authorized access proceeds meanwhile.",
+      "Production access is refused because they're a contractor. A software license waits for an approver; their other access is already set up.",
     state: "AWAITING_APPROVAL",
     hire: {
       displayName: "Sam Sample",
@@ -279,7 +279,7 @@ const RAW: DemoScenario[] = [
     slug: "github-invitation-pending",
     title: "GitHub invitation pending",
     summary:
-      "The organization invitation has been sent to the HR-recorded GitHub account. The dependent team membership waits until the employee accepts; periodic reconciliation re-reads GitHub without re-sending.",
+      "The new hire hasn't accepted their GitHub invitation yet. Their team access waits for it; nothing else is blocked.",
     state: "PROVISIONING",
     hire: {
       displayName: "Riley Placeholder",

@@ -34,7 +34,7 @@ export function OnboardingSimulator() {
   return (
     <figure className={styles.sim} aria-label="Interactive example onboarding">
       <div className={styles.toolbar}>
-        <span className={styles.toolbarLabel}>Try a hire</span>
+        <span className={styles.toolbarLabel}>Try a different hire:</span>
         <div className={styles.segment} role="group" aria-label="Choose the hire">
           {(Object.keys(HIRES) as Profile[]).map((p) => (
             <button
