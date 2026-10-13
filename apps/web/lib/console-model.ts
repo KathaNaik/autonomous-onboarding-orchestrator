@@ -466,3 +466,270 @@ export function timelineSummary(e: TimelineEntry): string {
 }
 
 export const NEW_ONBOARDING_STEPS = ["Upload offer", "Review details", "Start onboarding"];
+
+// ---------------------------------------------------------------------------------------------
+// Workflow detail for HR/IT: one row per tool, who acts next, and a one-line status.
+
+type DetailView = WorkflowObservabilityView;
+export type ResourceView = DetailView["resources"][number];
+
+export const resourceName = (id: string, displayName: string | null | undefined) =>
+  displayName ?? humanize(id.replace(/-/g, "_"));
+
+/** Who has to act next. `you` = the operator viewing the page. */
+export interface Owner {
+  label: string;
+  you: boolean;
+}
+
+export interface ToolRow {
+  resource: ResourceView;
+  name: string;
+  tone: Tone;
+  status: string;
+  owner: Owner | null;
+  /** One short plain-language line about where it stands. */
+  note: string | null;
+  /** ServiceNow ticket number when one is involved. */
+  ticket: string | null;
+  /** Sort order: things needing the operator first, settled things last. */
+  rank: number;
+}
+
+const YOU: Owner = { label: "You", you: true };
+const ADMIN: Owner = { label: "Swift administrator", you: false };
+const SWIFT: Owner = { label: "Swift (automatic)", you: false };
+
+const isConfigBlocker = (code: string | null) =>
+  code === "PROVIDER_NOT_CONFIGURED" || /_TARGET_NOT_CONFIGURED$/.test(code ?? "");
+
+/** One resource as an HR/IT person sees it: a single status, who acts next and why. */
+export function toolRow(r: ResourceView, view: DetailView): ToolRow {
+  const name = resourceName(r.resourceId, r.displayName);
+  const approval = [...view.approvals].reverse().find((a) => a.resourceId === r.resourceId);
+  const fulfillment = view.fulfillments.find((f) => f.accessRequestId === r.accessRequestId);
+  const explanation = view.policyDecisions.find((d) => d.resourceId === r.resourceId)?.explanation;
+  const row = (
+    tone: Tone,
+    status: string,
+    owner: Owner | null,
+    note: string | null,
+    rank: number,
+    ticket: string | null = null,
+  ): ToolRow => ({ resource: r, name, tone, status, owner, note, ticket, rank });
+
+  if (r.status === "PROVISIONED")
+    return row(
+      "green",
+      "Ready",
+      null,
+      r.provisionedAt ? `Ready since ${formatTime(r.provisionedAt)}` : null,
+      4,
+      fulfillment?.ticketNumber ?? null,
+    );
+  if (r.status === "DENIED")
+    return row(
+      "gray",
+      "Not granted",
+      null,
+      explanation ?? "Not allowed by policy for this role.",
+      5,
+    );
+  if (r.status === "REJECTED")
+    return row(
+      "gray",
+      "Not granted",
+      null,
+      "The approver rejected this request.",
+      5,
+      approval?.ticketNumber ?? null,
+    );
+  if (r.status === "AWAITING_APPROVAL")
+    return row(
+      "amber",
+      "Needs approval",
+      { label: "Approver in ServiceNow", you: false },
+      "Sensitive access: a person has to approve it before it's set up.",
+      2,
+      approval?.ticketNumber ?? null,
+    );
+  if (r.status === "MANUAL_ACTION_REQUIRED")
+    return row(
+      "amber",
+      "Action needed",
+      YOU,
+      "No automatic setup for this tool: set it up, then mark it as done.",
+      0,
+    );
+  if (r.status === "PROVISIONING_FAILED")
+    return row(
+      "red",
+      "Failed",
+      ADMIN,
+      r.provisioningErrorCode === "SERVICENOW_FULFILLMENT_FAILED"
+        ? "IT marked the ServiceNow request as failed."
+        : `Setup failed: ${humanize(r.provisioningErrorCode ?? "unknown error").toLowerCase()}.`,
+      1,
+      fulfillment?.ticketNumber ?? null,
+    );
+
+  switch (r.blocker) {
+    case "GITHUB_IDENTITY_CLAIM_REQUIRED":
+      return row("amber", "Action needed", YOU, "Record the employee's GitHub username.", 0);
+    case "GITHUB_IDENTITY_NOT_FOUND":
+      return row("amber", "Action needed", YOU, "The recorded GitHub username doesn't exist.", 0);
+    case "GITHUB_IDENTITY_CONFLICT":
+      return row(
+        "amber",
+        "Action needed",
+        YOU,
+        "The GitHub account doesn't match the recorded username.",
+        0,
+      );
+    case "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE":
+      return row(
+        "red",
+        "Blocked",
+        ADMIN,
+        "This GitHub account is already linked to another employee.",
+        1,
+      );
+    case "GITHUB_INVITATION_PENDING":
+      return row(
+        "blue",
+        "Being set up",
+        { label: "The employee", you: false },
+        "Invitation sent: the employee has to accept it on GitHub.",
+        2,
+      );
+    case "SERVICENOW_FULFILLMENT_PENDING":
+    case "SERVICENOW_FULFILLMENT_IN_PROGRESS":
+      return row(
+        "blue",
+        "Being set up",
+        { label: "IT in ServiceNow", you: false },
+        r.blocker.endsWith("IN_PROGRESS")
+          ? "IT is working on the ServiceNow request."
+          : "Waiting for IT to pick up the ServiceNow request.",
+        2,
+        fulfillment?.ticketNumber ?? null,
+      );
+    case "DEPENDENCIES_NOT_READY": {
+      const waitingFor = r.dependsOn
+        .filter((d) => d.status !== "PROVISIONED")
+        .map((d) =>
+          resourceName(
+            d.resourceId,
+            view.resources.find((x) => x.resourceId === d.resourceId)?.displayName,
+          ),
+        );
+      return row(
+        "blue",
+        "Being set up",
+        SWIFT,
+        waitingFor.length ? `Starts after ${waitingFor.join(", ")}.` : "Starts after another tool.",
+        3,
+      );
+    }
+    case "MISSING_AUTHORIZED_DEPENDENCY":
+    case "DEPENDENCY_NOT_AUTHORIZED":
+      return row("red", "Blocked", ADMIN, "Needs another tool that wasn't granted.", 1);
+    case "TRANSIENT_PROVIDER_FAILURE":
+      return row("blue", "Being set up", SWIFT, "A provider was briefly unavailable; retrying.", 3);
+  }
+  if (isConfigBlocker(r.blocker))
+    return row(
+      "amber",
+      "Blocked",
+      ADMIN,
+      "This tool isn't connected yet. It continues once it's configured.",
+      1,
+    );
+  if (r.blockerClass === "DETERMINISTIC_FAILURE")
+    return row("red", "Blocked", ADMIN, humanize(r.blocker ?? "Blocked") + ".", 1);
+  return row("blue", "Being set up", SWIFT, null, 3);
+}
+
+/** Every resource as a row, the ones needing the operator first. */
+export function toolRows(view: DetailView): ToolRow[] {
+  return view.resources
+    .map((r) => toolRow(r, view))
+    .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+}
+
+/** The one-line status under the hire's name. */
+export function statusSentence(view: DetailView, rows: ToolRow[] = toolRows(view)): string {
+  const state = view.workflow.state;
+  if (state === "FAILED") return "This onboarding stopped.";
+  if (state === "RECEIVED" || state === "ACCESS_PLANNING" || state === "POLICY_REVIEW")
+    return "Working out which tools this person needs.";
+  const grantable = rows.filter((r) => r.rank !== 5);
+  const ready = grantable.filter((r) => r.status === "Ready").length;
+  const parts = [
+    grantable.length === 0
+      ? "No tools to set up"
+      : `${ready} of ${grantable.length} ${grantable.length === 1 ? "tool" : "tools"} ready`,
+  ];
+  if (state === "COMPLETED") {
+    parts.unshift("Onboarding complete");
+    if (view.onboardingPlan)
+      parts.push(`first-month plan with ${view.onboardingPlan.taskCount} tasks`);
+    return parts.join(" · ");
+  }
+  const you = rows.filter((r) => r.owner?.you).length;
+  const others = rows.filter((r) => r.owner && !r.owner.you && r.owner !== SWIFT).length;
+  if (you) parts.push(`${you} ${you === 1 ? "needs" : "need"} you`);
+  if (others) parts.push(`waiting on ${others === 1 ? "1 person" : `${others} people`}`);
+  if (state === "ONBOARDING_GENERATION") parts.push("writing the first-month plan");
+  return parts.join(" · ");
+}
+
+/** Events a person cares about (the full record stays under Audit & technical). */
+const KEY_EVENTS = new Set([
+  "workflow.created",
+  "workflow.transitioned",
+  "offer_letter.submitted",
+  "access.policy_evaluated",
+  "access.approval_verified",
+  "access.approval_rejected",
+  "github.identity_claim_recorded",
+  "github.identity_claim_changed",
+  "github.org_invitation_created",
+  "provisioning.manual_resource_completed",
+  "resource.provisioned",
+  "resource.provisioning_failed",
+  "onboarding_plan.generated",
+  "onboarding_plan.generation_failed",
+]);
+
+export const isKeyEvent = (e: Pick<TimelineEntry, "type">) =>
+  e.type.startsWith("hris.") || KEY_EVENTS.has(e.type);
+
+export const DETAIL_TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "plan", label: "Plan" },
+  { id: "activity", label: "Activity" },
+  { id: "technical", label: "Audit & technical" },
+] as const;
+export type DetailTab = (typeof DETAIL_TABS)[number]["id"];
+
+export const detailTab = (value: unknown): DetailTab =>
+  DETAIL_TABS.some((t) => t.id === value) ? (value as DetailTab) : "overview";
+
+/** Outcome messages for "Mark as done" (fixed codes in the query string; nothing echoed). */
+export const MANUAL_RESULT_MESSAGES: Record<string, { tone: Tone; text: string }> = {
+  done: { tone: "green", text: "Marked as done. Swift continues automatically." },
+  unchanged: { tone: "green", text: "Already marked as done." },
+  INVALID_EVIDENCE: {
+    tone: "red",
+    text: "Describe how it was set up in 8–500 characters, without passwords or keys.",
+  },
+  INVALID_PAYLOAD: {
+    tone: "red",
+    text: "Describe how it was set up in 8–500 characters, without passwords or keys.",
+  },
+  NOT_AWAITING_MANUAL_ACTION: { tone: "gray", text: "This tool no longer needs manual setup." },
+  MANUAL_ALREADY_COMPLETED: { tone: "gray", text: "Another operator already marked this as done." },
+  ACCESS_REQUEST_NOT_FOUND: { tone: "red", text: "That tool couldn't be found." },
+  INTERNAL_ERROR: { tone: "red", text: "Couldn't save. Try again." },
+};

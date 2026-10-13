@@ -349,9 +349,13 @@ describe("server-rendered dashboard (server-side proxy only)", () => {
     const cookie = createSessionValue("ops.alice", ADMIN_TOKEN);
     jar.set(SESSION_COOKIE, cookie);
     const html = renderToStaticMarkup(
-      await DetailPage({ params: Promise.resolve({ workflowId: WF }) }),
+      await DetailPage({
+        params: Promise.resolve({ workflowId: WF }),
+        searchParams: Promise.resolve({ tab: "technical", result: "<script>" }),
+      }),
     );
     expect(html).toContain("Role Access Agent");
+    expect(html).not.toContain("&lt;script&gt;"); // only fixed result codes are shown
     expect(html).toContain("non-employee-production-deny");
     const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
     expect(String(url)).toBe(`http://api.internal:4000/admin/onboarding/${WF}`);

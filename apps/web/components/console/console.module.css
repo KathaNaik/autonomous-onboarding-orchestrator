@@ -1326,3 +1326,116 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Workflow detail (HR/IT view): status line, tabs, to-do, owners ---------------------- */
+.statusLine {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+.detailTabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.detailTab {
+  flex: none;
+  padding: 10px 12px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted) !important;
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none !important;
+}
+.detailTab:hover {
+  color: var(--text) !important;
+}
+.detailTabActive {
+  color: var(--text) !important;
+  border-bottom-color: var(--primary);
+}
+.tabCount {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.todo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.todoItem {
+  padding: 16px 24px;
+  display: grid;
+  gap: 10px;
+}
+.todoItem + .todoItem {
+  border-top: 1px solid var(--border);
+}
+.todoHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.todoForm {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+}
+.todoForm .textarea {
+  min-height: 64px;
+}
+.todoFoot {
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.allClear {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  color: var(--green-fg);
+  font-weight: 500;
+}
+.owner {
+  font-size: 13px;
+  color: var(--gray-fg);
+}
+.ownerYou {
+  font-weight: 600;
+  color: var(--amber-fg);
+}
+.why {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.why > summary {
+  cursor: pointer;
+  color: var(--muted);
+  width: max-content;
+}
+.why > summary:hover {
+  color: var(--text);
+}
+.whyBody {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  color: var(--gray-fg);
+}
+@media print {
+  .detailTabs,
+  .topbar {
+    display: none;
+  }
+}

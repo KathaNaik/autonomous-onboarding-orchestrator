@@ -59,39 +59,70 @@ const row = (overrides: Partial<WorkflowSummary> = {}): WorkflowSummary => ({
 });
 
 describe("operator console: workflow detail", () => {
-  it("explains a completed workflow: AI recommends, policy authorizes, the orchestrator executes", () => {
+  it("overview: the hire, one status line, what needs you and one row per tool", () => {
     const html = renderToStaticMarkup(<WorkflowView view={base} />);
     const text = visible(html);
     for (const t of [
       "Grace Hopper",
       "Backend Software Engineer",
       "Engineering, Software engineer, Contractor",
+      "Onboarding complete · No tools to set up",
+      "Needs your attention",
+      "Onboarding complete. Nothing left to do.",
+      "Tools and access",
+      "Not granted",
+      "Contractors may not access production.",
+      "Overview",
+      "Plan",
+      "Audit & technical",
+    ]) {
+      expect(text, t).toContain(t);
+    }
+    expect(html).toContain('data-state="COMPLETED"');
+    expect(html).toMatch(/aria-current="page"[^>]*>Overview/);
+    // The system's internals live under "Audit & technical", not on the overview.
+    for (const t of ["Role Access Agent", "Policy decisions", "Human fulfillment", "Provenance"]) {
+      expect(text, t).not.toContain(t);
+    }
+    expect(html).not.toContain("non-employee-production-deny");
+    expect(text).not.toContain(WF); // the workflow id is technical detail (links only)
+    expect(text).not.toMatch(/\bCOMPLETED\b|\bDENIED\b/);
+    // Nothing to do here, so no forms.
+    expect(html).not.toMatch(/<form|<textarea|method="post"/i);
+  });
+
+  it("plan, activity and audit tabs", () => {
+    const plan = visible(renderToStaticMarkup(<WorkflowView view={base} tab="plan" />));
+    for (const t of ["A practical first month.", "Day one", "First week", "Set up MFA"])
+      expect(plan, t).toContain(t);
+    expect(plan).not.toContain("Tools and access");
+
+    const activity = visible(renderToStaticMarkup(<WorkflowView view={base} tab="activity" />));
+    expect(activity).toContain("Signed offer received from HRIS");
+    expect(activity).toContain("Moved to Completed");
+
+    const html = renderToStaticMarkup(<WorkflowView view={base} tab="technical" />);
+    const tech = visible(html);
+    for (const t of [
       "Role Access Agent",
       "Recommendation only — policy decides authorization.",
       "Policy decisions",
-      "Deterministic authorization",
       "Contractors may not access production.",
       "Resource provisioning",
       "Denied by policy",
       "Human approval",
       "Human fulfillment",
-      "Onboarding plan",
-      "Day one",
-      "First week",
-      "Set up MFA",
-      "Activity",
-      "Moved to Completed",
+      "Onboarding Plan Agent",
+      "Full activity record",
+      "Provenance",
     ]) {
-      expect(text, t).toContain(t);
+      expect(tech, t).toContain(t);
     }
-    expect(html).toContain('data-state="COMPLETED"');
-    // Raw codes and identifiers stay available, but only under technical details.
+    // Raw codes and identifiers stay available, behind disclosures.
     expect(html).toContain("non-employee-production-deny");
-    expect(text).not.toContain("non-employee-production-deny");
-    expect(text).not.toContain("NON_EMPLOYEE_PRODUCTION_ACCESS_DENIED");
-    expect(text).not.toMatch(/\bCOMPLETED\b|\bDENIED\b/);
-    // Read-only: links only, no forms, buttons or inputs.
-    expect(html).not.toMatch(/<button|<form|<input|method="post"/i);
+    expect(html).toContain(WF);
+    expect(tech).not.toContain("non-employee-production-deny");
+    expect(html).not.toMatch(/<form|<input|method="post"/i);
   });
 
   it("renders a historical workflow with 'Not reached yet' instead of failing", () => {
@@ -109,40 +140,123 @@ describe("operator console: workflow detail", () => {
     };
     const html = renderToStaticMarkup(<WorkflowView view={legacy} />);
     expect(visible(html)).toContain("Not reached yet");
-    expect(visible(html)).toContain(
-      "Canonical facts not available (created before canonical facts)",
-    );
-    expect(html).toContain("No Role Access Agent run yet (not reached).");
+    expect(visible(html)).toContain("Department and role not recorded");
+    expect(visible(html)).toContain("Working out which tools this person needs.");
     expect(html).toMatch(/aria-current="step"[^>]*>[\s\S]*?Intake/);
+    expect(visible(renderToStaticMarkup(<WorkflowView view={legacy} tab="plan" />))).toContain(
+      "Not reached yet",
+    );
+    expect(renderToStaticMarkup(<WorkflowView view={legacy} tab="technical" />)).toContain(
+      "No Role Access Agent run yet (not reached).",
+    );
   });
 
-  it("puts a required operator action in a callout with a clear link", () => {
+  const resource = (o: Partial<WorkflowObservabilityView["resources"][number]>) => ({
+    ...base.resources[0]!,
+    authorization: { decision: "ALLOW", outcome: "AUTHORIZED_BY_POLICY", via: "POLICY" } as const,
+    settled: false,
+    dependsOn: [],
+    ...o,
+  });
+
+  it("a GitHub username to record is a to-do with a clear link", () => {
     const waiting: WorkflowObservabilityView = {
       ...base,
       workflow: { ...base.workflow, state: "PROVISIONING", completedAt: null },
+      onboardingPlan: null,
       resources: [
-        {
-          ...base.resources[0]!,
+        resource({
           resourceId: "github-org-membership",
           displayName: "GitHub organization membership",
           provider: "GITHUB",
-          authorization: { decision: "ALLOW", outcome: "AUTHORIZED_BY_POLICY", via: "POLICY" },
           status: "READY_FOR_PROVISIONING",
-          settled: false,
-          dependsOn: [],
           blocker: "GITHUB_IDENTITY_CLAIM_REQUIRED",
           blockerClass: "WAITING",
-        },
+        }),
       ],
     };
     const html = renderToStaticMarkup(<WorkflowView view={waiting} />);
-    expect(visible(html)).toContain("GitHub identity required");
-    expect(visible(html)).toContain(
-      "Provisioning is waiting for HR to record the employee's GitHub username",
-    );
+    const text = visible(html);
+    expect(text).toContain("0 of 1 tool ready · 1 needs you");
+    expect(text).toContain("Record the employee's GitHub username");
+    expect(text).toContain("Needed before Swift can set up GitHub organization membership.");
     expect(html).toContain(`href="/admin/onboarding/${WF}/github"`);
-    expect(visible(html)).toContain("Record GitHub username");
-    expect(visible(html)).not.toContain("GITHUB_IDENTITY_CLAIM_REQUIRED");
+    expect(text).toContain("Record GitHub username");
+    expect(text).not.toContain("GITHUB_IDENTITY_CLAIM_REQUIRED");
+    expect(text).not.toContain("Ready");
+  });
+
+  it("a MANUAL tool gets a 'Mark as done' form; approvals and fulfillment show who they wait on", () => {
+    const view: WorkflowObservabilityView = {
+      ...base,
+      workflow: { ...base.workflow, state: "AWAITING_APPROVAL", completedAt: null },
+      onboardingPlan: null,
+      resources: [
+        resource({
+          accessRequestId: "5f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c",
+          resourceId: "cursor-license",
+          displayName: "Cursor license",
+          provider: "MANUAL",
+          status: "MANUAL_ACTION_REQUIRED",
+          blocker: "MANUAL_ACTION_REQUIRED",
+          blockerClass: "MANUAL",
+        }),
+        resource({
+          accessRequestId: "6f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c",
+          resourceId: "aws-prod",
+          displayName: "AWS production account",
+          authorization: { decision: "REQUIRES_APPROVAL", outcome: "PENDING_APPROVAL", via: null },
+          status: "AWAITING_APPROVAL",
+          blocker: "AWAITING_APPROVAL",
+          blockerClass: "WAITING",
+        }),
+        resource({
+          accessRequestId: "7f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c",
+          resourceId: "aws-dev",
+          displayName: "AWS development account",
+          status: "PROVISIONING",
+          blocker: "SERVICENOW_FULFILLMENT_PENDING",
+          blockerClass: "WAITING",
+        }),
+      ],
+      approvals: [
+        {
+          ...({} as WorkflowObservabilityView["approvals"][number]),
+          approvalId: "8f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c",
+          resourceId: "aws-prod",
+          ticketNumber: "OAR0001030",
+          status: "PENDING",
+          decidedAt: null,
+        },
+      ],
+      fulfillments: [
+        {
+          ...({} as WorkflowObservabilityView["fulfillments"][number]),
+          accessRequestId: "7f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c",
+          resourceId: "aws-dev",
+          ticketNumber: "OAR0001031",
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<WorkflowView view={view} />);
+    const text = visible(html);
+    expect(text).toContain("0 of 3 tools ready · 1 needs you · waiting on 2 people");
+    expect(text).toContain("Set up Cursor license");
+    expect(html).toContain(
+      `action="/admin/onboarding/${WF}/resources/5f1d8a2b-0c3e-4f5a-8b6c-9d0e1f2a3b4c/complete"`,
+    );
+    expect(html).toMatch(/<form[^>]*method="post"/);
+    expect(html).toMatch(/<textarea[^>]*name="evidence"[^>]*required/);
+    expect(html).toMatch(/<label[^>]*for="evidence-5f1d8a2b[^"]*"[^>]*>How was it set up\?/);
+    expect(text).toContain("Mark as done");
+    expect(text).toContain(
+      "Waiting on others: AWS development account (IT in ServiceNow, OAR0001031); AWS production account (Approver in ServiceNow, OAR0001030)",
+    );
+    // The tool needing the operator is listed first.
+    expect(text.indexOf("Cursor license")).toBeLessThan(text.indexOf("AWS production account"));
+
+    const saved = visible(renderToStaticMarkup(<WorkflowView view={view} result="done" />));
+    expect(saved).toContain("Marked as done. Swift continues automatically.");
   });
 
   it("lifecycle: approval is the current step while waiting, and 'not needed' when policy never asked", () => {

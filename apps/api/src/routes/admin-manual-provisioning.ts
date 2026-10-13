@@ -3,6 +3,7 @@ import {
   OPERATOR_ID_PATTERN,
   type ManualProvisioningService,
 } from "@aoo/orchestrator";
+import { ManualCompletionRequestSchema } from "@aoo/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import {
@@ -32,7 +33,6 @@ export interface ManualCompletionErrorResponse {
   message: string;
 }
 
-const BodySchema = z.strictObject({ evidence: z.string().max(2000) });
 const ParamsSchema = z.object({ accessRequestId: z.uuid() });
 
 const STATUS_OF: Record<ManualCompletionError["code"], number> = {
@@ -90,7 +90,7 @@ export const adminManualProvisioningRoutes: FastifyPluginAsync<
       if (!params.success) {
         return reject(reply, 404, "ACCESS_REQUEST_NOT_FOUND", "access request not found");
       }
-      const body = BodySchema.safeParse(request.body);
+      const body = ManualCompletionRequestSchema.safeParse(request.body);
       if (!body.success) {
         return reject(reply, 400, "INVALID_PAYLOAD", 'body must be {"evidence": "<short note>"}');
       }

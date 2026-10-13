@@ -1,8 +1,11 @@
 import type { TimelineEntry, WorkflowObservabilityView } from "@aoo/shared";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   AUTHORIZATION_LABELS,
   DECISION_LABELS,
+  DETAIL_TABS,
+  MANUAL_RESULT_MESSAGES,
   PHASE_LABELS,
   RESOURCE_STATUS_LABELS,
   actorOf,
@@ -10,15 +13,23 @@ import {
   factsLine,
   formatTime,
   humanize,
+  isKeyEvent,
   lifecycle,
   providerLabel,
+  resourceName as nameOf,
   stateLabel,
+  statusSentence,
   timelineSummary,
   toneOf,
+  toolRows,
+  type DetailTab,
   type Tone,
+  type ToolRow,
 } from "@/lib/console-model";
+import * as I from "@/components/console/icons";
 import {
   ActorChip,
+  Button,
   ButtonLink,
   Callout,
   Card,
@@ -39,25 +50,360 @@ import {
 type View = WorkflowObservabilityView;
 type Resource = View["resources"][number];
 
-const nameOf = (id: string, displayName: string | null | undefined) =>
-  displayName ?? humanize(id.replace(/-/g, "_"));
-
 /**
- * One onboarding, explained: who the hire is, where the workflow is, what needs a person, and the
- * chain AI recommends → policy authorizes → the orchestrator executes. Read-only: no forms or
- * buttons; the only actions are links to existing operator pages. Rendered purely from the backend
- * read model; every raw code and identifier stays available under "Technical details".
+ * One onboarding as an HR/IT person needs it: who the hire is, how far along they are, what needs
+ * the operator, and one row per tool. The full chain (AI recommends → policy authorizes → the
+ * orchestrator executes) with every raw code and identifier lives under "Audit & technical".
+ * Rendered purely from the backend read model; the only write is "Mark as done" for tools Swift
+ * can't set up automatically (a plain form posting through the web server).
  */
-export function WorkflowView({ view }: { view: View }) {
-  const { workflow } = view;
+export function WorkflowView({
+  view,
+  tab = "overview",
+  result = null,
+}: {
+  view: View;
+  tab?: DetailTab;
+  /** A fixed outcome code from the "Mark as done" handler. */
+  result?: string | null;
+}) {
+  const rows = toolRows(view);
+  const message = result ? MANUAL_RESULT_MESSAGES[result] : undefined;
   return (
-    <article className={s.stackMd} style={{ gap: 32 }}>
-      <HireHeader view={view} />
+    <article className={s.stackMd} style={{ gap: 24 }}>
+      <HireHeader view={view} rows={rows} />
       <Card>
         <Lifecycle steps={lifecycle(view)} />
       </Card>
-      <SummaryCards view={view} />
-      <Attention view={view} />
+      <DetailTabs view={view} tab={tab} />
+      {message && <Callout tone={message.tone} title={message.text} role="status" />}
+      {tab === "overview" && <Overview view={view} rows={rows} />}
+      {tab === "plan" && <Plan view={view} />}
+      {tab === "activity" && <KeyActivity view={view} />}
+      {tab === "technical" && <Technical view={view} />}
+    </article>
+  );
+}
+
+// ---- Header and tabs ----------------------------------------------------------------------
+
+function HireHeader({ view, rows }: { view: View; rows: ToolRow[] }) {
+  const { workflow, employee } = view;
+  const facts = factsLine(employee.facts);
+  return (
+    <header>
+      <h1 className={s.hireName}>
+        {employee.displayName}
+        <StatusBadge
+          tone={toneOf(workflow.state)}
+          label={stateLabel(workflow.state)}
+          code={workflow.state}
+        />
+      </h1>
+      <div className={s.hireMeta}>
+        <span>
+          {employee.jobTitle && (
+            <span style={{ color: "var(--text)" }}>{employee.jobTitle} · </span>
+          )}
+          {facts ?? "Department and role not recorded"}
+        </span>
+        <span className={s.small}>
+          {employee.workEmail} · Started {formatTime(workflow.createdAt)}
+        </span>
+      </div>
+      <p className={s.statusLine}>{statusSentence(view, rows)}</p>
+    </header>
+  );
+}
+
+function DetailTabs({ view, tab }: { view: View; tab: DetailTab }) {
+  const base = `/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}`;
+  const count: Partial<Record<DetailTab, number | undefined>> = {
+    plan: view.onboardingPlan?.taskCount,
+  };
+  return (
+    <nav aria-label="Workflow sections" className={s.detailTabs}>
+      {DETAIL_TABS.map((t) => (
+        <Link
+          key={t.id}
+          href={t.id === "overview" ? base : `${base}?tab=${t.id}`}
+          className={cx(s.detailTab, tab === t.id && s.detailTabActive)}
+          aria-current={tab === t.id ? "page" : undefined}
+        >
+          {t.label}
+          {count[t.id] !== undefined && <span className={s.tabCount}>{count[t.id]}</span>}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+// ---- Overview: what needs you, then every tool ---------------------------------------------
+
+function Overview({ view, rows }: { view: View; rows: ToolRow[] }) {
+  return (
+    <>
+      {view.workflow.state === "FAILED" && (
+        <Callout tone="red" title="This onboarding stopped" role="alert">
+          {view.workflow.failureReason ?? "The workflow failed. See Activity for what happened."}
+        </Callout>
+      )}
+      <ToDo view={view} rows={rows} />
+      <Tools view={view} rows={rows} />
+    </>
+  );
+}
+
+const GITHUB_FIX = new Set(["GITHUB_IDENTITY_NOT_FOUND", "GITHUB_IDENTITY_CONFLICT"]);
+
+function ToDo({ view, rows }: { view: View; rows: ToolRow[] }) {
+  const wf = encodeURIComponent(view.workflow.workflowId);
+  const githubPage = `/admin/onboarding/${wf}/github`;
+  const names = (rs: ToolRow[]) => rs.map((r) => r.name).join(", ");
+  const items: ReactNode[] = [];
+
+  const claim = rows.filter((r) => r.resource.blocker === "GITHUB_IDENTITY_CLAIM_REQUIRED");
+  if (claim.length)
+    items.push(
+      <li key="github" className={s.todoItem}>
+        <div className={s.todoHead}>
+          <div className={s.stack}>
+            <span className={s.primaryText}>Record the employee&apos;s GitHub username</span>
+            <span className={s.muted}>Needed before Swift can set up {names(claim)}.</span>
+          </div>
+          <ButtonLink href={githubPage} variant="primary">
+            Record GitHub username
+          </ButtonLink>
+        </div>
+      </li>,
+    );
+  const fix = rows.filter((r) => GITHUB_FIX.has(r.resource.blocker ?? ""));
+  if (fix.length)
+    items.push(
+      <li key="github-fix" className={s.todoItem}>
+        <div className={s.todoHead}>
+          <div className={s.stack}>
+            <span className={s.primaryText}>Check the GitHub username</span>
+            <span className={s.muted}>{fix[0]!.note}</span>
+          </div>
+          <ButtonLink href={githubPage} variant="primary">
+            Fix GitHub username
+          </ButtonLink>
+        </div>
+      </li>,
+    );
+  for (const r of rows.filter((x) => x.resource.status === "MANUAL_ACTION_REQUIRED")) {
+    const id = `evidence-${r.resource.accessRequestId}`;
+    items.push(
+      <li key={r.resource.accessRequestId} className={s.todoItem}>
+        <div className={s.stack}>
+          <span className={s.primaryText}>Set up {r.name}</span>
+          <span className={s.muted}>
+            Swift can&apos;t set this tool up automatically. Set it up for the employee, then mark
+            it as done.
+          </span>
+        </div>
+        <form
+          method="post"
+          action={`/admin/onboarding/${wf}/resources/${encodeURIComponent(r.resource.accessRequestId)}/complete`}
+          className={s.todoForm}
+        >
+          <label className={s.label} htmlFor={id}>
+            How was it set up?
+          </label>
+          <textarea
+            id={id}
+            name="evidence"
+            className={s.textarea}
+            required
+            minLength={8}
+            maxLength={500}
+            placeholder="For example: license assigned in the vendor's admin console"
+            aria-describedby={`${id}-hint`}
+          />
+          <p className={s.hint} id={`${id}-hint`}>
+            Saved in the audit record. Don&apos;t include passwords or keys.
+          </p>
+          <div>
+            <Button variant="primary">Mark as done</Button>
+          </div>
+        </form>
+      </li>,
+    );
+  }
+  const admin = rows.filter(
+    (r) => r.owner && !r.owner.you && r.owner.label.startsWith("Swift admin"),
+  );
+  if (admin.length)
+    items.push(
+      <li key="admin" className={s.todoItem}>
+        <div className={s.stack}>
+          <span className={s.primaryText}>Tell your Swift administrator</span>
+          {admin.map((r) => (
+            <span key={r.resource.accessRequestId} className={s.muted}>
+              {r.name}: {r.note}
+            </span>
+          ))}
+        </div>
+      </li>,
+    );
+
+  const waiting = rows.filter((r) => r.owner && !r.owner.you && !r.owner.label.startsWith("Swift"));
+  const done = view.workflow.state === "COMPLETED";
+  return (
+    <Section id="todo" title="Needs your attention">
+      <Card>
+        {items.length > 0 ? (
+          <ul className={s.todo}>{items}</ul>
+        ) : (
+          <p className={s.allClear}>
+            <I.Check size={16} />
+            {done ? "Onboarding complete. Nothing left to do." : "Nothing needs you right now."}
+          </p>
+        )}
+        {waiting.length > 0 && (
+          <p className={s.todoFoot}>
+            Waiting on others:{" "}
+            {waiting
+              .map((r) => `${r.name} (${r.owner!.label}${r.ticket ? `, ${r.ticket}` : ""})`)
+              .join("; ")}
+            . Swift continues automatically when they&apos;re done.
+          </p>
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+function Tools({ view, rows }: { view: View; rows: ToolRow[] }) {
+  const hasGitHub =
+    view.resources.some((r) => r.provider === "GITHUB") || view.githubClaim !== null;
+  const recommended = view.roleAccessRun?.recommendations ?? [];
+  return (
+    <Section
+      id="tools"
+      title="Tools and access"
+      aside={
+        hasGitHub ? (
+          <ButtonLink
+            href={`/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}/github`}
+            variant="secondary"
+          >
+            GitHub account
+          </ButtonLink>
+        ) : undefined
+      }
+    >
+      <Card>
+        {rows.length === 0 ? (
+          <Empty>
+            {recommended.length > 0
+              ? `Checking which of the ${recommended.length} suggested tools this person is allowed.`
+              : "Not reached yet. Swift works out which tools this person needs once intake is complete."}
+          </Empty>
+        ) : (
+          <DataTable
+            caption="Tools and access"
+            columns={[
+              { key: "tool", label: "Tool", primary: true },
+              { key: "status", label: "Status" },
+              { key: "owner", label: "Next step by" },
+              { key: "detail", label: "Details" },
+            ]}
+            rows={rows.map((r) => ({
+              key: r.resource.accessRequestId,
+              cells: {
+                tool: <span className={s.primaryText}>{r.name}</span>,
+                status: <StatusBadge tone={r.tone} label={r.status} code={r.resource.status} />,
+                owner: r.owner ? (
+                  <span className={cx(s.owner, r.owner.you && s.ownerYou)}>{r.owner.label}</span>
+                ) : null,
+                detail: <ToolDetail row={r} view={view} />,
+              },
+            }))}
+          />
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
+  const id = row.resource.resourceId;
+  const reason = view.roleAccessRun?.recommendations.find((x) => x.resourceId === id)?.reason;
+  const decision = view.policyDecisions.find((d) => d.resourceId === id);
+  const approval = [...view.approvals].reverse().find((a) => a.resourceId === id);
+  const why: string[] = [];
+  if (reason) why.push(`Suggested by AI: ${reason}`);
+  if (decision)
+    why.push(
+      decision.decision === "REQUIRES_APPROVAL"
+        ? `Policy: needs approval. ${decision.explanation}`
+        : `Policy: ${(DECISION_LABELS[decision.decision] ?? humanize(decision.decision)).toLowerCase()}. ${decision.explanation}`,
+    );
+  if (approval?.decidedAt)
+    why.push(`${humanize(approval.status)} in ServiceNow ${formatTime(approval.decidedAt)}.`);
+  return (
+    <div className={s.stack}>
+      {row.note && <span>{row.note}</span>}
+      {row.ticket && <span className={cx(s.muted, s.small)}>ServiceNow {row.ticket}</span>}
+      {why.length > 0 && (
+        <details className={s.why}>
+          <summary>Why</summary>
+          <div className={s.whyBody}>
+            {why.map((w) => (
+              <span key={w}>{w}</span>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ---- Activity: the main steps only ---------------------------------------------------------
+
+function KeyActivity({ view }: { view: View }) {
+  const entries = view.timeline.filter(isKeyEvent);
+  const names = new Map(
+    view.resources.map((r) => [r.resourceId, nameOf(r.resourceId, r.displayName)]),
+  );
+  return (
+    <Section
+      id="timeline"
+      title="Activity"
+      description={
+        <>
+          The main steps, oldest first. Every recorded event is under{" "}
+          <Link
+            href={`/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}?tab=technical`}
+          >
+            Audit &amp; technical
+          </Link>
+          .
+        </>
+      }
+    >
+      <Card>
+        {entries.length === 0 ? (
+          <Empty>No activity recorded.</Empty>
+        ) : (
+          <TimelineList entries={entries} names={names} />
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+// ---- Audit & technical: the full chain, for engineers and auditors --------------------------
+
+function Technical({ view }: { view: View }) {
+  return (
+    <>
+      <p className={s.muted} style={{ margin: 0 }}>
+        How each decision was made, with the identifiers needed to trace it. AI recommends, policy
+        authorizes, and Swift executes and verifies.
+      </p>
       <RoleAccess view={view} />
       <Policy view={view} />
       <Provisioning view={view} />
@@ -65,98 +411,101 @@ export function WorkflowView({ view }: { view: View }) {
         <Approvals view={view} />
         <Fulfillments view={view} />
       </div>
-      <Plan view={view} />
+      <PlanProvenance view={view} />
       <Timeline
         entries={view.timeline}
         names={
           new Map(view.resources.map((r) => [r.resourceId, nameOf(r.resourceId, r.displayName)]))
         }
       />
-      <Section
-        id="provenance"
-        title="Provenance"
-        description="Identifiers for tracing this onboarding across the API, worker and providers."
-      >
-        <Card>
-          <TechnicalDetails summary="Show identifiers and traces">
-            <Meta
-              items={[
-                ["Workflow ID", <Copy key="w" value={workflow.workflowId} />],
-                ["Workflow state", <Mono key="s">{workflow.state}</Mono>],
-                ["Version", String(workflow.version)],
-                ["Updated", formatTime(workflow.updatedAt)],
-                [
-                  "Completed",
-                  workflow.completedAt ? formatTime(workflow.completedAt) : "Not reached",
-                ],
-                ["HRIS employee ID", <Copy key="e" value={view.employee.hrisEmployeeId} />],
-                [
-                  "HRIS events",
-                  view.hrisEvents.length === 0 ? (
-                    "Not available"
-                  ) : (
-                    <span className={s.codeList}>
-                      {view.hrisEvents.map((e) => (
-                        <span key={e.eventId}>
-                          {e.eventType} {e.eventId} · {formatTime(e.receivedAt)}
-                        </span>
-                      ))}
-                    </span>
-                  ),
-                ],
-                ["Correlation IDs", list(view.correlation.correlationIds)],
-                [
-                  "Trace IDs",
-                  view.correlation.traceIds.length
-                    ? list(view.correlation.traceIds)
-                    : "None recorded (tracing off or historical)",
-                ],
-                ["Provider correlation keys", list(view.correlation.providerCorrelationKeys)],
-              ]}
-            />
-            {view.correlation.outboxEvents.length > 0 && (
-              <Card>
-                <DataTable
-                  caption="Outbox events"
-                  columns={[
-                    { key: "type", label: "Outbox event" },
-                    { key: "status", label: "Status" },
-                    { key: "attempts", label: "Attempts" },
-                    { key: "created", label: "Created" },
-                    { key: "trace", label: "Trace" },
-                  ]}
-                  rows={view.correlation.outboxEvents.map((o) => ({
-                    key: o.eventId,
-                    cells: {
-                      type: <Mono>{o.eventType}</Mono>,
-                      status: (
-                        <StatusBadge
-                          tone={toneOf(o.status)}
-                          label={humanize(o.status)}
-                          code={o.status}
-                        />
-                      ),
-                      attempts: String(o.attempts),
-                      created: formatTime(o.createdAt),
-                      trace: o.traceId ? <Mono>{o.traceId}</Mono> : "—",
-                    },
-                  }))}
-                />
-              </Card>
-            )}
-            {view.notes.length > 0 && (
-              <ul aria-label="Notes" className={s.stack}>
-                {view.notes.map((n) => (
-                  <li key={n} className={s.muted}>
-                    {n}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </TechnicalDetails>
-        </Card>
-      </Section>
-    </article>
+      <Provenance view={view} />
+    </>
+  );
+}
+
+function Provenance({ view }: { view: View }) {
+  const { workflow } = view;
+  return (
+    <Section id="provenance" title="Provenance">
+      <Card>
+        <TechnicalDetails summary="Show identifiers and traces">
+          <Meta
+            items={[
+              ["Workflow ID", <Copy key="w" value={workflow.workflowId} />],
+              ["Workflow state", <Mono key="s">{workflow.state}</Mono>],
+              ["Version", String(workflow.version)],
+              ["Updated", formatTime(workflow.updatedAt)],
+              [
+                "Completed",
+                workflow.completedAt ? formatTime(workflow.completedAt) : "Not reached",
+              ],
+              ["HRIS employee ID", <Copy key="e" value={view.employee.hrisEmployeeId} />],
+              [
+                "HRIS events",
+                view.hrisEvents.length === 0 ? (
+                  "Not available"
+                ) : (
+                  <span className={s.codeList}>
+                    {view.hrisEvents.map((e) => (
+                      <span key={e.eventId}>
+                        {e.eventType} {e.eventId} · {formatTime(e.receivedAt)}
+                      </span>
+                    ))}
+                  </span>
+                ),
+              ],
+              ["Correlation IDs", list(view.correlation.correlationIds)],
+              [
+                "Trace IDs",
+                view.correlation.traceIds.length
+                  ? list(view.correlation.traceIds)
+                  : "None recorded (tracing off or historical)",
+              ],
+              ["Provider correlation keys", list(view.correlation.providerCorrelationKeys)],
+            ]}
+          />
+          {view.correlation.outboxEvents.length > 0 && (
+            <Card>
+              <DataTable
+                caption="Outbox events"
+                columns={[
+                  { key: "type", label: "Outbox event" },
+                  { key: "status", label: "Status" },
+                  { key: "attempts", label: "Attempts" },
+                  { key: "created", label: "Created" },
+                  { key: "trace", label: "Trace" },
+                ]}
+                rows={view.correlation.outboxEvents.map((o) => ({
+                  key: o.eventId,
+                  cells: {
+                    type: <Mono>{o.eventType}</Mono>,
+                    status: (
+                      <StatusBadge
+                        tone={toneOf(o.status)}
+                        label={humanize(o.status)}
+                        code={o.status}
+                      />
+                    ),
+                    attempts: String(o.attempts),
+                    created: formatTime(o.createdAt),
+                    trace: o.traceId ? <Mono>{o.traceId}</Mono> : "—",
+                  },
+                }))}
+              />
+            </Card>
+          )}
+          {view.notes.length > 0 && (
+            <ul aria-label="Notes" className={s.stack}>
+              {view.notes.map((n) => (
+                <li key={n} className={s.muted}>
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
+        </TechnicalDetails>
+      </Card>
+    </Section>
   );
 }
 
@@ -170,217 +519,6 @@ const list = (items: string[]) =>
       ))}
     </span>
   );
-
-// ---- Header and summary ------------------------------------------------------------------
-
-function HireHeader({ view }: { view: View }) {
-  const { workflow, employee } = view;
-  const facts = factsLine(employee.facts);
-  return (
-    <header className={s.hire}>
-      <div>
-        <h1 className={s.hireName}>
-          {employee.displayName}
-          <StatusBadge
-            tone={toneOf(workflow.state)}
-            label={stateLabel(workflow.state)}
-            code={workflow.state}
-          />
-        </h1>
-        <div className={s.hireMeta}>
-          {employee.jobTitle && <span style={{ color: "var(--text)" }}>{employee.jobTitle}</span>}
-          <span>{facts ?? "Canonical facts not available (created before canonical facts)"}</span>
-          <span className={s.small}>
-            {employee.workEmail} · Started {formatTime(workflow.createdAt)}
-          </span>
-        </div>
-      </div>
-      <div className={s.hireId}>
-        <span className={cx(s.muted, s.small)}>Workflow</span>
-        <Copy value={workflow.workflowId} />
-      </div>
-    </header>
-  );
-}
-
-function SummaryCards({ view }: { view: View }) {
-  const recommended = view.roleAccessRun?.recommendations.length ?? null;
-  const authorized = view.resources.filter((r) =>
-    r.authorization.outcome.startsWith("AUTHORIZED"),
-  ).length;
-  const pending = view.resources.filter(
-    (r) => r.authorization.outcome === "PENDING_APPROVAL",
-  ).length;
-  const notGranted = view.resources.filter((r) =>
-    ["DENIED_BY_POLICY", "REJECTED_BY_APPROVER"].includes(r.authorization.outcome),
-  ).length;
-  const grantable = view.resources.filter((r) => !["DENIED", "REJECTED"].includes(r.status));
-  const provisioned = grantable.filter((r) => r.status === "PROVISIONED").length;
-  const planStatus = view.onboardingPlan
-    ? { tone: "green" as Tone, label: "Accepted", note: `${view.onboardingPlan.taskCount} tasks` }
-    : view.onboardingPlanRun
-      ? {
-          tone: toneOf(view.onboardingPlanRun.status),
-          label: humanize(view.onboardingPlanRun.status),
-          note: "Generating from settled access",
-        }
-      : {
-          tone: "gray" as Tone,
-          label: "Waiting",
-          note: "Starts once every resource is settled",
-        };
-  return (
-    <section className={s.summaryGrid} aria-label="At a glance">
-      <Card className={s.summaryCard}>
-        <div className={s.summaryHead}>
-          <span className={s.subTitle}>Access</span>
-          <ActorChip actor="AI" label="AI → Policy" />
-        </div>
-        <span className={s.summaryValue}>
-          {recommended === null ? "Not planned yet" : `${recommended} recommended`}
-        </span>
-        <span className={cx(s.muted, s.small)}>
-          {recommended === null
-            ? "The Role Access Agent hasn't run."
-            : `${authorized} authorized${pending ? `, ${pending} awaiting approval` : ""}${notGranted ? `, ${notGranted} not granted` : ""}`}
-        </span>
-      </Card>
-      <Card className={s.summaryCard}>
-        <div className={s.summaryHead}>
-          <span className={s.subTitle}>Provisioning</span>
-          <ActorChip actor="Worker" label="Orchestrator" />
-        </div>
-        <span className={s.summaryValue}>
-          {grantable.length === 0
-            ? "Nothing to provision"
-            : `${provisioned} of ${grantable.length} completed`}
-        </span>
-        {grantable.length > 0 && (
-          <div
-            className={s.bar}
-            role="img"
-            aria-label={`${provisioned} of ${grantable.length} resources provisioned`}
-          >
-            <span
-              className={s.barFill}
-              style={{ width: `${(provisioned / grantable.length) * 100}%` }}
-            />
-          </div>
-        )}
-      </Card>
-      <Card className={s.summaryCard}>
-        <div className={s.summaryHead}>
-          <span className={s.subTitle}>Onboarding plan</span>
-          <ActorChip actor="AI" />
-        </div>
-        <div className={s.cluster}>
-          <StatusBadge tone={planStatus.tone} label={planStatus.label} />
-        </div>
-        <span className={cx(s.muted, s.small)}>{planStatus.note}</span>
-      </Card>
-    </section>
-  );
-}
-
-// ---- Needs attention ----------------------------------------------------------------------
-
-function Attention({ view }: { view: View }) {
-  const items: ReactNode[] = [];
-  const githubPage = `/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}/github`;
-  const names = (rs: Resource[]) => rs.map((r) => nameOf(r.resourceId, r.displayName)).join(", ");
-  const by = (pred: (r: Resource) => boolean) => view.resources.filter(pred);
-
-  if (view.workflow.state === "FAILED") {
-    items.push(
-      <Callout key="failed" tone="red" title="This onboarding stopped" role="alert">
-        {view.workflow.failureReason ?? "The workflow failed. See the activity below."}
-      </Callout>,
-    );
-  }
-  const github = by((r) => r.blocker === "GITHUB_IDENTITY_CLAIM_REQUIRED");
-  if (github.length)
-    items.push(
-      <Callout
-        key="github"
-        tone="amber"
-        title="GitHub identity required"
-        action={
-          <ButtonLink href={githubPage} variant="primary">
-            Record GitHub username
-          </ButtonLink>
-        }
-      >
-        Provisioning is waiting for HR to record the employee&apos;s GitHub username (
-        {names(github)}).
-      </Callout>,
-    );
-  const invite = by((r) => r.blocker === "GITHUB_INVITATION_PENDING");
-  if (invite.length)
-    items.push(
-      <Callout key="invite" tone="amber" title="GitHub invitation not accepted yet">
-        The employee has a pending invitation to the GitHub organization. Access continues once they
-        accept it.
-      </Callout>,
-    );
-  const approval = by((r) => r.status === "AWAITING_APPROVAL");
-  if (approval.length)
-    items.push(
-      <Callout key="approval" tone="amber" title={`Waiting for approval: ${names(approval)}`}>
-        Policy requires a human decision in ServiceNow. Other resources continue meanwhile.
-      </Callout>,
-    );
-  const fulfil = by((r) => /^SERVICENOW_FULFILLMENT_/.test(r.blocker ?? ""));
-  if (fulfil.length)
-    items.push(
-      <Callout key="fulfil" tone="amber" title={`Waiting for fulfillment: ${names(fulfil)}`}>
-        A fulfiller has to grant this access in ServiceNow. Swift checks the ticket and marks it
-        provisioned only when ServiceNow reports it fulfilled.
-      </Callout>,
-    );
-  const manual = by((r) => r.status === "MANUAL_ACTION_REQUIRED");
-  if (manual.length)
-    items.push(
-      <Callout key="manual" tone="amber" title={`Manual setup required: ${names(manual)}`}>
-        This resource has no automated provider. An operator confirms it once it&apos;s set up.
-      </Callout>,
-    );
-  const config = by(
-    (r) =>
-      !["PROVISIONED", "DENIED", "REJECTED", "PROVISIONING_FAILED"].includes(r.status) &&
-      r.blockerClass === "DETERMINISTIC_FAILURE",
-  );
-  if (config.length) {
-    const onlyConfig = config.every(
-      (r) =>
-        r.blocker === "PROVIDER_NOT_CONFIGURED" || /_TARGET_NOT_CONFIGURED$/.test(r.blocker ?? ""),
-    );
-    items.push(
-      <Callout
-        key="config"
-        tone="amber"
-        title={`${onlyConfig ? "Needs configuration" : "Blocked"}: ${names(config)}`}
-      >
-        {config.map((r) => describeBlocker(r).text).join(". ")}.
-        {onlyConfig &&
-          " Swift checks again periodically, so it continues once the deployment is configured."}
-      </Callout>,
-    );
-  }
-  const failed = by((r) => r.status === "PROVISIONING_FAILED");
-  if (failed.length)
-    items.push(
-      <Callout key="prov-failed" tone="red" title={`Provisioning failed: ${names(failed)}`}>
-        The provider reported a permanent failure. The workflow waits until it&apos;s resolved; see
-        the resource table for details.
-      </Callout>,
-    );
-  if (items.length === 0) return null;
-  return (
-    <section aria-label="Needs attention" className={s.stackMd}>
-      {items}
-    </section>
-  );
-}
 
 // ---- AI recommends ------------------------------------------------------------------------
 
@@ -558,23 +696,12 @@ function waitingOn(r: Resource, all: Resource[]): ReactNode {
 
 function Provisioning({ view }: { view: View }) {
   const rs = view.resources;
-  const hasGitHub = rs.some((r) => r.provider === "GITHUB") || view.githubClaim !== null;
   return (
     <Section
       id="resources"
       title="Resource provisioning"
       actor={{ kind: "Worker", label: "Orchestrator" }}
       description="Each authorized resource is executed independently through its provider, in dependency order."
-      aside={
-        hasGitHub ? (
-          <ButtonLink
-            href={`/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}/github`}
-            variant="secondary"
-          >
-            GitHub account
-          </ButtonLink>
-        ) : undefined
-      }
     >
       <Card>
         {rs.length === 0 ? (
@@ -868,16 +995,18 @@ function Plan({ view }: { view: View }) {
   return (
     <Section
       id="plan"
-      title="Onboarding plan"
+      title="First-month plan"
       actor={{ kind: "AI", label: "AI" }}
-      description="Written from settled access only: it references only resources that were actually provisioned."
+      description="A checklist for the employee's first month, written from the tools they actually have."
     >
       <Card>
         {!plan ? (
           <Empty>
-            {run
-              ? `No accepted plan yet (${humanize(run.status).toLowerCase()}).`
-              : "Not reached yet. The plan is written once every resource is settled."}
+            {run?.status === "FAILED"
+              ? "The plan couldn't be written. Tell your Swift administrator."
+              : run
+                ? "Writing the plan now."
+                : "Not reached yet. The plan is written once every tool is set up or settled."}
           </Empty>
         ) : (
           <>
@@ -895,10 +1024,7 @@ function Plan({ view }: { view: View }) {
                     <li key={i} className={s.task}>
                       <span className={s.taskBox} aria-hidden="true" />
                       <div className={s.stack}>
-                        <span className={s.cluster}>
-                          <span className={s.primaryText}>{t.title}</span>
-                          <span className={s.chip}>{humanize(t.category)}</span>
-                        </span>
+                        <span className={s.primaryText}>{t.title}</span>
                         <span className={s.muted}>{t.instruction}</span>
                         {t.resources.length > 0 && (
                           <span className={s.small} style={{ color: "var(--gray-fg)" }}>
@@ -913,7 +1039,25 @@ function Plan({ view }: { view: View }) {
             ))}
           </>
         )}
-        {(plan || run) && (
+      </Card>
+    </Section>
+  );
+}
+
+function PlanProvenance({ view }: { view: View }) {
+  const plan = view.onboardingPlan;
+  const run = view.onboardingPlanRun;
+  return (
+    <Section
+      id="plan-run"
+      title="Onboarding Plan Agent"
+      actor={{ kind: "AI", label: "AI" }}
+      description="Written from settled access only: it references only resources that were actually provisioned."
+    >
+      <Card>
+        {!plan && !run ? (
+          <Empty>Not reached yet.</Empty>
+        ) : (
           <TechnicalDetails>
             <Meta
               items={[
@@ -922,6 +1066,18 @@ function Plan({ view }: { view: View }) {
                       ["Plan ID", <Copy key="p" value={plan.planId} />],
                       ["Generated", formatTime(plan.createdAt)],
                       ["Tasks", String(plan.taskCount)],
+                      [
+                        "Task categories",
+                        <span key="c" className={s.codeList}>
+                          {plan.phases.flatMap((p) =>
+                            p.tasks.map((t, i) => (
+                              <span key={`${p.phase}-${i}`}>
+                                {p.phase} {t.category}: {t.title}
+                              </span>
+                            )),
+                          )}
+                        </span>,
+                      ],
                     ] as [string, ReactNode][])
                   : []),
                 ...(run
@@ -964,37 +1120,17 @@ function eventTone(e: TimelineEntry): Tone | null {
 
 function Timeline({ entries, names }: { entries: TimelineEntry[]; names: Map<string, string> }) {
   return (
-    <Section id="timeline" title="Activity" description="Every recorded step, oldest first.">
+    <Section
+      id="audit"
+      title="Full activity record"
+      description="Every recorded event, oldest first."
+    >
       <Card>
         {entries.length === 0 ? (
           <Empty>No activity recorded.</Empty>
         ) : (
           <>
-            <ol className={s.timeline} aria-label="Activity timeline">
-              {entries.map((e) => {
-                const tone = eventTone(e);
-                const resource =
-                  typeof e.details.resourceId === "string" ? e.details.resourceId : null;
-                return (
-                  <li key={e.id} className={s.tlItem}>
-                    <span
-                      className={cx(s.tlDot, tone && tone !== "gray" && s[tone])}
-                      aria-hidden="true"
-                    />
-                    <div className={s.tlHead}>
-                      <span className={s.tlText}>{timelineSummary(e)}</span>
-                      {resource && (
-                        <span className={s.tlSubject}>{names.get(resource) ?? resource}</span>
-                      )}
-                      <ActorChip actor={actorOf(e)} />
-                    </div>
-                    <time dateTime={e.occurredAt} className={s.tlTime}>
-                      {formatTime(e.occurredAt)}
-                    </time>
-                  </li>
-                );
-              })}
-            </ol>
+            <TimelineList entries={entries} names={names} />
             <TechnicalDetails summary="Raw audit records">
               <span className={s.codeList}>
                 {entries.map((e) => (
@@ -1012,5 +1148,35 @@ function Timeline({ entries, names }: { entries: TimelineEntry[]; names: Map<str
         )}
       </Card>
     </Section>
+  );
+}
+
+function TimelineList({
+  entries,
+  names,
+}: {
+  entries: TimelineEntry[];
+  names: Map<string, string>;
+}) {
+  return (
+    <ol className={s.timeline} aria-label="Activity timeline">
+      {entries.map((e) => {
+        const tone = eventTone(e);
+        const resource = typeof e.details.resourceId === "string" ? e.details.resourceId : null;
+        return (
+          <li key={e.id} className={s.tlItem}>
+            <span className={cx(s.tlDot, tone && tone !== "gray" && s[tone])} aria-hidden="true" />
+            <div className={s.tlHead}>
+              <span className={s.tlText}>{timelineSummary(e)}</span>
+              {resource && <span className={s.tlSubject}>{names.get(resource) ?? resource}</span>}
+              <ActorChip actor={actorOf(e)} />
+            </div>
+            <time dateTime={e.occurredAt} className={s.tlTime}>
+              {formatTime(e.occurredAt)}
+            </time>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
