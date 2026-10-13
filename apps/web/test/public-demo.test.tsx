@@ -61,6 +61,32 @@ describe("(M10) public synthetic demo", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("scenarios read like the operator's workflow page", async () => {
+    const text = (html: string) =>
+      html
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&#x27;/g, "'")
+        .replace(/\s+/g, " ");
+    const done = text(renderToStaticMarkup(await page("completed")));
+    for (const t of [
+      "Onboarding complete · 5 of 5 tools ready · first-month plan with",
+      "Onboarding complete. Nothing left to do.",
+      "Tools and access",
+      "How access was decided",
+      "First-month plan",
+      "Activity",
+    ])
+      expect(done, t).toContain(t);
+    const approval = text(renderToStaticMarkup(await page("awaiting-approval")));
+    expect(approval).toContain("Waiting on: Approver in ServiceNow");
+    expect(approval).not.toContain("aws-dev"); // no raw ids for tools outside the scenario
+    expect(approval).toContain("Not granted");
+    const invite = text(renderToStaticMarkup(await page("github-invitation-pending")));
+    expect(invite).toContain("Invitation sent: the employee has to accept it on GitHub.");
+    expect(invite).toContain("Starts after GitHub organization membership.");
+    expect(invite).toContain("Not reached yet");
+  });
+
   it("only the fixed slugs exist (static params, no dynamic lookup)", () => {
     expect(demoModule.dynamicParams).toBe(false);
     expect(demoModule.generateStaticParams()).toEqual(DEMO_SLUGS.map((slug) => ({ slug })));
@@ -128,7 +154,11 @@ describe("(M10) public synthetic demo", () => {
         const p = join(dir, f);
         return statSync(p).isDirectory() ? walk(p) : [p];
       });
-    for (const file of [...walk(join(root, "app", "demo")), join(root, "lib", "demo-data.ts")]) {
+    for (const file of [
+      ...walk(join(root, "app", "demo")),
+      join(root, "lib", "demo-data.ts"),
+      join(root, "lib", "demo-model.ts"),
+    ]) {
       const src = readFileSync(file, "utf8");
       expect(src, file).not.toMatch(
         /onboarding-read-api|github-identity-api|dashboard-auth|operator-session|lib\/config|@aoo\/db|fetch\(/,

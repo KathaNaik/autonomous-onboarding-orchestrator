@@ -1,31 +1,33 @@
 import Link from "next/link";
-import { Badge } from "@/components/badge";
+import { PageHeader, StatusBadge, styles as c } from "@/components/console/ui";
+import { stateLabel, toneOf } from "@/lib/console-model";
 import { DEMO_SCENARIOS } from "@/lib/demo-data";
+import styles from "./demo.module.css";
 
 export const dynamic = "force-static";
 
 /** (M10) Public demo index: three fixed synthetic scenarios. */
 export default function DemoIndexPage() {
   return (
-    <main>
-      <h1>Onboarding demo</h1>
-      <p>
-        Three synthetic onboardings, rendered from bundled sample data. Nothing here reads or
-        changes a real workflow, and nothing calls ServiceNow, Okta, GitHub or OpenAI.
-      </p>
-      <ul style={{ listStyle: "none", padding: 0 }}>
+    <main className={c.stackMd} style={{ gap: 24 }}>
+      <PageHeader
+        title="Onboarding demo"
+        description="Three example onboardings with made-up people, shown the way an HR or IT operator sees them in Swift. Nothing here calls ServiceNow, Okta, GitHub or OpenAI."
+      />
+      <ul className={styles.cards} style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {DEMO_SCENARIOS.map((s) => (
-          <li
-            key={s.slug}
-            style={{ border: "1px solid #ddd", borderRadius: 6, padding: 12, marginBottom: 12 }}
-          >
-            <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>
-              <Link href={`/demo/${s.slug}`}>{s.title}</Link>
-            </h2>
-            <p style={{ margin: "4px 0" }}>
-              <Badge value={s.state} /> {s.hire.jobTitle}
+          <li key={s.slug} className={styles.card}>
+            <div>
+              <StatusBadge tone={toneOf(s.state)} label={stateLabel(s.state)} code={s.state} />
+            </div>
+            <h2 className={styles.cardTitle}>{s.title}</h2>
+            <p className={styles.cardRole}>
+              {s.hire.displayName} · {s.hire.jobTitle}
             </p>
-            <p style={{ margin: 0 }}>{s.summary}</p>
+            <p className={styles.cardSummary}>{s.summary}</p>
+            <Link href={`/demo/${s.slug}`} className={styles.cardLink}>
+              Open scenario
+            </Link>
           </li>
         ))}
       </ul>

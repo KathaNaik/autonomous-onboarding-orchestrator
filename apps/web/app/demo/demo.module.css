@@ -1,0 +1,102 @@
+/* Public demo shell: the console's tokens (from .root in components/console) plus layout. */
+.page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbarInner {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.topLinks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.notice {
+  background: var(--blue-bg);
+  color: var(--blue-fg);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.noticeInner {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.main {
+  padding-top: 32px;
+  padding-bottom: 64px;
+  display: grid;
+  gap: 24px;
+}
+.main > * {
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cardTitle {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.cardRole {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.cardSummary {
+  margin: 0;
+  font-size: 14px;
+  color: var(--gray-fg);
+  flex: 1;
+}
+.cardLink {
+  font-weight: 500;
+  font-size: 14px;
+}
+.footer {
+  padding: 24px 0 40px;
+  color: var(--muted);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 860px) {
+  .container {
+    padding: 0 16px;
+  }
+  .main {
+    padding-top: 24px;
+  }
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}

@@ -391,17 +391,26 @@ export type StepStatus = "done" | "current" | "upcoming" | "skipped" | "failed";
 export function lifecycle(
   view: WorkflowObservabilityView,
 ): { label: string; status: StepStatus }[] {
-  const state = view.workflow.state;
-  let current = STEP_OF[state] ?? 0;
+  const failedFrom =
+    view.workflow.state === "FAILED"
+      ? ([...view.timeline].reverse().find((e) => e.toState === "FAILED")?.fromState ?? "RECEIVED")
+      : null;
+  return lifecycleSteps(view.workflow.state, {
+    approvalNeeded:
+      view.approvals.length > 0 ||
+      view.policyDecisions.some((d) => d.decision === "REQUIRES_APPROVAL") ||
+      view.timeline.some((e) => e.toState === "AWAITING_APPROVAL"),
+    failedFrom,
+  });
+}
+
+/** The lifecycle from a workflow state alone (also used by the public demo). */
+export function lifecycleSteps(
+  state: string,
+  { approvalNeeded, failedFrom = null }: { approvalNeeded: boolean; failedFrom?: string | null },
+): { label: string; status: StepStatus }[] {
   const failed = state === "FAILED";
-  if (failed) {
-    const into = [...view.timeline].reverse().find((e) => e.toState === "FAILED");
-    current = STEP_OF[into?.fromState ?? "RECEIVED"] ?? 0;
-  }
-  const approvalNeeded =
-    view.approvals.length > 0 ||
-    view.policyDecisions.some((d) => d.decision === "REQUIRES_APPROVAL") ||
-    view.timeline.some((e) => e.toState === "AWAITING_APPROVAL");
+  const current = failed ? (STEP_OF[failedFrom ?? "RECEIVED"] ?? 0) : (STEP_OF[state] ?? 0);
   return LIFECYCLE_STEPS.map((label, i) => {
     if (state === "COMPLETED") {
       return { label, status: i === 2 && !approvalNeeded ? "skipped" : "done" };

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { WorkflowView } from "@/app/admin/onboarding/[workflowId]/workflow-view";
 import { WorkflowTable } from "@/app/admin/onboarding/workflow-table";
 import { attentionSummary, lifecycle } from "@/lib/console-model";
-import { humanize, toneOf } from "@/lib/dashboard-model";
 
 import { WF, base } from "./dashboard-fixture";
 
@@ -360,8 +359,5 @@ describe("operator console: workflow list", () => {
     expect(visible(renderToStaticMarkup(<WorkflowTable items={[]} />))).toContain(
       "No workflows match. Start one from a signed offer letter.",
     );
-    // The public demo keeps its own helpers.
-    expect(toneOf("PROVISIONING_FAILED")).toBe("blocked");
-    expect(humanize("PROVISIONING_FAILED")).toBe("Provisioning failed");
   });
 });
