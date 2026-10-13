@@ -109,15 +109,21 @@ export const Lock = (p: { size?: number }) => (
     <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
   </Svg>
 );
-export const Logo = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-    <path
-      d="M3 5.5h7.5L8.5 3.5M13 10.5H5.5l2 2"
-      fill="none"
-      stroke="#fff"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+/** Swift's mark: an "S" drawn as a workflow path with step dots, ending in a check (done). */
+export const LOGO_PATH = "M3 30H22A6 6 0 0 0 22 18H17A6 6 0 0 1 17 6H24";
+export const LOGO_CHECK = "M27.5 9.5L31 13L37.5 5";
+export const Logo = ({ size = 26, check = "#2563eb" }: { size?: number; check?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 40 40"
+    fill="none"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d={LOGO_PATH} stroke="#2563eb" strokeWidth="4" strokeLinejoin="round" />
+    <circle cx="11" cy="30" r="3.5" fill="#2563eb" />
+    <circle cx="24" cy="6" r="3.5" fill="#2563eb" />
+    <path d={LOGO_CHECK} stroke={check} strokeWidth="4" strokeLinecap="square" />
   </svg>
 );

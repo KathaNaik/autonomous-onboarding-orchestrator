@@ -104,10 +104,8 @@
   text-decoration: none !important;
 }
 .brandMark {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--text);
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
 }
