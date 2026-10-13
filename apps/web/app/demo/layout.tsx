@@ -31,8 +31,7 @@ export default function DemoLayout({ children }: { children: ReactNode }) {
       </header>
       <p className={styles.notice}>
         <span className={cx(styles.container, styles.noticeInner)} style={{ display: "block" }}>
-          <strong>Public demo</strong> · synthetic people and data · read-only. Nothing here reads
-          or changes a real onboarding.
+          Example onboardings with made-up people. Nothing here touches real accounts.
         </span>
       </p>
       <div className={cx(styles.container, styles.main)}>{children}</div>

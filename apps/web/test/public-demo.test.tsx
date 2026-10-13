@@ -97,7 +97,8 @@ describe("(M10) public synthetic demo", () => {
     for (const slug of DEMO_SLUGS) {
       expect(index).toContain(`href="/demo/${slug}"`);
       const html = renderToStaticMarkup(await page(slug));
-      expect(html).toContain(demoScenario(slug)!.title);
+      expect(html).toContain(demoScenario(slug)!.hire.displayName);
+      expect(html).toContain(demoScenario(slug)!.summary.slice(0, 40).replaceAll("'", "&#x27;"));
       expect(html).not.toMatch(/<form|<input|<button/i); // read-only: no controls at all
     }
     expect(renderToStaticMarkup(await page("completed"))).toContain("Day one");
@@ -113,21 +114,38 @@ describe("(M10) public synthetic demo", () => {
     const done = text(renderToStaticMarkup(await page("completed")));
     for (const t of [
       "Onboarding complete · 5 of 5 tools ready · first-month plan with",
-      "Onboarding complete. Nothing left to do.",
       "Tools and access",
-      "How access was decided",
+      "Approved in ServiceNow, then set up by IT.",
+      "Membership active in GitHub.",
+      "Access rules: needs an approver.",
       "First-month plan",
-      "Activity",
+      "Signed offer received for a cleared candidate",
     ])
       expect(done, t).toContain(t);
+    // Plain language only: no section that repeats the table, nothing waiting, no system jargon.
+    for (const t of [
+      "How access was decided",
+      "Waiting on",
+      "Set up and verified with the provider.",
+      "offer.signed",
+      "read back",
+      "COMPLETED",
+      "Policy engine",
+    ])
+      expect(done, t).not.toContain(t);
     const approval = text(renderToStaticMarkup(await page("awaiting-approval")));
-    expect(approval).toContain("Waiting on: Approver in ServiceNow");
+    expect(approval).toContain("Approver in ServiceNow: Cursor license");
     expect(approval).not.toContain("aws-dev"); // no raw ids for tools outside the scenario
     expect(approval).toContain("Not granted");
+    expect(approval).toContain("Access rules: refused.");
+    const meta = await demoModule.generateMetadata({
+      params: Promise.resolve({ slug: "completed" }),
+    });
+    expect(meta.title).toBe("Completed onboarding: backend engineer · Swift demo");
     const invite = text(renderToStaticMarkup(await page("github-invitation-pending")));
     expect(invite).toContain("Invitation sent: the employee has to accept it on GitHub.");
     expect(invite).toContain("Starts after GitHub organization membership.");
-    expect(invite).toContain("Not reached yet");
+    expect(invite).toContain("Not written yet");
   });
 
   it("only the fixed slugs exist (static params, no dynamic lookup)", () => {

@@ -43,45 +43,37 @@
 .main > * {
   min-width: 0;
 }
-.eyebrow {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--primary);
+.scenarios {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
 }
-.cards {
+.scenario {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 170px minmax(0, 1fr);
   gap: 16px;
+  align-items: baseline;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
 }
-.card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.scenario > :first-child {
+  justify-self: start;
 }
-.cardTitle {
-  font-size: 15px;
+.scenarioTitle {
   font-weight: 600;
-  margin: 0;
+  font-size: 16px;
 }
-.cardRole {
-  margin: 0;
-  font-size: 13px;
+.scenarioMeta {
+  margin: 2px 0 0;
   color: var(--muted);
+  font-size: 13px;
 }
-.cardSummary {
-  margin: 0;
-  font-size: 14px;
+.scenarioText {
+  margin: 6px 0 0;
   color: var(--gray-fg);
-  flex: 1;
-}
-.cardLink {
-  font-weight: 500;
-  font-size: 14px;
+  font-size: 15px;
+  max-width: 75ch;
 }
 .footer {
   padding: 24px 0 40px;
@@ -96,7 +88,8 @@
   .main {
     padding-top: 24px;
   }
-  .cards {
+  .scenario {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 }

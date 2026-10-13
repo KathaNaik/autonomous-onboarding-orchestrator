@@ -11,23 +11,22 @@ export default function DemoIndexPage() {
   return (
     <main className={c.stackMd} style={{ gap: 24 }}>
       <PageHeader
-        title="Onboarding demo"
-        description="Three example onboardings with made-up people, shown the way an HR or IT operator sees them in Swift. Nothing here calls ServiceNow, Okta, GitHub or OpenAI."
+        title="Three onboardings, as HR sees them"
+        description="Made-up people at different points of an onboarding. Each page shows what the operator sees: who's waiting on what, every tool's status, and why it was allowed."
       />
-      <ul className={styles.cards} style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul className={styles.scenarios}>
         {DEMO_SCENARIOS.map((s) => (
-          <li key={s.slug} className={styles.card}>
+          <li key={s.slug} className={styles.scenario}>
+            <StatusBadge tone={toneOf(s.state)} label={stateLabel(s.state)} code={s.state} />
             <div>
-              <StatusBadge tone={toneOf(s.state)} label={stateLabel(s.state)} code={s.state} />
+              <Link href={`/demo/${s.slug}`} className={styles.scenarioTitle}>
+                {s.title}
+              </Link>
+              <p className={styles.scenarioMeta}>
+                {s.hire.displayName} · {s.hire.jobTitle}
+              </p>
+              <p className={styles.scenarioText}>{s.summary}</p>
             </div>
-            <h2 className={styles.cardTitle}>{s.title}</h2>
-            <p className={styles.cardRole}>
-              {s.hire.displayName} · {s.hire.jobTitle}
-            </p>
-            <p className={styles.cardSummary}>{s.summary}</p>
-            <Link href={`/demo/${s.slug}`} className={styles.cardLink}>
-              Open scenario
-            </Link>
           </li>
         ))}
       </ul>

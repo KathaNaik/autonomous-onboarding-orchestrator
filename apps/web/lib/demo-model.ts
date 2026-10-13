@@ -19,6 +19,27 @@ export interface DemoToolRow {
 
 const SWIFT: Owner = { label: "Swift (automatic)", you: false };
 
+/** What actually happened for a tool that is ready (never a generic "verified"). */
+function readyNote(r: DemoResource): string {
+  if (r.provider === "OKTA") return "Added in Okta and confirmed.";
+  if (r.provider === "GITHUB") return "Membership active in GitHub.";
+  if (r.provider === "MANUAL") return "Set up by the HR or IT operator.";
+  return r.decision === "REQUIRES_APPROVAL"
+    ? "Approved in ServiceNow, then set up by IT."
+    : "Set up by IT through ServiceNow.";
+}
+
+/** The "Why" lines for a tool: what the AI did and what the access rules decided. */
+export function demoWhy(r: DemoResource): string[] {
+  const rule =
+    r.decision === "ALLOW"
+      ? "Access rules: allowed."
+      : r.decision === "DENY"
+        ? "Access rules: refused."
+        : "Access rules: needs an approver.";
+  return ["Suggested by the AI for this role.", `${rule} ${r.reason}`];
+}
+
 export function demoToolRow(r: DemoResource, all: readonly DemoResource[]): DemoToolRow {
   const row = (tone: Tone, status: string, owner: Owner | null, note: string, rank: number) => ({
     resource: r,
@@ -30,7 +51,7 @@ export function demoToolRow(r: DemoResource, all: readonly DemoResource[]): Demo
   });
   switch (r.status) {
     case "PROVISIONED":
-      return row("green", "Ready", null, "Set up and verified with the provider.", 4);
+      return row("green", "Ready", null, readyNote(r), 4);
     case "DENIED":
       return row("gray", "Not granted", null, r.reason, 5);
     case "REJECTED":
@@ -108,12 +129,12 @@ export const demoLifecycle = (s: DemoScenario) =>
 
 /** Demo timeline actors (free text in the bundled data) → the console's actor chips. */
 export function demoActor(actor: string): ActorKind {
-  if (/^HRIS/.test(actor)) return "HRIS";
-  if (/^HR\b/.test(actor)) return "HR";
-  if (/Agent/.test(actor)) return "AI";
-  if (/Policy/.test(actor)) return "Policy";
-  if (/Approver|Fulfiller/.test(actor)) return "ServiceNow";
-  if (/Worker/.test(actor)) return "Worker";
+  if (actor === "HR system") return "HRIS";
+  if (actor === "HR") return "HR";
+  if (actor === "AI") return "AI";
+  if (actor === "Access rules") return "Policy";
+  if (actor === "Approver" || actor === "IT") return "ServiceNow";
+  if (actor === "Swift") return "Worker";
   return "System";
 }
 
