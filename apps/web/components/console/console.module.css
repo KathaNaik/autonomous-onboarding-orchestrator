@@ -251,27 +251,22 @@
   text-align: center;
 }
 .authBrand {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
+  gap: 12px;
+  font-size: 26px;
+  letter-spacing: -0.02em;
   margin-bottom: 16px;
 }
-.authBrand .brand {
-  font-size: 18px;
-}
 .authBrand .brandMark {
-  width: 32px;
-  height: 32px;
+  width: 48px;
+  height: 48px;
 }
-.authProduct {
-  color: var(--muted);
-  font-size: 14px;
-}
+/* The heading and its description share one size and weight. */
 .authTitle {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: 17px;
+  line-height: 26px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--text);
 }
 .authFoot {
   color: var(--muted);
