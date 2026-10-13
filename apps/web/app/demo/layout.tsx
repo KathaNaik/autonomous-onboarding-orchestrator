@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { geistMono, geistSans } from "@/components/console/fonts";
+import { ThemeMenu } from "@/components/console/theme-menu";
 import * as I from "@/components/console/icons";
 import { ButtonLink, cx, styles as c } from "@/components/console/ui";
 import styles from "./demo.module.css";
@@ -24,6 +25,7 @@ export default function DemoLayout({ children }: { children: ReactNode }) {
             <ButtonLink href="/admin/onboarding/login" variant="secondary">
               Operator login
             </ButtonLink>
+            <ThemeMenu />
           </nav>
         </div>
       </header>

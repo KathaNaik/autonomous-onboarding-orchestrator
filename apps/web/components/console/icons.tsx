@@ -127,3 +127,25 @@ export const Logo = ({ size = 26, check = "#2563eb" }: { size?: number; check?: 
     <path d={LOGO_CHECK} stroke={check} strokeWidth="4" strokeLinecap="square" />
   </svg>
 );
+export const Sun = (p: { size?: number }) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="3" />
+    <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" />
+  </Svg>
+);
+export const Moon = (p: { size?: number }) => (
+  <Svg {...p}>
+    <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" />
+  </Svg>
+);
+export const Monitor = (p: { size?: number }) => (
+  <Svg {...p}>
+    <rect x="2" y="2.5" width="12" height="8.5" rx="1.5" />
+    <path d="M5.5 14h5M8 11v3" />
+  </Svg>
+);
+export const ChevronDown = (p: { size?: number }) => (
+  <Svg {...p}>
+    <path d="M4.5 6.5L8 10l3.5-3.5" />
+  </Svg>
+);

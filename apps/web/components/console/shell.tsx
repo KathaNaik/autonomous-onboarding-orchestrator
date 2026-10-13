@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { geistMono, geistSans } from "./fonts";
 import { Logo } from "./icons";
 import { cx, styles as s } from "./ui";
+import { ThemeMenu } from "./theme-menu";
 
 export type NavKey = "workflows" | "new";
 
@@ -65,6 +66,7 @@ export function ConsoleShell({
           <nav aria-label="Primary" className={s.nav}>
             {links}
           </nav>
+          <ThemeMenu />
           {session && (
             <div className={s.account}>
               <span className={s.accountEmail} title={session.operatorId}>
@@ -109,7 +111,10 @@ export function AuthShell({
   footer?: ReactNode;
 }) {
   return (
-    <div className={cx(s.root, fontVars)}>
+    <div className={cx(s.root, fontVars)} style={{ position: "relative" }}>
+      <div style={{ position: "absolute", top: 16, right: 16 }}>
+        <ThemeMenu />
+      </div>
       <main className={s.authPage}>
         <div style={{ width: "100%", display: "grid", justifyItems: "center" }}>
           <div className={s.authCard}>

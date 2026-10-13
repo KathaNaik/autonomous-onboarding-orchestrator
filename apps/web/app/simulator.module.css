@@ -99,7 +99,7 @@
   font-weight: 500;
 }
 .focusRow {
-  background: var(--amber-bg);
+  background: var(--row-highlight);
 }
 .cellStack {
   display: grid;
@@ -127,7 +127,7 @@
 .confFill {
   display: block;
   height: 100%;
-  background: var(--primary);
+  background: var(--primary-solid);
   border-radius: 3px;
   animation: grow 600ms ease-out;
 }

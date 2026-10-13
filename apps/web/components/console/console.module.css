@@ -11,6 +11,8 @@
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-soft: #eff4ff;
+  --primary-solid: #2563eb;
+  --primary-solid-hover: #1d4ed8;
   --focus: #2563eb;
 
   --green-bg: #ecfdf3;
@@ -28,6 +30,16 @@
   --gray-bg: #f2f4f7;
   --gray-fg: #344054;
   --gray-line: #e4e7ec;
+  --green-solid: #079455;
+  --red-solid: #d92d20;
+  --blue-solid: #1570ef;
+  --amber-solid: #dc6803;
+  --row-highlight: #fffaeb;
+  --chip-ai-bg: #f0f9ff;
+  --chip-ai-fg: #026aa2;
+  --chip-policy-bg: #eef2f6;
+  --chip-policy-fg: #364152;
+  --shadow: rgba(16, 24, 40, 0.08);
 
   --radius: 8px;
   --radius-sm: 6px;
@@ -297,11 +309,11 @@
   text-decoration: none !important;
 }
 .primary {
-  background: var(--primary);
+  background: var(--primary-solid);
   color: #fff !important;
 }
 .primary:hover {
-  background: var(--primary-hover);
+  background: var(--primary-solid-hover);
 }
 .secondary {
   background: var(--surface);
@@ -380,12 +392,12 @@
   white-space: nowrap;
 }
 .chipAI {
-  background: #f0f9ff;
-  color: #026aa2;
+  background: var(--chip-ai-bg);
+  color: var(--chip-ai-fg);
 }
 .chipPolicy {
-  background: #eef2f6;
-  color: #364152;
+  background: var(--chip-policy-bg);
+  color: var(--chip-policy-fg);
 }
 .chipOrchestrator {
   background: var(--gray-bg);
@@ -801,7 +813,7 @@
 }
 .stepCurrent .stepNum {
   border-color: var(--primary);
-  background: var(--primary);
+  background: var(--primary-solid);
   color: #fff;
 }
 .stepDone .stepNum {
@@ -902,8 +914,8 @@
   color: var(--muted);
 }
 .lcDone .lcDot {
-  background: var(--green-fg);
-  border-color: var(--green-fg);
+  background: var(--green-solid);
+  border-color: var(--green-solid);
   color: #fff;
 }
 .lcDone .lcLine {
@@ -921,7 +933,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--primary-solid);
 }
 .lcCurrent .lcLabel {
   color: var(--text);
@@ -931,8 +943,8 @@
   border-style: dashed;
 }
 .lcFailed .lcDot {
-  background: var(--red-fg);
-  border-color: var(--red-fg);
+  background: var(--red-solid);
+  border-color: var(--red-solid);
   color: #fff;
 }
 .lcFailed .lcLabel {
@@ -999,11 +1011,11 @@
 }
 .barFill {
   height: 100%;
-  background: var(--green-fg);
+  background: var(--green-solid);
 }
 .barDenied {
   height: 100%;
-  background: #d0d5dd;
+  background: var(--border-strong);
 }
 @media (max-width: 860px) {
   .summaryGrid {
@@ -1080,7 +1092,7 @@
 }
 .meterFill {
   height: 100%;
-  background: var(--blue-fg);
+  background: var(--blue-solid);
 }
 .pipeline {
   display: grid;
@@ -1222,16 +1234,16 @@
   z-index: 1;
 }
 .tlDot.green {
-  background: var(--green-fg);
+  background: var(--green-solid);
 }
 .tlDot.amber {
-  background: var(--amber-fg);
+  background: var(--amber-solid);
 }
 .tlDot.blue {
-  background: var(--blue-fg);
+  background: var(--blue-solid);
 }
 .tlDot.red {
-  background: var(--red-fg);
+  background: var(--red-solid);
 }
 .tlHead {
   display: flex;
@@ -1440,4 +1452,149 @@
 .button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ---- Dark theme: chosen ("Dark"), or the device's setting when no choice is saved -------- */
+:global(html[data-theme="dark"]) .root {
+  --bg: #0b0f17;
+  --surface: #111827;
+  --surface-sunken: #0d131f;
+  --text: #f3f4f6;
+  --muted: #98a2b3;
+  --border: #1f2937;
+  --border-strong: #344054;
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-soft: #172554;
+  --focus: #60a5fa;
+  --green-bg: #053321;
+  --green-fg: #75e0a7;
+  --green-line: #085d3a;
+  --amber-bg: #4e1d09;
+  --amber-fg: #fec84b;
+  --amber-line: #93370d;
+  --blue-bg: #102a56;
+  --blue-fg: #84caff;
+  --blue-line: #1849a9;
+  --red-bg: #55160c;
+  --red-fg: #fda29b;
+  --red-line: #912018;
+  --gray-bg: #1d2939;
+  --gray-fg: #d0d5dd;
+  --gray-line: #344054;
+  --row-highlight: #221a0c;
+  --chip-ai-bg: #0b2a3d;
+  --chip-ai-fg: #7cd4fd;
+  --chip-policy-bg: #1d2939;
+  --chip-policy-fg: #cdd5df;
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+@media (prefers-color-scheme: dark) {
+  :global(html:not([data-theme="light"])) .root {
+    --bg: #0b0f17;
+    --surface: #111827;
+    --surface-sunken: #0d131f;
+    --text: #f3f4f6;
+    --muted: #98a2b3;
+    --border: #1f2937;
+    --border-strong: #344054;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-soft: #172554;
+    --focus: #60a5fa;
+    --green-bg: #053321;
+    --green-fg: #75e0a7;
+    --green-line: #085d3a;
+    --amber-bg: #4e1d09;
+    --amber-fg: #fec84b;
+    --amber-line: #93370d;
+    --blue-bg: #102a56;
+    --blue-fg: #84caff;
+    --blue-line: #1849a9;
+    --red-bg: #55160c;
+    --red-fg: #fda29b;
+    --red-line: #912018;
+    --gray-bg: #1d2939;
+    --gray-fg: #d0d5dd;
+    --gray-line: #344054;
+    --row-highlight: #221a0c;
+    --chip-ai-bg: #0b2a3d;
+    --chip-ai-fg: #7cd4fd;
+    --chip-policy-bg: #1d2939;
+    --chip-policy-fg: #cdd5df;
+    --shadow: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ---- Theme menu (top right of every nav bar) -------------------------------------------- */
+.themeMenu {
+  position: relative;
+}
+.themeButton {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--gray-fg);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.themeButton::-webkit-details-marker {
+  display: none;
+}
+.themeButton:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.themePanel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 24px -8px var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+.themeOption {
+  font: inherit;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.themeOption:hover {
+  background: var(--gray-bg);
+}
+.themeOption[aria-pressed="true"] {
+  font-weight: 600;
+}
+.themeTick {
+  margin-left: auto;
+  color: var(--primary);
+  display: inline-flex;
+}
+@media (max-width: 640px) {
+  .themeCurrent {
+    display: none;
+  }
 }

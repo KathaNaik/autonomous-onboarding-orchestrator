@@ -403,7 +403,11 @@ describe("browser secret boundary (source scan)", () => {
       const p = join(dir, f);
       return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
     });
-  const sources = [...walk(join(root, "app")), ...walk(join(root, "lib"))].map((file) => ({
+  const sources = [
+    ...walk(join(root, "app")),
+    ...walk(join(root, "lib")),
+    ...walk(join(root, "components")),
+  ].map((file) => ({
     file,
     src: readFileSync(file, "utf8"),
   }));

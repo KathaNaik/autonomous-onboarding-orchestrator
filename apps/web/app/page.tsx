@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { geistMono, geistSans } from "@/components/console/fonts";
+import { ThemeMenu } from "@/components/console/theme-menu";
 import * as I from "@/components/console/icons";
 import { StatusBadge, cx, styles as c } from "@/components/console/ui";
 import { stateLabel, toneOf } from "@/lib/console-model";
@@ -65,6 +66,7 @@ export default function HomePage() {
             <Link href="/admin/onboarding/login" className={cx(c.button, c.secondary)}>
               Operator login
             </Link>
+            <ThemeMenu />
           </nav>
         </div>
       </header>
