@@ -209,7 +209,8 @@ describe("POST /webhooks/hris: timestamp and replay window (M10)", () => {
     other.headers[HRIS_SIGNATURE_HEADER] = signHrisPayload(
       other.body,
       TEST_SECRET,
-      String(Date.now() - 1),
+      // Always a different timestamp than the one sent (Date.now() - 1 could equal it).
+      String(Number(other.headers[HRIS_TIMESTAMP_HEADER]) - 1000),
     );
     expectRejected(await post(other), 401, "SIGNATURE_INVALID");
   });

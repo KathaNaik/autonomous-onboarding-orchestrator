@@ -247,6 +247,31 @@
 .authHead {
   display: grid;
   gap: 4px;
+  justify-items: center;
+  text-align: center;
+}
+.authBrand {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.authBrand .brand {
+  font-size: 18px;
+}
+.authBrand .brandMark {
+  width: 32px;
+  height: 32px;
+}
+.authProduct {
+  color: var(--muted);
+  font-size: 14px;
+}
+.authTitle {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .authFoot {
   color: var(--muted);

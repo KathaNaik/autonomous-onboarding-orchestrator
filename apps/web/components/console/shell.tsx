@@ -119,18 +119,16 @@ export function AuthShell({
         <div style={{ width: "100%", display: "grid", justifyItems: "center" }}>
           <div className={s.authCard}>
             <div className={s.authHead}>
-              <span className={s.brand}>
-                <span className={s.brandMark}>
-                  <Logo />
+              <span className={s.authBrand}>
+                <span className={s.brand}>
+                  <span className={s.brandMark}>
+                    <Logo size={32} />
+                  </span>
+                  Swift
                 </span>
-                Swift <span className={s.brandSub}>Operator dashboard</span>
+                <span className={s.authProduct}>Operator dashboard</span>
               </span>
-              <h1
-                className={s.pageTitle}
-                style={{ fontSize: 20, lineHeight: "28px", marginTop: 16 }}
-              >
-                {title}
-              </h1>
+              <h1 className={s.authTitle}>{title}</h1>
               <p className={s.muted}>{description}</p>
             </div>
             {children}
