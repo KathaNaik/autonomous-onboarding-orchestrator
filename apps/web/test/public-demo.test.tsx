@@ -30,7 +30,7 @@ describe("(M10) public synthetic demo", () => {
       ">Swift</h1>",
       "AOO · Autonomous Onboarding Orchestrator",
       "How it started",
-      "It took me two weeks to finish onboarding at my current contract role.",
+      "It took me four weeks to finish onboarding at my current role.",
       ">Try it</a>",
       "Demo scenarios",
       "Tech stack",

@@ -189,7 +189,7 @@ export default function HomePage() {
                 How it started
               </h2>
               <blockquote className={styles.quote}>
-                It took me two weeks to finish onboarding at my current contract role.
+                It took me four weeks to finish onboarding at my current role.
               </blockquote>
             </div>
             <p className={styles.storyText}>
