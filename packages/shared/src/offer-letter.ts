@@ -81,6 +81,8 @@ export const OFFER_LETTER_ERROR_CODES = [
   "EVENT_CONFLICT",
   /** (M12) The daily upload cap (per operator or overall) is reached; nothing reached the model. */
   "UPLOAD_LIMIT_REACHED",
+  /** This account already started its allowed onboardings in the last 24 hours; nothing was started. */
+  "ONBOARDING_LIMIT_REACHED",
   "INTERNAL_ERROR",
 ] as const;
 export const OfferLetterErrorResponseSchema = z.object({

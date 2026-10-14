@@ -87,7 +87,7 @@ export default async function GitHubAccountPage({
                   <Field
                     label="GitHub username"
                     htmlFor="githubLogin"
-                    hint="Letters, digits and single hyphens, up to 39 characters. Swift resolves it to GitHub's permanent account ID."
+                    hint="Swift sends a real GitHub organization invitation to this account, so use your own username. Letters, digits and single hyphens, up to 39 characters."
                   >
                     <input
                       id="githubLogin"

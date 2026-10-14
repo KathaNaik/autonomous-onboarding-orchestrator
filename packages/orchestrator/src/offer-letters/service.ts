@@ -27,7 +27,8 @@ export type OfferLetterErrorCode =
   | "INVALID_PAYLOAD"
   | "ALREADY_SUBMITTED"
   | "EVENT_CONFLICT"
-  | "UPLOAD_LIMIT_REACHED";
+  | "UPLOAD_LIMIT_REACHED"
+  | "ONBOARDING_LIMIT_REACHED";
 
 export class OfferLetterError extends Error {
   constructor(
@@ -75,7 +76,12 @@ export function createOfferLetterService(
     intake: HrisIntakeService;
     logger?: EventLogger;
     /** (M12) Model-reaching uploads allowed in any rolling 24 hours; unset = unlimited. */
-    limits?: { perOperatorPerDay: number; totalPerDay: number };
+    limits?: {
+      perOperatorPerDay: number;
+      totalPerDay: number;
+      /** Onboardings one operator may start in any rolling 24 hours; unset = unlimited. */
+      startsPerOperatorPerDay?: number;
+    };
   },
 ): OfferLetterService {
   const logger = deps.logger ?? noopLogger;
@@ -98,6 +104,24 @@ export function createOfferLetterService(
         mine >= deps.limits.perOperatorPerDay
           ? "this account reached its daily offer-letter limit"
           : "the daily offer-letter limit is reached",
+      );
+    }
+  }
+
+  // One reviewer or operator starts a bounded number of onboardings (each one makes sandbox
+  // writes). Counted from `offer_letter.submitted`; only a new submission counts, so a retry of
+  // the same letter is never refused. Concurrent submits may overshoot by the number in flight.
+  async function assertWithinStartLimit(operatorId: string) {
+    const limit = deps.limits?.startsPerOperatorPerDay;
+    if (limit === undefined) return;
+    const { rows } = await db.execute<{ mine: number }>(sql`
+      SELECT count(*)::int AS mine FROM audit_events
+      WHERE event_type = 'offer_letter.submitted' AND actor = ${`hr:${operatorId}`}
+        AND occurred_at > clock_timestamp() - interval '24 hours'`);
+    if ((rows[0]?.mine ?? 0) >= limit) {
+      throw new OfferLetterError(
+        "ONBOARDING_LIMIT_REACHED",
+        "this account already started its onboarding for today",
       );
     }
   }
@@ -231,6 +255,8 @@ export function createOfferLetterService(
           "this offer letter already started an onboarding with different details",
         );
       }
+
+      if (row.status !== "SUBMITTED") await assertWithinStartLimit(operatorId);
 
       // Deterministic event: a retry (crash, double click) is the same event → a durable duplicate.
       const eventId = offerLetterEventId(extractionId);

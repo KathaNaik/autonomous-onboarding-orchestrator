@@ -406,4 +406,58 @@ describe("(M11) offer-letter intake", () => {
       code: "UPLOAD_LIMIT_REACHED",
     });
   });
+
+  it("one onboarding per operator per day: a retry of the same letter is never refused", async () => {
+    const operator = `one.${Math.random().toString(36).slice(2, 8)}@example.com`;
+    const limited = createOfferLetterService(handle.db, {
+      agent: createOfferLetterAgent({
+        provider: createScriptedModelProvider([
+          { output: proposal },
+          { output: proposal },
+          { output: proposal },
+        ]),
+        maxAttempts: 1,
+      }),
+      intake: createHrisIntakeService(handle.db),
+      limits: { perOperatorPerDay: 100, totalPerDay: 100_000, startsPerOperatorPerDay: 1 },
+    });
+    const a = await limited.extract({ pdf, operatorId: operator });
+    const b = await limited.extract({ pdf, operatorId: operator });
+    const body = confirmed();
+    const first = await limited.submit({
+      extractionId: a.extractionId,
+      operatorId: operator,
+      confirmed: body,
+    });
+    expect(first.workflowCreated).toBe(true);
+    // The same letter again (double click, retry) returns the same onboarding.
+    const again = await limited.submit({
+      extractionId: a.extractionId,
+      operatorId: operator,
+      confirmed: body,
+    });
+    expect(again.workflowId).toBe(first.workflowId);
+    // A second, different onboarding by the same operator is refused and writes nothing.
+    const before = await counts();
+    await expect(
+      limited.submit({
+        extractionId: b.extractionId,
+        operatorId: operator,
+        confirmed: confirmed(),
+      }),
+    ).rejects.toMatchObject({ code: "ONBOARDING_LIMIT_REACHED" });
+    expect(await counts()).toEqual(before);
+    const [row] = await handle.db
+      .select()
+      .from(offerLetterExtractions)
+      .where(eq(offerLetterExtractions.id, b.extractionId));
+    expect(row!.status).toBe("EXTRACTED");
+    // Another operator is unaffected.
+    const other = await limited.submit({
+      extractionId: b.extractionId,
+      operatorId: `other.${Math.random().toString(36).slice(2, 8)}@example.com`,
+      confirmed: confirmed(),
+    });
+    expect(other.workflowCreated).toBe(true);
+  });
 });

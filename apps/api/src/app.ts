@@ -126,6 +126,7 @@ export async function buildApp(
       limits: {
         perOperatorPerDay: config.OFFER_LETTER_DAILY_LIMIT_PER_OPERATOR,
         totalPerDay: config.OFFER_LETTER_DAILY_LIMIT_TOTAL,
+        startsPerOperatorPerDay: config.ONBOARDING_START_DAILY_LIMIT_PER_OPERATOR,
       },
     }),
     ...overrides,

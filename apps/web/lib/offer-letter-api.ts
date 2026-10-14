@@ -146,5 +146,7 @@ export const OFFER_ERROR_MESSAGES: Record<string, string> = {
   EVENT_CONFLICT: "This offer letter already started an onboarding with different details.",
   UPLOAD_LIMIT_REACHED:
     "The daily offer-letter limit is reached (per account or overall). Nothing was read; try again tomorrow.",
+  ONBOARDING_LIMIT_REACHED:
+    "This account already started its onboarding for today. Nothing was started; try again tomorrow, or open the onboarding you started.",
   INTERNAL_ERROR: "Something went wrong. Try again.",
 };
