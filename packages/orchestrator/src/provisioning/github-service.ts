@@ -1,3 +1,4 @@
+import { generationSuffix } from "../external-operations/keys.js";
 import type { CatalogRegistry } from "@aoo/catalog";
 import {
   accessRequests,
@@ -223,7 +224,7 @@ export function createGitHubProvisioningService(
             audit(
               request,
               "resource.provisioning_failed",
-              `access-request:${request.id}:provisioning-failed`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-failed`,
               { reason, ...context },
             ),
           )
@@ -564,7 +565,7 @@ export function createGitHubProvisioningService(
               audit(
                 request,
                 "resource.provisioning_started",
-                `access-request:${request.id}:provisioning-started`,
+                `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-started`,
                 { accessDecisionId: decision.id },
               ),
             )
@@ -585,7 +586,11 @@ export function createGitHubProvisioningService(
         team && target.kind === "team"
           ? {
               type: GITHUB_ENSURE_TEAM_MEMBERSHIP,
-              keys: githubTeamMembershipKeys({ ...common, teamId: team.id }),
+              keys: githubTeamMembershipKeys({
+                ...common,
+                teamId: team.id,
+                generation: request.retryGeneration,
+              }),
               request: {
                 ...common,
                 teamId: team.id,
@@ -595,7 +600,7 @@ export function createGitHubProvisioningService(
             }
           : {
               type: GITHUB_ENSURE_ORG_MEMBERSHIP,
-              keys: githubOrgMembershipKeys(common),
+              keys: githubOrgMembershipKeys({ ...common, generation: request.retryGeneration }),
               request: common,
             };
       let applied: ExecutionSuccess;
@@ -676,7 +681,7 @@ export function createGitHubProvisioningService(
                 audit(
                   request,
                   `github.${kind}_invitation_created`,
-                  `access-request:${request.id}:github-invitation`,
+                  `access-request:${request.id}${generationSuffix(request.retryGeneration)}:github-invitation`,
                   payload,
                 ),
               )
@@ -726,13 +731,13 @@ export function createGitHubProvisioningService(
             audit(
               request,
               `github.${kind}_membership_${alreadyPresent ? "already_present" : "provisioned"}`,
-              `access-request:${request.id}:github-membership`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:github-membership`,
               payload,
             ),
             audit(
               request,
               "resource.provisioned",
-              `access-request:${request.id}:provisioned`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioned`,
               payload,
             ),
           ])

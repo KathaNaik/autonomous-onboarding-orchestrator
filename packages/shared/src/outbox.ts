@@ -18,6 +18,7 @@ export const OUTBOX_EVENT_TYPES = {
   provisioningWorkflowWake: "provisioning.workflow.wake",
   onboardingPlanGenerate: "onboarding.plan.generate",
   accessPlanningRequested: "access.planning.requested",
+  approvalRerequestRequested: "approval.rerequest.requested",
 } as const;
 
 /** Asks a worker to execute (or resume/reconcile) one durable external operation. */
@@ -39,6 +40,8 @@ export const PROVISIONING_WAKE_REASONS = [
   "SCHEDULED_RECONCILIATION",
   "CONTINUATION",
   "LEGACY_ADOPTION",
+  /** M13: an operator asked to retry a failed resource. */
+  "RESOURCE_RETRY_REQUESTED",
 ] as const;
 
 /**
@@ -88,3 +91,17 @@ export const AccessPlanningRequestedPayloadSchema = z.object({
   reason: z.enum(ACCESS_PLANNING_REASONS),
 });
 export type AccessPlanningRequestedPayload = z.infer<typeof AccessPlanningRequestedPayloadSchema>;
+
+/**
+ * M13: an operator asked for a new approval ticket for one resource. A worker reads the current
+ * ticket back from ServiceNow and only replaces it when ServiceNow confirms it no longer exists.
+ * Duplicates are harmless: the replacement is keyed by the resource's next retry generation.
+ */
+export const ApprovalRerequestRequestedPayloadSchema = z.object({
+  accessRequestId: z.uuid(),
+  approvalId: z.uuid(),
+  operatorId: z.string().min(1).max(64),
+});
+export type ApprovalRerequestRequestedPayload = z.infer<
+  typeof ApprovalRerequestRequestedPayloadSchema
+>;

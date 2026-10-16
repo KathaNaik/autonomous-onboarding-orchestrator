@@ -1,7 +1,11 @@
 import { z } from "zod";
 
-/** Our approval lifecycle (per resource / external operation). */
-export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+/**
+ * Our approval lifecycle (per resource / external operation). (M13) SUPERSEDED: the operator asked
+ * again after ServiceNow confirmed the ticket no longer exists; a new ticket (and approval) replaced
+ * it. Not a decision: a superseded approval never authorizes anything.
+ */
+export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "SUPERSEDED"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 const SysId = z.string().regex(/^[0-9a-f]{32}$/);

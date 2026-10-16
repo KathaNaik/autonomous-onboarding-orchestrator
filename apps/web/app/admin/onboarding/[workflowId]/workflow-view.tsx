@@ -22,6 +22,7 @@ import {
   timelineSummary,
   toneOf,
   toolRows,
+  currentApproval,
   type DetailTab,
   type Tone,
   type ToolRow,
@@ -231,6 +232,27 @@ function ToDo({ view, rows }: { view: View; rows: ToolRow[] }) {
       </li>,
     );
   }
+  for (const r of rows.filter((x) => x.resource.status === "PROVISIONING_FAILED")) {
+    items.push(
+      <li key={`retry-${r.resource.accessRequestId}`} className={s.todoItem}>
+        <div className={s.todoHead}>
+          <div className={s.stack}>
+            <span className={s.primaryText}>Retry {r.name}</span>
+            <span className={s.muted}>
+              {r.note} Once the cause is fixed (for example a reconnected system), retry: Swift
+              starts the setup again with fresh requests.
+            </span>
+          </div>
+          <form
+            method="post"
+            action={`/admin/onboarding/${wf}/resources/${encodeURIComponent(r.resource.accessRequestId)}/retry`}
+          >
+            <Button variant="primary">Retry</Button>
+          </form>
+        </div>
+      </li>,
+    );
+  }
   const admin = rows.filter(
     (r) => r.owner && !r.owner.you && r.owner.label.startsWith("Swift admin"),
   );
@@ -332,7 +354,7 @@ function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
   const id = row.resource.resourceId;
   const reason = view.roleAccessRun?.recommendations.find((x) => x.resourceId === id)?.reason;
   const decision = view.policyDecisions.find((d) => d.resourceId === id);
-  const approval = [...view.approvals].reverse().find((a) => a.resourceId === id);
+  const approval = currentApproval(view, id);
   const why: string[] = [];
   if (reason) why.push(`Suggested by AI: ${reason}`);
   if (decision)
@@ -354,6 +376,24 @@ function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
             {why.map((w) => (
               <span key={w}>{w}</span>
             ))}
+          </div>
+        </details>
+      )}
+      {row.resource.status === "AWAITING_APPROVAL" && approval && (
+        <details className={s.why}>
+          <summary>Ticket missing in ServiceNow?</summary>
+          <div className={s.whyBody}>
+            <span>
+              If {approval.ticketNumber} no longer exists (for example the ServiceNow instance was
+              replaced), ask for a new one. Swift checks ServiceNow first and changes nothing while
+              the old ticket still exists. The new ticket still needs an approver.
+            </span>
+            <form
+              method="post"
+              action={`/admin/onboarding/${encodeURIComponent(view.workflow.workflowId)}/resources/${encodeURIComponent(row.resource.accessRequestId)}/request-approval`}
+            >
+              <Button variant="secondary">Request approval again</Button>
+            </form>
           </div>
         </details>
       )}

@@ -397,6 +397,8 @@ export const approvalStatusEnum = pgEnum("approval_status", APPROVAL_STATUSES);
 /**
  * One human approval per external operation (i.e. per requested resource). Decided exactly once:
  * PENDING → APPROVED | REJECTED, only after the provider record was read back and verified.
+ * (M13) PENDING → SUPERSEDED when an operator asked again after ServiceNow confirmed the ticket no
+ * longer exists; a new ticket and approval replace it. A superseded approval authorizes nothing.
  */
 export const approvals = pgTable(
   "approvals",
@@ -421,6 +423,8 @@ export const approvals = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     /** The callback event whose verification decided this approval. */
     decidedByEventId: text("decided_by_event_id"),
+    /** M13: when an operator's re-request replaced this (missing) ticket. */
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
@@ -429,7 +433,12 @@ export const approvals = pgTable(
     index("approvals_workflow_id_idx").on(t.workflowId),
     check(
       "approvals_decided_consistency",
-      sql`(${t.status} = 'PENDING') = (${t.decidedAt} IS NULL) AND (${t.status} = 'PENDING') = (${t.decidedByEventId} IS NULL)`,
+      // M13: compared as text (SUPERSEDED is added in the same migration).
+      sql`(${t.status}::text IN ('APPROVED', 'REJECTED')) = (${t.decidedAt} IS NOT NULL) AND (${t.status}::text IN ('APPROVED', 'REJECTED')) = (${t.decidedByEventId} IS NOT NULL)`,
+    ),
+    check(
+      "approvals_superseded_consistency",
+      sql`(${t.status}::text = 'SUPERSEDED') = (${t.supersededAt} IS NOT NULL)`,
     ),
     check("approvals_version_positive", sql`${t.version} >= 1`),
   ],
@@ -723,6 +732,11 @@ export const accessRequests = pgTable(
     manualCompletedBy: text("manual_completed_by"),
     /** M7C: short, safe operator evidence for a MANUAL resource (no credentials). */
     manualEvidence: text("manual_evidence"),
+    /**
+     * M13: operator retries/re-requests so far. Part of the next provider operation's keys, so a
+     * retry creates fresh operations instead of replaying the failed ones (0 = original keys).
+     */
+    retryGeneration: integer("retry_generation").notNull().default(0),
     version: integer("version").notNull().default(1),
     ...timestamps,
   },
@@ -767,6 +781,7 @@ export const accessRequests = pgTable(
       "access_requests_blocker_pair",
       sql`(${t.orchestrationBlocker} IS NULL) = (${t.blockerClass} IS NULL)`,
     ),
+    check("access_requests_retry_generation_nonnegative", sql`${t.retryGeneration} >= 0`),
     check(
       "access_requests_manual_evidence_pair",
       sql`(${t.manualCompletedBy} IS NULL) = (${t.manualEvidence} IS NULL)`,

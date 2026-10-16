@@ -1,3 +1,4 @@
+import { generationSuffix } from "../external-operations/keys.js";
 import { createHash } from "node:crypto";
 import type { CatalogRegistry } from "@aoo/catalog";
 import {
@@ -52,10 +53,10 @@ export type ServiceNowFulfillmentGateway = Pick<
 
 /** One logical fulfillment operation per authorized access request (never shared with approval). */
 export function serviceNowFulfillmentKeys(
-  i: { accessDecisionId: string; accessRequestId: string; resourceId: string },
+  i: { accessDecisionId: string; accessRequestId: string; resourceId: string; generation?: number },
   prefix: string = DEFAULT_FULFILLMENT_CORRELATION_PREFIX,
 ) {
-  const idempotencyKey = `${SERVICENOW_CREATE_FULFILLMENT_REQUEST}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:resource=${i.resourceId}`;
+  const idempotencyKey = `${SERVICENOW_CREATE_FULFILLMENT_REQUEST}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:resource=${i.resourceId}${generationSuffix(i.generation)}`;
   const digest = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 40);
   return { idempotencyKey, correlationKey: `${prefix}${digest}` };
 }
@@ -311,7 +312,7 @@ export function createServiceNowFulfillmentService(
             audit(
               request,
               "servicenow.fulfillment_failed",
-              `access-request:${request.id}:fulfillment-failed`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:fulfillment-failed`,
               {
                 reason,
                 ...context,
@@ -320,7 +321,7 @@ export function createServiceNowFulfillmentService(
             audit(
               request,
               "resource.provisioning_failed",
-              `access-request:${request.id}:provisioning-failed`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-failed`,
               {
                 reason,
                 ...context,
@@ -458,7 +459,7 @@ export function createServiceNowFulfillmentService(
             audit(
               request,
               "resource.provisioning_started",
-              `access-request:${request.id}:provisioning-started`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-started`,
               {},
             ),
           )
@@ -473,6 +474,7 @@ export function createServiceNowFulfillmentService(
         accessDecisionId: decision.id,
         accessRequestId: request.id,
         resourceId: request.resourceId,
+        generation: request.retryGeneration,
       },
       options.correlationPrefix,
     );
@@ -536,7 +538,7 @@ export function createServiceNowFulfillmentService(
           audit(
             request,
             "servicenow.fulfillment_requested",
-            `access-request:${request.id}:fulfillment-requested`,
+            `access-request:${request.id}${generationSuffix(request.retryGeneration)}:fulfillment-requested`,
             safe,
           ),
         )
@@ -626,16 +628,21 @@ export function createServiceNowFulfillmentService(
               audit(
                 request,
                 "servicenow.fulfillment_verified",
-                `access-request:${request.id}:fulfillment-verified`,
+                `access-request:${request.id}${generationSuffix(request.retryGeneration)}:fulfillment-verified`,
                 {
                   ...safe,
                   fulfillmentState: state,
                 },
               ),
-              audit(request, "resource.provisioned", `access-request:${request.id}:provisioned`, {
-                ...safe,
-                provisioningOperationId: operationId,
-              }),
+              audit(
+                request,
+                "resource.provisioned",
+                `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioned`,
+                {
+                  ...safe,
+                  provisioningOperationId: operationId,
+                },
+              ),
             ])
             .onConflictDoNothing();
         }
@@ -663,7 +670,7 @@ export function createServiceNowFulfillmentService(
             audit(
               request,
               "servicenow.fulfillment_pending",
-              `access-request:${request.id}:fulfillment:${providerState}`,
+              `access-request:${request.id}${generationSuffix(request.retryGeneration)}:fulfillment:${providerState}`,
               { ...safe, fulfillmentState: state },
             ),
           )

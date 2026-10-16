@@ -44,7 +44,9 @@ export type CallbackOutcome =
   | "APPROVAL_NOT_REQUIRED"
   | "UNKNOWN_TICKET"
   | "IDENTITY_MISMATCH"
-  | "NOT_FOUND_AT_PROVIDER";
+  | "NOT_FOUND_AT_PROVIDER"
+  /** M13: the approval was replaced by an operator's re-request; never decided. */
+  | "SUPERSEDED";
 
 export class ApprovalProcessingError extends Error {
   constructor(
@@ -361,6 +363,9 @@ export function createApprovalService(
             .update(approvals)
             .set({ providerState: record.approvalState, verifiedAt: clock, updatedAt: clock })
             .where(eq(approvals.id, current!.id));
+        } else if (current!.status === "SUPERSEDED") {
+          // M13: a replaced ticket never decides anything (its replacement does).
+          outcome = "SUPERSEDED";
         } else if (current!.status === "PENDING") {
           outcome = verified === "APPROVED" ? "APPLIED_APPROVED" : "APPLIED_REJECTED";
           await tx

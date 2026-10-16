@@ -513,10 +513,20 @@ const isConfigBlocker = (code: string | null) =>
   code === "PROVIDER_NOT_CONFIGURED" || /_TARGET_NOT_CONFIGURED$/.test(code ?? "");
 
 /** One resource as an HR/IT person sees it: a single status, who acts next and why. */
+/** The resource's current approval ticket: the latest one an operator re-request didn't replace. */
+export function currentApproval(view: DetailView, resourceId: string) {
+  return [...view.approvals]
+    .reverse()
+    .find((a) => a.resourceId === resourceId && a.status !== "SUPERSEDED");
+}
+
 export function toolRow(r: ResourceView, view: DetailView): ToolRow {
   const name = resourceName(r.resourceId, r.displayName);
-  const approval = [...view.approvals].reverse().find((a) => a.resourceId === r.resourceId);
-  const fulfillment = view.fulfillments.find((f) => f.accessRequestId === r.accessRequestId);
+  const approval = currentApproval(view, r.resourceId);
+  // The latest fulfillment record (an operator retry opens a new one).
+  const fulfillment = [...view.fulfillments]
+    .reverse()
+    .find((f) => f.accessRequestId === r.accessRequestId);
   const explanation = view.policyDecisions.find((d) => d.resourceId === r.resourceId)?.explanation;
   const row = (
     tone: Tone,
@@ -558,7 +568,9 @@ export function toolRow(r: ResourceView, view: DetailView): ToolRow {
       "amber",
       "Needs approval",
       { label: "Approver in ServiceNow", you: false },
-      "Sensitive access: a person has to approve it before it's set up.",
+      approval
+        ? "Sensitive access: a person has to approve it before it's set up."
+        : "A new approval ticket is being opened in ServiceNow.",
       2,
       approval?.ticketNumber ?? null,
     );
@@ -574,11 +586,11 @@ export function toolRow(r: ResourceView, view: DetailView): ToolRow {
     return row(
       "red",
       "Failed",
-      ADMIN,
+      YOU,
       r.provisioningErrorCode === "SERVICENOW_FULFILLMENT_FAILED"
         ? "IT marked the ServiceNow request as failed."
         : `Setup failed: ${humanize(r.provisioningErrorCode ?? "unknown error").toLowerCase()}.`,
-      1,
+      0,
       fulfillment?.ticketNumber ?? null,
     );
 
@@ -707,6 +719,9 @@ const KEY_EVENTS = new Set([
   "provisioning.manual_resource_completed",
   "resource.provisioned",
   "resource.provisioning_failed",
+  "resource.retry_requested",
+  "access.approval_rerequested",
+  "access.approval_rerequest_refused",
   "onboarding_plan.generated",
   "onboarding_plan.generation_failed",
 ]);
@@ -740,5 +755,18 @@ export const MANUAL_RESULT_MESSAGES: Record<string, { tone: Tone; text: string }
   NOT_AWAITING_MANUAL_ACTION: { tone: "gray", text: "This tool no longer needs manual setup." },
   MANUAL_ALREADY_COMPLETED: { tone: "gray", text: "Another operator already marked this as done." },
   ACCESS_REQUEST_NOT_FOUND: { tone: "red", text: "That tool couldn't be found." },
+  // M13: Retry / Request approval again.
+  retried: { tone: "green", text: "Retrying. Swift starts the setup again with fresh requests." },
+  approval_requested: {
+    tone: "green",
+    text: "Requested. Swift checks ServiceNow and opens a new approval ticket only if the old one no longer exists.",
+  },
+  NOT_FAILED: { tone: "gray", text: "This tool isn't failed any more." },
+  NOT_AWAITING_APPROVAL: { tone: "gray", text: "This tool isn't waiting on an approval ticket." },
+  NOT_IN_ACTIVE_PLAN: {
+    tone: "gray",
+    text: "This tool isn't part of the current onboarding plan.",
+  },
+  WORKFLOW_NOT_ACTIVE: { tone: "gray", text: "This onboarding has already finished." },
   INTERNAL_ERROR: { tone: "red", text: "Couldn't save. Try again." },
 };

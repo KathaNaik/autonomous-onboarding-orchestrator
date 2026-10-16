@@ -5,6 +5,7 @@ import {
   createApprovalService,
   createGitHubIdentityService,
   createManualProvisioningService,
+  createOperatorActionService,
   createOfferLetterService,
   createOperatorAccountService,
   createOperatorSessionService,
@@ -15,6 +16,7 @@ import {
   type ApprovalService,
   type GitHubIdentityService,
   type ManualProvisioningService,
+  type OperatorActionService,
   type OfferLetterService,
   type OperatorAccountService,
   type OperatorSessionService,
@@ -29,6 +31,7 @@ import { normalizeRequestId, registerRequestObservability } from "./observabilit
 import { adminOnboardingReadRoutes } from "./routes/admin-onboarding-read.js";
 import { adminGitHubIdentityRoutes } from "./routes/admin-github-identity.js";
 import { adminManualProvisioningRoutes } from "./routes/admin-manual-provisioning.js";
+import { adminOperatorActionsRoutes } from "./routes/admin-operator-actions.js";
 import { adminOfferLetterRoutes } from "./routes/admin-offer-letters.js";
 import { adminOperatorAccountRoutes } from "./routes/admin-operator-accounts.js";
 import { adminOperatorSessionRoutes } from "./routes/admin-operator-sessions.js";
@@ -48,6 +51,8 @@ export interface AppDependencies {
   githubIdentities: GitHubIdentityService;
   /** (M7C) Operator confirmation of authorized provider=MANUAL resources. */
   manualProvisioning: ManualProvisioningService;
+  /** (M13) Retry a failed resource; ask for a new approval ticket (recorded; the worker acts). */
+  operatorActions: Pick<OperatorActionService, "retryFailedResource" | "requestApprovalAgain">;
   /** (M7D) Records fulfillment notifications only; the worker reads ServiceNow and decides. */
   fulfillmentCallbacks: ServiceNowFulfillmentCallbackService;
   /** (M9) Read-only operator read models (dashboard). */
@@ -108,6 +113,7 @@ export async function buildApp(
     catalog,
     githubIdentities: createGitHubIdentityService(database.db, { catalogs }),
     manualProvisioning: createManualProvisioningService(database.db, { catalogs }),
+    operatorActions: createOperatorActionService(database.db),
     fulfillmentCallbacks: createServiceNowFulfillmentCallbackService(database.db),
     workflowReads: createWorkflowReadService(database.db, { catalogs }),
     operatorSessions: createOperatorSessionService(database.db),
@@ -165,6 +171,11 @@ export async function buildApp(
     await app.register(adminManualProvisioningRoutes, {
       adminToken: config.ONBOARDING_ADMIN_TOKEN,
       manual: deps.manualProvisioning,
+      sessions,
+    });
+    await app.register(adminOperatorActionsRoutes, {
+      adminToken: config.ONBOARDING_ADMIN_TOKEN,
+      actions: deps.operatorActions,
       sessions,
     });
     await app.register(adminOnboardingReadRoutes, {

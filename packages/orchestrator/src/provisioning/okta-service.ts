@@ -1,3 +1,4 @@
+import { generationSuffix } from "../external-operations/keys.js";
 import { CatalogError, type CatalogRegistry, type CatalogResource } from "@aoo/catalog";
 import {
   accessDecisions,
@@ -180,7 +181,7 @@ export function createOktaProvisioningService(
             eventType: "resource.provisioning_failed",
             actor: OKTA_PROVISIONING_ACTOR,
             correlationId: `provisioning:${request.id}`,
-            idempotencyKey: `access-request:${request.id}:provisioning-failed`,
+            idempotencyKey: `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-failed`,
             payload: {
               accessRequestId: request.id,
               resourceId: request.resourceId,
@@ -355,7 +356,7 @@ export function createOktaProvisioningService(
               eventType: "resource.provisioning_started",
               actor: OKTA_PROVISIONING_ACTOR,
               correlationId: `provisioning:${request.id}`,
-              idempotencyKey: `access-request:${request.id}:provisioning-started`,
+              idempotencyKey: `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioning-started`,
               payload: {
                 accessRequestId: request.id,
                 accessDecisionId: decision.id,
@@ -489,6 +490,7 @@ export function createOktaProvisioningService(
         accessDecisionId: decision.id,
         accessRequestId: request.id,
         groupId: target.groupId,
+        generation: request.retryGeneration,
       });
       let applied: ExecutionSuccess;
       let membershipOperationId: string;
@@ -554,7 +556,7 @@ export function createOktaProvisioningService(
                   : "okta.group_membership_already_present",
               actor: OKTA_PROVISIONING_ACTOR,
               correlationId: `provisioning:${request.id}`,
-              idempotencyKey: `access-request:${request.id}:okta-membership`,
+              idempotencyKey: `access-request:${request.id}${generationSuffix(request.retryGeneration)}:okta-membership`,
               payload,
             },
             {
@@ -562,7 +564,7 @@ export function createOktaProvisioningService(
               eventType: "resource.provisioned",
               actor: OKTA_PROVISIONING_ACTOR,
               correlationId: `provisioning:${request.id}`,
-              idempotencyKey: `access-request:${request.id}:provisioned`,
+              idempotencyKey: `access-request:${request.id}${generationSuffix(request.retryGeneration)}:provisioned`,
               payload,
             },
           ])

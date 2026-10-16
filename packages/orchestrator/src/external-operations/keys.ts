@@ -13,7 +13,13 @@ export interface AccessRequestIdentity {
    * their original keys.
    */
   accessDecisionId?: string | undefined;
+  /** M13: operator re-request generation; part of the key only when > 0. */
+  generation?: number | undefined;
 }
+
+/** M13: the operator retry generation; 0 (or absent) keeps the original keys. */
+export const generationSuffix = (generation: number | undefined) =>
+  generation && generation > 0 ? `:gen=${generation}` : "";
 
 /**
  * Deterministic keys for "create the ServiceNow access request for (workflow, resource,
@@ -27,13 +33,14 @@ export function serviceNowAccessRequestKeys(
   identity: AccessRequestIdentity,
   prefix: string = DEFAULT_CORRELATION_PREFIX,
 ): { idempotencyKey: string; correlationKey: string } {
-  const idempotencyKey = [
-    SERVICENOW_CREATE_ACCESS_REQUEST,
-    identity.workflowId,
-    identity.resourceId,
-    identity.requestedEntitlement,
-    ...(identity.accessDecisionId ? [`decision=${identity.accessDecisionId}`] : []),
-  ].join(":");
+  const idempotencyKey =
+    [
+      SERVICENOW_CREATE_ACCESS_REQUEST,
+      identity.workflowId,
+      identity.resourceId,
+      identity.requestedEntitlement,
+      ...(identity.accessDecisionId ? [`decision=${identity.accessDecisionId}`] : []),
+    ].join(":") + generationSuffix(identity.generation);
   const digest = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 40);
   return { idempotencyKey, correlationKey: `${prefix}${digest}` };
 }

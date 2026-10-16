@@ -14,6 +14,7 @@ import {
   createAccessAuthorizationService,
   createAccessPlanningService,
   createApprovalService,
+  createOperatorActionService,
   createEventHandlers,
   createExternalOperationService,
   createGitHubHandlers,
@@ -214,6 +215,13 @@ export function createWorkerServices(
       provisioning: coordinator,
       ...(onboardingPlans && { onboardingPlans }),
       ...(accessPlanning && { accessPlanning }),
+      // M13: replaces approval tickets ServiceNow no longer has (needs the integration account).
+      ...(servicenow && {
+        operatorActions: createOperatorActionService(database.db, {
+          externalOperations,
+          servicenow,
+        }),
+      }),
     }),
     logger,
   });

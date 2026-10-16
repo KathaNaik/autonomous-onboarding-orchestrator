@@ -10,6 +10,8 @@ import {
   createAccessPlanningRequestedHandler,
 } from "./access-planning-requested.js";
 import { createApprovalCallbackHandler } from "./approval-callback-received.js";
+import { createApprovalRerequestHandler } from "./approval-rerequest-requested.js";
+import type { OperatorActionService } from "../operator-actions/service.js";
 import { createExternalOperationExecuteHandler } from "./external-operation-execute.js";
 import { createHrisOfferSignedAcceptedHandler } from "./hris-offer-signed-accepted.js";
 import {
@@ -46,6 +48,8 @@ export function createEventHandlers(deps: {
    * recovery sweep re-enqueues them once enabled).
    */
   accessPlanning?: Pick<AccessPlanningService, "planAccess">;
+  /** (M13) When set, the worker replaces missing approval tickets on an operator's request. */
+  operatorActions?: Pick<OperatorActionService, "processApprovalRerequest">;
 }): EventHandlerRegistry {
   return {
     [OUTBOX_EVENT_TYPES.hrisOfferSignedAccepted]: createHrisOfferSignedAcceptedHandler(
@@ -63,6 +67,11 @@ export function createEventHandlers(deps: {
     ...(deps.provisioning && {
       [OUTBOX_EVENT_TYPES.provisioningWorkflowWake]: createProvisioningWorkflowWakeHandler(
         deps.provisioning,
+      ),
+    }),
+    ...(deps.operatorActions && {
+      [OUTBOX_EVENT_TYPES.approvalRerequestRequested]: createApprovalRerequestHandler(
+        deps.operatorActions,
       ),
     }),
     [OUTBOX_EVENT_TYPES.accessPlanningRequested]: deps.accessPlanning

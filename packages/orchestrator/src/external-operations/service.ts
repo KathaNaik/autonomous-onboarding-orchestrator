@@ -57,6 +57,8 @@ export const RequestServiceNowAccessInputSchema = z.object({
   actor: z.string().trim().min(1).max(200),
   /** M6B: ties the request (and its keys) to one authorization decision. */
   accessDecisionId: z.uuid().optional(),
+  /** M13: operator re-request generation (> 0 gives the ticket fresh keys). */
+  generation: z.number().int().nonnegative().optional(),
 });
 export type RequestServiceNowAccessInput = z.input<typeof RequestServiceNowAccessInputSchema>;
 

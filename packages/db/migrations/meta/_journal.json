@@ -155,6 +155,13 @@
       "when": 1791277610674,
       "tag": "0021_operator_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792148339953,
+      "tag": "0022_operator_retry",
+      "breakpoints": true
     }
   ]
 }

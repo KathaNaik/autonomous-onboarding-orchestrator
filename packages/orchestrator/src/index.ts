@@ -10,6 +10,7 @@ export * from "./observability/index.js";
 export * from "./offer-letters/index.js";
 export * from "./onboarding-plan/index.js";
 export * from "./operator-accounts/index.js";
+export * from "./operator-actions/index.js";
 export * from "./operator-sessions/index.js";
 export * from "./outbox/index.js";
 export * from "./provisioning/index.js";

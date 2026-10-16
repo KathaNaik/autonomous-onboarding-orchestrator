@@ -1,3 +1,4 @@
+import { generationSuffix } from "../external-operations/keys.js";
 import { createHash } from "node:crypto";
 import { GitHubError, type GitHubClient, type GitHubOrgMembership } from "@aoo/github";
 import { z } from "zod";
@@ -31,8 +32,9 @@ export function githubOrgMembershipKeys(i: {
   accessRequestId: string;
   org: string;
   githubUserId: number;
+  generation?: number;
 }) {
-  const idempotencyKey = `${GITHUB_ENSURE_ORG_MEMBERSHIP}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:org=${i.org.toLowerCase()}:user=${i.githubUserId}`;
+  const idempotencyKey = `${GITHUB_ENSURE_ORG_MEMBERSHIP}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:org=${i.org.toLowerCase()}:user=${i.githubUserId}${generationSuffix(i.generation)}`;
   return { idempotencyKey, correlationKey: `github-org:${digest(idempotencyKey)}` };
 }
 
@@ -43,8 +45,9 @@ export function githubTeamMembershipKeys(i: {
   org: string;
   teamId: number;
   githubUserId: number;
+  generation?: number;
 }) {
-  const idempotencyKey = `${GITHUB_ENSURE_TEAM_MEMBERSHIP}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:org=${i.org.toLowerCase()}:team=${i.teamId}:user=${i.githubUserId}`;
+  const idempotencyKey = `${GITHUB_ENSURE_TEAM_MEMBERSHIP}:decision=${i.accessDecisionId}:request=${i.accessRequestId}:org=${i.org.toLowerCase()}:team=${i.teamId}:user=${i.githubUserId}${generationSuffix(i.generation)}`;
   return { idempotencyKey, correlationKey: `github-team:${digest(idempotencyKey)}` };
 }
 

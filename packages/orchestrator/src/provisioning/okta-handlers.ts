@@ -1,3 +1,4 @@
+import { generationSuffix } from "../external-operations/keys.js";
 import { createHash } from "node:crypto";
 import { OktaError, OktaNewUserSchema, type OktaClient, type OktaUser } from "@aoo/okta";
 import { z } from "zod";
@@ -37,8 +38,9 @@ export function oktaMembershipKeys(input: {
   accessDecisionId: string;
   accessRequestId: string;
   groupId: string;
+  generation?: number;
 }) {
-  const idempotencyKey = `${OKTA_ADD_GROUP_MEMBERSHIP}:decision=${input.accessDecisionId}:request=${input.accessRequestId}:provider=okta:group=${input.groupId}`;
+  const idempotencyKey = `${OKTA_ADD_GROUP_MEMBERSHIP}:decision=${input.accessDecisionId}:request=${input.accessRequestId}:provider=okta:group=${input.groupId}${generationSuffix(input.generation)}`;
   return { idempotencyKey, correlationKey: `okta-membership:${digest(idempotencyKey)}` };
 }
 

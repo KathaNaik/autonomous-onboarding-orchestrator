@@ -10,3 +10,4 @@ export * from "./workflow.js";
 export * from "./offer-letter.js";
 export * from "./operator-accounts.js";
 export * from "./manual-provisioning.js";
+export * from "./operator-actions.js";
