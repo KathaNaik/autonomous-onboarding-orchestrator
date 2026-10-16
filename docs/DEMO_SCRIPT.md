@@ -12,7 +12,7 @@ Target length about 6–7 minutes. Cut the waiting (the worker runs once a minut
 - **Use a fresh operator account.** Each account can start **one onboarding per day** (`ONBOARDING_START_DAILY_LIMIT_PER_OPERATOR`). Create the account the day before, or use one that hasn't started an onboarding today.
 - **Have a synthetic offer letter ready** (for example `~/Desktop/swift-test-offer-letter.pdf`). Use a made-up person, a full-time software engineer, so the run shows an approval.
 - **GitHub username:** use your own GitHub account that is **not already linked** to another hire. The fixture `kathanaik4` is linked to the first production run's employee, so recording it for a new hire is refused ("GitHub account already linked to another employee"). That refusal is a good safety example if you want to show it, but it stops GitHub for that hire.
-- **ServiceNow:** be signed in to the PDI (`dev225201`) in another tab with an account that can approve and set `fulfillment_state` (the fulfiller account is machine-only, so use your admin/approver login in the browser).
+- **ServiceNow:** be signed in to the PDI (`dev385843`, https://dev385843.service-now.com) in another tab with an account that can approve and set `fulfillment_state` (the fulfiller account is machine-only, so use your admin/approver login in the browser).
 - **Tabs to have open:** the landing page, the operator console (signed in), the ServiceNow PDI list of Onboarding Access Requests, and optionally the Okta and GitHub `aoo-sandbox` admin pages.
 - Light or dark theme: pick one and keep it for the whole video.
 
@@ -73,7 +73,7 @@ Narrate as you go. The one-sentence version: **"The AI suggests, the rules decid
 7. **Audit.** Open **Audit & technical**.
    - _Say:_ "Every suggestion, decision, approval and change is recorded with who made it and which rule version decided it, so any decision can be replayed and explained."
 
-If the live run is slow, show steps 1–3 live and use the **completed production run** (or the public demo's completed scenario) for 4–7, and say so.
+For the exact buttons and screens, see **Click-by-click walkthrough** below. If the live run is slow, show steps 1–3 live and use the **completed production run** (or the public demo's completed scenario) for 4–7, and say so.
 
 ---
 
@@ -141,6 +141,86 @@ Plug in a company's own numbers in a pilot. Don't present example inputs as find
 > "Swift turns a signed offer into ready access and a first-month plan, with people deciding only what needs a person. Next, I'd add finance and sales tools to the catalog, connect to a real HR system, and run a pilot to measure time to access."
 
 **Show:** the landing page, "Try the demo".
+
+---
+
+## Click-by-click walkthrough
+
+The exact screens and buttons for section 3. Real wall-clock time is about 10–20 minutes (the worker runs once a minute and you wait on yourself in ServiceNow), so record it in segments and cut the waits.
+
+### A. Landing page: the interactive example (no sign-in)
+
+Open https://aoo-web.vercel.app.
+
+1. The example in the hero opens on **"Your turn: approve production access?"** for Jordan Rivera. Click **Approve in ServiceNow**, then **Next step** twice. The tools turn **Ready**, a three-line first-month plan appears, and it ends on **"Ready for day one"**.
+2. Next to **"Try a different hire:"**, click **Contractor**. The rules now **Deny** AWS production ("Contractors can't access production") and the Approval step shows **Not needed**. _Say:_ "Same rules, different employment type, different answer, every time."
+3. Optional: click **Reject** instead of approving, to show production is never set up and the plan never mentions it.
+
+### B. Sign in
+
+4. Click **Operator login** and sign in with your prepared account. You land on **Workflows**.
+
+### C. Start an onboarding from the offer letter
+
+5. Click **New onboarding** in the top bar. Choose your synthetic PDF and click **Read offer letter** (about 4 seconds).
+6. On **Review the new hire**:
+   - Point at **Extracted from offer**: names, work email, job title, department as written, manager, start date, job description.
+   - If the letter had a salary in it, the **"Check these before you continue"** box says it was removed. _Say:_ "Compensation and personal numbers never leave the extractor."
+   - Choose **Department**, **Role family** and **Employment type** yourself (for a full-time backend engineer: Engineering, Software engineer, Full-time). _Say:_ "These three facts drive access, so a person picks them. The AI never does."
+   - Tick **"I confirm the offer is signed and the candidate is cleared to start onboarding."** and click **Start onboarding**.
+7. You land on the new hire's workflow page at **Intake**. Wait a minute or two and refresh: the lifecycle moves through **Access planning** and the tools appear.
+   - Tip: a job description that mentions backend services and production on-call makes it likely the AI suggests AWS production, which gives you the approval step. The AI's suggestions vary, so it isn't guaranteed.
+
+### D. The workflow page
+
+8. **Overview** tab:
+   - Read the status line aloud, for example "2 of 6 tools ready · 1 needs you · waiting on 2 people".
+   - **Tools and access:** each tool has one status (Ready, Being set up, Needs approval, Action needed), who acts next, and a **Why**. Open **Why** on AWS production: what the AI suggested, and the rule that decided it.
+9. **Needs your attention** → **Record GitHub username**. Enter your own (unlinked) GitHub username and click **Save GitHub Account**. Go back: GitHub organization now waits on **The employee** ("Invitation sent: the employee has to accept it on GitHub"), and the GitHub team waits on it.
+10. Accept the invitation from your GitHub notifications or email. The next worker run marks the organization **Ready**, then adds the team.
+
+### E. ServiceNow (approvals and fulfillment)
+
+11. In the PDI, open the **Onboarding Access Request** list, newest first.
+    - The **approval** record (`request_kind` = approval, `approval_state` = pending): set `approval_state` to **approved** and save. _Say:_ "ServiceNow notifies Swift, and Swift reads the ticket back before believing it."
+    - The **fulfillment** records (`request_kind` = fulfillment, `fulfillment_state` = pending), one per tool IT has to set up: set `fulfillment_state` to **fulfilled** and save. AWS production's fulfillment record only appears after it's approved and the AWS development account is ready.
+12. Back in Swift, refresh: the tools turn **Ready** one by one.
+
+### F. Finish
+
+13. When every tool is settled, the lifecycle reaches **Onboarding plan**, then **Complete**. Open the **Plan** tab: the first-month checklist, grouped into Day one, First week and First 30 days, mentioning only tools the person has.
+14. **Activity** tab: the main steps in plain language, oldest first.
+15. **Audit & technical** tab: the Role Access Agent's suggestions with confidence, each policy decision with its rule and version, approvals kept separate from fulfillment, external operations, and the full record. _Say:_ "Every decision can be traced and replayed."
+16. Optional: in the Okta admin console, **Directory → People** shows the new STAGED user; **Groups → AOO Engineering Test** shows the membership.
+
+If something is slow on the day, show A–D live and use the completed production run, or the public demo's **Completed onboarding: backend engineer**, for the rest. Say that you're doing so.
+
+---
+
+## More things you can show
+
+Pick by time. Each one takes 15–30 seconds.
+
+**No sign-in needed**
+
+- **Public demo** (https://aoo-web.vercel.app/demo): three onboardings as HR sees them. _Contractor waiting on a human approval_ shows production refused while a license waits; _GitHub invitation pending_ shows team access waiting on the invitation.
+- **Dark mode**: the **Device** menu at the top right (Light, Dark, Device).
+- **Phone width**: the console and demo adapt; tables become stacked cards.
+
+**Safety checks (each refused before anything happens)**
+
+- Upload a file that isn't a PDF: refused before the AI reads anything.
+- Untick the attestation and click **Start onboarding**: refused, nothing started.
+- Record the GitHub username `kathanaik4` for a new hire: refused as "GitHub account already linked to another employee". One GitHub account can't be attached to two people.
+- Start a second onboarding the same day: "This account already started its onboarding for today."
+- **Reject** the approval in ServiceNow instead: the tool shows **Not granted**, everything else carries on, and the plan doesn't mention it.
+
+**Evidence and engineering**
+
+- The **Workflows** list: the summary counts and **Needs attention** at a glance across all hires.
+- The rules file `packages/policy/src/releases/1.1.0.json`: readable rules, each with an id, a decision and a reason. _Say:_ "Changing a rule means releasing a new version; old decisions keep the version they used."
+- The landing page's **"What a real run looked like"**: the production run in plain numbers, including the stop and resume.
+- Test counts on screen: 811 unit tests, 369 integration tests against real PostgreSQL.
 
 ---
 
