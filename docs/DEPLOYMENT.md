@@ -104,8 +104,11 @@ secrets, so preview deployments cannot reach real data or providers (and fail cl
 | `GITHUB_ORG`, `GITHUB_BACKEND_TEAM_SLUG/NAME`, `GITHUB_FRONTEND_TEAM_SLUG/NAME`                     |     |     | ✓      |     |
 | `OKTA_API_TOKEN`                                                                                    |     |     | ✓      | S   |
 | `OKTA_BASE_URL`, `OKTA_ENGINEERING_GROUP_ID/NAME`, `OKTA_JIRA_ENGINEERING_GROUP_ID/NAME`            |     |     | ✓      |     |
-| `OPENAI_API_KEY`                                                                                    |     |     | ✓      | S   |
-| `OPENAI_MODEL`                                                                                      |     |     | ✓      |     |
+| `OKTA_SLACK_ENGINEERING_GROUP_ID/NAME`, `OKTA_AWS_DEV_GROUP_ID/NAME` (catalog 1.1.0, M14)           |     |     | ✓      |     |
+| `OPENAI_API_KEY` (api: Offer Letter Extractor; worker: the two agents)                              |     | ✓   | ✓      | S   |
+| `OPENAI_MODEL`                                                                                      |     | ✓   | ✓      |     |
+| `OFFER_LETTER_INTAKE_ENABLED=true` (M11)                                                            |     | ✓   |        |     |
+| `ROLE_ACCESS_AGENT_ENABLED=true`, `ROLE_ACCESS_RUN_LEASE_MS=60000` (M10)                            |     |     | ✓      |     |
 
 Never in any Vercel runtime project: `QSTASH_TOKEN` (schedule management only, local `.env`),
 `SERVICENOW_SCHEMA_*`, `SERVICENOW_FULFILLER_*`, `GITHUB_TEST_USERNAME`. Never a
