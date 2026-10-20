@@ -5,7 +5,7 @@
 // worker trace linkage, the instrumented spans, their safe attributes, and that no secret appears.
 import { createOnboardingPlanAgent, createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf, planOutputOf } from "@aoo/agents/testing";
-import { loadCatalogRegistry } from "@aoo/catalog";
+import { CATALOG_RELEASES, CatalogRegistry } from "@aoo/catalog";
 import { accessRequests, createDatabase, outboxEvents, type DatabaseHandle } from "@aoo/db";
 import type { GitHubTarget } from "@aoo/github";
 import {
@@ -24,7 +24,7 @@ import {
   createWorkflowService,
   noopLogger,
 } from "@aoo/orchestrator";
-import { loadPolicyRegistry } from "@aoo/policy";
+import { POLICY_RELEASES, PolicyRegistry } from "@aoo/policy";
 import { WorkflowObservabilityViewSchema } from "@aoo/shared";
 import { startInMemoryTelemetry } from "@aoo/telemetry/testing";
 import { eq, sql } from "drizzle-orm";
@@ -62,8 +62,13 @@ const auth = { authorization: `Bearer ${ADMIN_TOKEN}`, "x-operator-id": "ops.e2e
 
 describe("M9 end-to-end: HRIS → agent → policy → provisioning → plan → COMPLETED → operator view", () => {
   it("renders a coherent lifecycle and links the trace from the request to the worker", async () => {
-    const catalogs = loadCatalogRegistry();
-    const policies = loadPolicyRegistry(catalogs);
+    // (M14) Catalog 1.0.0 / policy 1.1.0: this flow uses aws-dev as its ServiceNow fulfillment.
+    const catalogs = new CatalogRegistry({ releases: CATALOG_RELEASES, currentVersion: "1.0.0" });
+    const policies = new PolicyRegistry({
+      releases: POLICY_RELEASES,
+      currentVersion: "1.1.0",
+      catalogs,
+    });
     const workflows = createWorkflowService(handle.db);
     const sn = new FakeServiceNow();
     const gh = new FakeGitHub();

@@ -1,6 +1,5 @@
 import { createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf } from "@aoo/agents/testing";
-import { loadCatalogRegistry } from "@aoo/catalog";
 import {
   accessRequests,
   approvals,
@@ -10,7 +9,6 @@ import {
   outboxEvents,
   type DatabaseHandle,
 } from "@aoo/db";
-import { loadPolicyRegistry } from "@aoo/policy";
 import { OUTBOX_EVENT_TYPES, type HrisOfferSignedEvent } from "@aoo/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
@@ -35,14 +33,13 @@ import {
   type WorkflowService,
 } from "../../src/index.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 /** M13: operator retry of a failed resource, and re-request of a lost approval ticket. */
 
 let handle: DatabaseHandle;
 let workflows: WorkflowService;
-const catalogs = loadCatalogRegistry();
-const policies = loadPolicyRegistry(catalogs);
+const { catalogs, policies } = releasesBeforeM14();
 const ENGINEER = {
   departmentCode: "ENGINEERING",
   roleFamilyCode: "SOFTWARE_ENGINEER",

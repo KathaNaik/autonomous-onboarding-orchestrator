@@ -770,3 +770,127 @@ export const MANUAL_RESULT_MESSAGES: Record<string, { tone: Tone; text: string }
   WORKFLOW_NOT_ACTIVE: { tone: "gray", text: "This onboarding has already finished." },
   INTERNAL_ERROR: { tone: "red", text: "Couldn't save. Try again." },
 };
+
+// ---- (M14) Start date and timing -----------------------------------------------------------
+
+const DAY_MS = 86_400_000;
+
+/** A short duration: "45 s", "4 min", "2 h 14 min", "3 days 2 h". */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const min = Math.floor(s / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+  const d = Math.floor(h / 24);
+  const unit = d === 1 ? "day" : "days";
+  return h % 24 ? `${d} ${unit} ${h % 24} h` : `${d} ${unit}`;
+}
+
+/** "Mon, Oct 27, 2026" for a YYYY-MM-DD date (calendar date, no time zone shift). */
+export function formatDate(date: string | null | undefined): string {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "—";
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Whole calendar days from `from` (an instant) to the start date (UTC dates). */
+function daysUntil(startDate: string, from: Date): number {
+  const start = Date.parse(`${startDate}T00:00:00Z`);
+  const day = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  return Math.round((start - day) / DAY_MS);
+}
+
+const dayCount = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+
+export interface OnboardingTiming {
+  startDate: string | null;
+  /** "Starts in 9 days", "Starts today", "Started 2 days ago". */
+  startRelative: string | null;
+  /** When every tool was settled (provisioning finished), if it has. */
+  accessReadyAt: string | null;
+  /** Onboarding start → every tool settled. */
+  accessDuration: string | null;
+  /** Onboarding start → now, while tools are still being set up. */
+  elapsed: string | null;
+  /** Onboarding start → completed (plan written). */
+  totalDuration: string | null;
+  /** "Ready 9 days before the start date" / "Ready 1 day after the start date". */
+  readiness: { tone: Tone; text: string } | null;
+}
+
+/** Start date and how long setting everything up took, from durable timestamps only. */
+export function onboardingTiming(view: DetailView, now = new Date()): OnboardingTiming {
+  const { workflow, employee } = view;
+  const created = Date.parse(workflow.createdAt);
+  const settled = view.timeline.find(
+    (e) => e.type === "workflow.transitioned" && e.toState === "ONBOARDING_GENERATION",
+  )?.occurredAt;
+  const accessReadyAt = settled ?? null;
+  const startDate = employee.startDate ?? null;
+  let startRelative: string | null = null;
+  let readiness: OnboardingTiming["readiness"] = null;
+  if (startDate) {
+    const n = daysUntil(startDate, now);
+    startRelative =
+      n > 0 ? `Starts in ${dayCount(n)}` : n === 0 ? "Starts today" : `Started ${dayCount(-n)} ago`;
+    if (accessReadyAt) {
+      const ahead = daysUntil(startDate, new Date(accessReadyAt));
+      readiness =
+        ahead > 0
+          ? { tone: "green", text: `Access ready ${dayCount(ahead)} before the start date` }
+          : ahead === 0
+            ? { tone: "amber", text: "Access ready on the start date" }
+            : { tone: "red", text: `Access ready ${dayCount(-ahead)} after the start date` };
+    } else if (workflow.state !== "FAILED") {
+      readiness =
+        n > 0
+          ? { tone: "blue", text: `${dayCount(n)} left to finish setting up access` }
+          : { tone: "red", text: "The start date has passed and access isn't ready yet" };
+    }
+  }
+  const finished = workflow.state === "COMPLETED" || workflow.state === "FAILED";
+  return {
+    startDate,
+    startRelative,
+    accessReadyAt,
+    accessDuration: accessReadyAt ? formatDuration(Date.parse(accessReadyAt) - created) : null,
+    elapsed: !accessReadyAt && !finished ? formatDuration(now.getTime() - created) : null,
+    totalDuration: workflow.completedAt
+      ? formatDuration(Date.parse(workflow.completedAt) - created)
+      : null,
+    readiness,
+  };
+}
+
+/** How long one tool took to be ready, measured from the onboarding start. */
+export function toolDuration(r: ResourceView, view: DetailView): string | null {
+  return r.provisionedAt
+    ? formatDuration(Date.parse(r.provisionedAt) - Date.parse(view.workflow.createdAt))
+    : null;
+}
+
+/**
+ * (M14) The employee's Okta account, for Okta tool rows: the login (the work email; not secret)
+ * and whether Swift created it (staged: no password until it's activated) or reused one.
+ */
+export function oktaAccount(view: DetailView): { login: string; note: string } | null {
+  const identity = view.identities.find((i) => i.provider.toLowerCase() === "okta");
+  if (!identity) return null;
+  const created = view.timeline.some((e) => e.type === "okta.identity_created");
+  return {
+    login: identity.login ?? view.employee.workEmail,
+    note: created
+      ? "Created by Swift. Status: STAGED. Swift does not activate the account and does not set a password; activating it in Okta emails the employee to set one."
+      : "An existing Okta account with this login was found and reused.",
+  };
+}

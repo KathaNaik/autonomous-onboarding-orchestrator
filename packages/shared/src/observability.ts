@@ -58,6 +58,8 @@ export const WorkflowSummarySchema = z.object({
     displayName: z.string().max(300),
     /** (M13 UI) Job title display text from the facts-supplying receipt, when present. */
     jobTitle: z.string().max(300).nullable(),
+    /** (M14) Employment start date (YYYY-MM-DD) from the facts-supplying receipt, when present. */
+    startDate: z.iso.date().nullable(),
     facts: EmployeeFactsViewSchema.nullable(),
   }),
   createdAt: iso,
@@ -371,6 +373,8 @@ export const WorkflowObservabilityViewSchema = z.object({
     factsSourceEventId: z.string().nullable(),
     jobTitle: z.string().max(300).nullable(),
     departmentDisplay: z.string().max(300).nullable(),
+    /** (M14) Employment start date (YYYY-MM-DD), when the intake supplied one. */
+    startDate: z.iso.date().nullable(),
   }),
   hrisEvents: z.array(
     z.object({

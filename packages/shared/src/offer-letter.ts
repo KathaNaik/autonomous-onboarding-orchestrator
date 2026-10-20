@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { checkFactCombination, employeeFactsShape } from "./employee-facts.js";
+import { StartDateSchema } from "./hris.js";
 
 /**
  * (M11) Offer-letter intake contracts, shared by the API and the web app.
@@ -48,6 +49,8 @@ export const StartOnboardingFromOfferRequestSchema = z
     role: Text,
     department: Text,
     managerId: Text,
+    /** Employment start date the operator confirmed (display and timing only). */
+    startDate: StartDateSchema.optional(),
     jobDescription: z.string().trim().min(1).max(4000).optional(),
     /** The operator attests the offer is signed and the candidate cleared (HRIS eligibility). */
     offerSignedAndCleared: z.literal(true),

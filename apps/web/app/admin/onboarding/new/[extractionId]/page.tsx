@@ -199,13 +199,14 @@ export default async function ReviewOfferLetterPage({
                 <Field
                   label="Start date"
                   htmlFor="startDate"
-                  hint="Read from the letter for reference; it isn't sent with the onboarding."
+                  hint="The employee's first day. Shown on the onboarding so you can see whether access is ready in time."
                 >
                   <input
                     id="startDate"
-                    value={p.startDate ?? "Not found in the letter"}
-                    readOnly
-                    disabled
+                    name="startDate"
+                    type="date"
+                    required
+                    defaultValue={p.startDate ?? ""}
                     className={s.input}
                   />
                 </Field>

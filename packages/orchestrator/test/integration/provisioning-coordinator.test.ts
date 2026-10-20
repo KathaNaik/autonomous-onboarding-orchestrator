@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf } from "@aoo/agents/testing";
-import { loadCatalogRegistry } from "@aoo/catalog";
 import {
   accessRequests,
   auditEvents,
@@ -13,7 +12,6 @@ import {
 } from "@aoo/db";
 import type { GitHubTarget } from "@aoo/github";
 import type { OktaGroupTarget } from "@aoo/okta";
-import { loadPolicyRegistry } from "@aoo/policy";
 import { OUTBOX_EVENT_TYPES, type HrisOfferSignedEvent } from "@aoo/shared";
 import { and, eq, like, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from "vitest";
@@ -44,12 +42,11 @@ import {
 import { FakeGitHub } from "./fake-github.js";
 import { FakeOkta } from "./fake-okta.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 let handle: DatabaseHandle;
 let workflows: WorkflowService;
-const catalogs = loadCatalogRegistry();
-const policies = loadPolicyRegistry(catalogs);
+const { catalogs, policies } = releasesBeforeM14();
 const ENGINEER = {
   departmentCode: "ENGINEERING",
   roleFamilyCode: "SOFTWARE_ENGINEER",

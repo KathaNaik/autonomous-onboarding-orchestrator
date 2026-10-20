@@ -84,6 +84,7 @@ describe("detail read model across the lifecycle", () => {
     expect(v.employee).toMatchObject({
       facts: { employmentType: "CONTRACTOR" },
       jobTitle: "Backend Software Engineer",
+      startDate: "2026-11-02",
     });
     expect(v.roleAccessRun).toMatchObject({
       status: "SUCCEEDED",
@@ -286,7 +287,7 @@ describe("detail read model across the lifecycle", () => {
     });
     const v = await view(wf.id);
     expect(v).toMatchObject({
-      employee: { facts: null, jobTitle: null, factsSourceEventId: null },
+      employee: { facts: null, jobTitle: null, factsSourceEventId: null, startDate: null },
       roleAccessRun: null,
       provisioningPlan: null,
       onboardingPlanRun: null,
@@ -375,6 +376,7 @@ describe("list read model", () => {
     const all = await reads().listWorkflows({ limit: 100 });
     const row = all.items.find((i) => i.workflowId === w.workflowId)!;
     expect(row.employee.jobTitle).toBeTruthy();
+    expect(row.employee.startDate).toBe("2026-11-02");
     expect(row.blockers.find((b) => b.resourceId === "aws-prod")?.displayName).toBe(
       life.catalogs.current.getResource("aws-prod").displayName,
     );

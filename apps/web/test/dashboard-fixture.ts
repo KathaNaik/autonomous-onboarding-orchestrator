@@ -27,6 +27,7 @@ export const base: WorkflowObservabilityView = {
     factsSourceEventId: "evt-1",
     jobTitle: "Backend Software Engineer",
     departmentDisplay: "Engineering",
+    startDate: "2026-10-12",
   },
   hrisEvents: [
     {

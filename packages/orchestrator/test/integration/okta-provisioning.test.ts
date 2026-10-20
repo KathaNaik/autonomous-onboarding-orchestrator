@@ -545,13 +545,13 @@ describe("dependencies (no graph execution)", () => {
       catalogVersion: string;
       resources: { resourceId: string; dependsOn: string[] }[];
     };
-    doc.catalogVersion = "1.1.0";
+    doc.catalogVersion = "1.9.0"; // synthetic (not a released version)
     doc.resources.find((r) => r.resourceId === "okta-engineering-group")!.dependsOn = [
       "github-org-membership",
     ];
     const catalogs = new CatalogRegistry({
       releases: [base, { document: doc, catalogHash: new ResourceCatalog(doc).catalogHash }],
-      currentVersion: "1.1.0",
+      currentVersion: "1.9.0",
     });
     const pol = POLICY_RELEASES.find(
       (r) => (r.document as { policyVersion: string }).policyVersion === "1.1.0",
@@ -560,14 +560,19 @@ describe("dependencies (no graph execution)", () => {
       policyVersion: string;
       catalog: { catalogVersion: string; catalogHash: string };
     };
-    pdoc.policyVersion = "1.2.0";
+    pdoc.policyVersion = "1.9.0";
     pdoc.catalog = catalogs.current.reference;
     const policies = new PolicyRegistry({
       releases: [
-        ...POLICY_RELEASES,
+        // The released policies bound to catalog 1.0.0 (this synthetic registry has no 1.1.0).
+        ...POLICY_RELEASES.filter(
+          (r) =>
+            (r.document as { catalog: { catalogVersion: string } }).catalog.catalogVersion ===
+            "1.0.0",
+        ),
         { document: pdoc, policyHash: new PolicyEngine(pdoc, catalogs).policyHash },
       ],
-      currentVersion: "1.2.0",
+      currentVersion: "1.9.0",
       catalogs,
       canonicalFacts: {
         departments: DEPARTMENT_CODES,

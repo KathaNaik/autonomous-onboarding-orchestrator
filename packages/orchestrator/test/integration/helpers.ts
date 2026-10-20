@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { CATALOG_RELEASES, CatalogRegistry } from "@aoo/catalog";
+import { POLICY_RELEASES, PolicyRegistry } from "@aoo/policy";
 import type { HrisOfferSignedEvent } from "@aoo/shared";
 import type { CreateWorkflowInput } from "../../src/index.js";
 
@@ -35,3 +37,18 @@ export function newOfferSignedEvent(
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * (M14) Catalog 1.0.0 + policy 1.1.0 as the current releases: aws-dev and slack-engineering are
+ * ServiceNow-fulfilled there, which these suites use as their fulfillment examples. Workflows
+ * bound to these releases keep them (the plan's exact catalog), so this path stays real.
+ */
+export function releasesBeforeM14() {
+  const catalogs = new CatalogRegistry({ releases: CATALOG_RELEASES, currentVersion: "1.0.0" });
+  const policies = new PolicyRegistry({
+    releases: POLICY_RELEASES,
+    currentVersion: "1.1.0",
+    catalogs,
+  });
+  return { catalogs, policies };
+}

@@ -5,6 +5,7 @@ import {
   attentionSummary,
   factsLine,
   formatAge,
+  formatDate,
   formatTime,
   progressLine,
   stateLabel,
@@ -49,6 +50,9 @@ export function WorkflowTable({ items, now }: { items: readonly WorkflowSummary[
                 <span className={cx(s.muted, s.small)}>
                   {facts ?? "Facts not recorded (historical)"}
                 </span>
+                {w.employee.startDate && (
+                  <span className={s.small}>Starts {formatDate(w.employee.startDate)}</span>
+                )}
               </div>
             ),
             status: (

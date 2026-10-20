@@ -7,6 +7,12 @@ export const HRIS_CANDIDATE_STATUSES = ["CLEARED", "PENDING", "NOT_CLEARED"] as 
 const Text = z.string().trim().min(1).max(200);
 
 /**
+ * Employment start date (YYYY-MM-DD, a real calendar date). Display and timing only: never an
+ * authorization fact and never used by policy.
+ */
+export const StartDateSchema = z.iso.date();
+
+/**
  * Body of POST /webhooks/hris. Unknown fields are stripped.
  *
  * `role` and `department` are display text only. The canonical codes (M5C) are the authoritative
@@ -31,6 +37,8 @@ export const HrisOfferSignedEventSchema = z
      */
     jobDescription: z.string().trim().min(1).max(4000).optional(),
     managerId: Text,
+    /** Optional employment start date (display and timing only; never authorization). */
+    startDate: StartDateSchema.optional(),
     offerStatus: z.enum(HRIS_OFFER_STATUSES),
     candidateStatus: z.enum(HRIS_CANDIDATE_STATUSES),
     ...employeeFactsShape,

@@ -1,0 +1,118 @@
+{
+  "policyVersion": "1.2.0",
+  "catalog": {
+    "catalogVersion": "1.1.0",
+    "catalogHash": "sha256:c7758cccba817f1c2dd52bf6c915edb37d66af25fb4a85c8eeace7109b6aec43"
+  },
+  "subjectAttributes": {
+    "departments": ["ENGINEERING", "PRODUCT", "SALES"],
+    "roleFamilies": [
+      "SOFTWARE_ENGINEER",
+      "SRE",
+      "ENGINEERING_MANAGER",
+      "PRODUCT_MANAGER",
+      "ACCOUNT_EXECUTIVE"
+    ],
+    "employmentTypes": ["FULL_TIME", "CONTRACTOR"]
+  },
+  "rules": [
+    {
+      "ruleId": "engineering-baseline",
+      "decision": "ALLOW",
+      "reasonCode": "ENGINEERING_BASELINE",
+      "explanation": "Engineering hires receive the engineering baseline: identity group, GitHub organization, Slack and Jira.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "resourceIds": [
+          "okta-engineering-group",
+          "github-org-membership",
+          "slack-engineering",
+          "jira-engineering"
+        ]
+      }
+    },
+    {
+      "ruleId": "engineering-source-teams",
+      "decision": "ALLOW",
+      "reasonCode": "ENGINEERING_TEAM_ACCESS",
+      "explanation": "Engineers and engineering managers may join engineering GitHub teams.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "roleFamilies": ["SOFTWARE_ENGINEER", "SRE", "ENGINEERING_MANAGER"],
+        "resourceIds": ["github-team-backend", "github-team-frontend"]
+      }
+    },
+    {
+      "ruleId": "engineering-development-cloud",
+      "decision": "ALLOW",
+      "reasonCode": "ENGINEERING_DEVELOPMENT_CLOUD",
+      "explanation": "Engineering hires may access development cloud environments.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "environments": ["DEVELOPMENT"]
+      }
+    },
+    {
+      "ruleId": "engineering-developer-tools",
+      "decision": "ALLOW",
+      "reasonCode": "ENGINEERING_DEVELOPER_TOOLS",
+      "explanation": "Engineering hires may receive developer tool licenses.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "resourceIds": ["cursor-license"]
+      }
+    },
+    {
+      "ruleId": "product-collaboration",
+      "decision": "ALLOW",
+      "reasonCode": "PRODUCT_COLLABORATION",
+      "explanation": "Product hires may join the engineering Slack channels and Jira projects.",
+      "when": {
+        "departments": ["PRODUCT"],
+        "resourceIds": ["slack-engineering", "jira-engineering"]
+      }
+    },
+    {
+      "ruleId": "production-access-approval",
+      "decision": "REQUIRES_APPROVAL",
+      "reasonCode": "PRODUCTION_ACCESS_REQUIRES_APPROVAL",
+      "explanation": "Production environment access for engineering employees requires human approval.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "environments": ["PRODUCTION"]
+      }
+    },
+    {
+      "ruleId": "contractor-license-approval",
+      "decision": "REQUIRES_APPROVAL",
+      "reasonCode": "CONTRACTOR_LICENSE_REQUIRES_APPROVAL",
+      "explanation": "Paid developer tool licenses for engineering contractors require human approval.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "employmentTypes": ["CONTRACTOR"],
+        "resourceIds": ["cursor-license"]
+      }
+    },
+    {
+      "ruleId": "non-employee-production-deny",
+      "decision": "DENY",
+      "reasonCode": "NON_EMPLOYEE_PRODUCTION_ACCESS_DENIED",
+      "explanation": "Contractors may not access production environments.",
+      "when": {
+        "departments": ["ENGINEERING"],
+        "employmentTypes": ["CONTRACTOR"],
+        "environments": ["PRODUCTION"]
+      }
+    },
+    {
+      "ruleId": "non-engineering-cloud-deny",
+      "decision": "DENY",
+      "reasonCode": "DEPARTMENT_NOT_AUTHORIZED",
+      "explanation": "Only engineering hires may access cloud environments.",
+      "when": {
+        "departments": ["PRODUCT", "SALES"],
+        "environments": ["DEVELOPMENT", "PRODUCTION"]
+      }
+    }
+  ]
+}

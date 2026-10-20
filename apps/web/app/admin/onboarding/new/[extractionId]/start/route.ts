@@ -46,6 +46,8 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
   const description = form?.get("jobDescription");
   if (typeof description === "string" && description.trim())
     body.jobDescription = description.trim();
+  const startDate = form?.get("startDate");
+  if (typeof startDate === "string" && startDate.trim()) body.startDate = startDate.trim();
   // No attestation, no call: an onboarding never starts unless the operator ticked the box.
   if (form?.get("offerSignedAndCleared") !== "true") {
     return redirectTo(

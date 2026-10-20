@@ -3,7 +3,15 @@ import { CATALOG_RELEASES, CatalogRegistry, ResourceCatalog } from "@aoo/catalog
 import { DEPARTMENT_CODES, EMPLOYMENT_TYPE_CODES, ROLE_FAMILY_CODES } from "@aoo/shared";
 import { describe, expect, it } from "vitest";
 import { POLICY_RELEASES, PolicyEngine, PolicyRegistry, loadPolicyRegistry } from "../src/index.js";
-import { catalogRef, catalogs, policyDocument, policyError, rule, subject } from "./helpers.js";
+import {
+  catalogRef,
+  catalogRefV1,
+  catalogs,
+  policyDocument,
+  policyError,
+  rule,
+  subject,
+} from "./helpers.js";
 
 const release = (document: unknown, registry = catalogs) => ({
   document,
@@ -95,7 +103,7 @@ describe("PolicyRegistry", () => {
     const err = policyError(
       () =>
         new PolicyRegistry({
-          releases: [release(v1, twoCatalogs)],
+          releases: [release({ ...v1, catalog: { ...catalogRefV1 } }, twoCatalogs)],
           currentVersion: "1.0.0",
           catalogs: twoCatalogs,
         }),
@@ -109,14 +117,16 @@ describe("released policies", () => {
     const registry = loadPolicyRegistry();
     const sreRequest = {
       subject: subject({ roleFamily: "SITE_RELIABILITY_ENGINEER" }),
-      catalog: catalogRef,
+      catalog: catalogRefV1,
       resourceId: "github-team-backend",
     };
     const recorded = registry.get("1.0.0").evaluate(sreRequest);
     expect(recorded.matchedRuleId).toBe("engineering-source-teams");
     expect(registry.replay(recorded, sreRequest).matches).toBe(true);
     // The retired spelling is unknown to the current policy: it fails closed.
-    expect(registry.current.evaluate(sreRequest).reasonCode).toBe("UNKNOWN_SUBJECT_ATTRIBUTE");
+    expect(registry.current.evaluate({ ...sreRequest, catalog: catalogRef }).reasonCode).toBe(
+      "UNKNOWN_SUBJECT_ATTRIBUTE",
+    );
   });
 
   it("require the current policy to use exactly the canonical fact values", () => {
@@ -128,7 +138,8 @@ describe("released policies", () => {
         new PolicyRegistry({
           releases,
           currentVersion: "1.0.0",
-          catalogs,
+          // A catalog registry whose current version is the one 1.0.0 is bound to.
+          catalogs: new CatalogRegistry({ releases: CATALOG_RELEASES, currentVersion: "1.0.0" }),
           canonicalFacts: {
             departments: DEPARTMENT_CODES,
             roleFamilies: ROLE_FAMILY_CODES,
@@ -150,7 +161,7 @@ describe("released policies", () => {
     expect(v1.snapshot().subjectAttributes.employmentTypes).toBeUndefined();
     const internRequest = {
       subject: subject({ employmentType: "INTERN", roleFamily: "SITE_RELIABILITY_ENGINEER" }),
-      catalog: catalogRef,
+      catalog: catalogRefV1,
       resourceId: "aws-prod",
     };
     const recorded = v1.evaluate(internRequest);
@@ -160,7 +171,7 @@ describe("released policies", () => {
 
   it("require a declared employment-type list that equals the canonical one", () => {
     const current = POLICY_RELEASES.find(
-      (r) => (r.document as { policyVersion: string }).policyVersion === "1.1.0",
+      (r) => (r.document as { policyVersion: string }).policyVersion === "1.2.0",
     )!;
     const doc = structuredClone(current.document) as {
       subjectAttributes: { employmentTypes?: string[] };
@@ -170,7 +181,7 @@ describe("released policies", () => {
       () =>
         new PolicyRegistry({
           releases: [release(doc)],
-          currentVersion: "1.1.0",
+          currentVersion: "1.2.0",
           catalogs,
           canonicalFacts: {
             departments: DEPARTMENT_CODES,
@@ -184,10 +195,43 @@ describe("released policies", () => {
     ).toBe(true);
   });
 
+  it("(M14) 1.2.0 decides every request exactly like 1.1.0; only the catalog moved Slack and AWS dev to Okta", () => {
+    const registry = loadPolicyRegistry();
+    const [v11, v12] = [registry.get("1.1.0"), registry.get("1.2.0")];
+    const [c10, c11] = [catalogs.get("1.0.0"), catalogs.get("1.1.0")];
+    for (const r of c10.resources) {
+      const next = c11.getResource(r.resourceId);
+      const moved = ["aws-dev", "slack-engineering"].includes(r.resourceId);
+      expect(next.provider).toBe(moved ? "OKTA" : r.provider);
+      expect([next.environment, next.dependsOn, next.enabled]).toEqual([
+        r.environment,
+        r.dependsOn,
+        r.enabled,
+      ]);
+    }
+    for (const department of DEPARTMENT_CODES)
+      for (const roleFamily of ROLE_FAMILY_CODES)
+        for (const employmentType of EMPLOYMENT_TYPE_CODES)
+          for (const r of c10.resources) {
+            const who = subject({ department, roleFamily, employmentType });
+            const a = v11.evaluate({
+              subject: who,
+              catalog: catalogRefV1,
+              resourceId: r.resourceId,
+            });
+            const b = v12.evaluate({ subject: who, catalog: catalogRef, resourceId: r.resourceId });
+            expect([b.decision, b.matchedRuleId, b.reasonCode]).toEqual([
+              a.decision,
+              a.matchedRuleId,
+              a.reasonCode,
+            ]);
+          }
+  });
+
   it("load, match their pinned hashes and ship exactly the released files", () => {
     const registry = loadPolicyRegistry();
-    expect(registry.versions).toEqual(["1.0.0", "1.1.0"]);
-    expect(registry.current.policyVersion).toBe("1.1.0");
+    expect(registry.versions).toEqual(["1.0.0", "1.1.0", "1.2.0"]);
+    expect(registry.current.policyVersion).toBe("1.2.0");
     expect(registry.current.catalog.reference).toEqual(catalogRef);
     const files = readdirSync(new URL("../src/releases/", import.meta.url)).sort();
     const released = POLICY_RELEASES.map(

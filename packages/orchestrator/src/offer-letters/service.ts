@@ -274,6 +274,7 @@ export function createOfferLetterService(
         department: confirmed.department,
         ...(confirmed.jobDescription && { jobDescription: confirmed.jobDescription }),
         managerId: confirmed.managerId,
+        ...(confirmed.startDate && { startDate: confirmed.startDate }),
         offerStatus: "SIGNED",
         candidateStatus: "CLEARED",
         departmentCode: confirmed.departmentCode,

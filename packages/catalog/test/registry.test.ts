@@ -121,7 +121,7 @@ describe("released seed catalog", () => {
 
   it("loads and matches its pinned hash", () => {
     expect(catalog.catalogVersion).toBe(CURRENT_CATALOG_VERSION);
-    expect(registry.versions).toEqual(["1.0.0"]);
+    expect(registry.versions).toEqual(["1.0.0", "1.1.0"]);
     expect(catalog.resources).toHaveLength(10);
     expect(catalog.listEnabledResources()).toHaveLength(9);
   });

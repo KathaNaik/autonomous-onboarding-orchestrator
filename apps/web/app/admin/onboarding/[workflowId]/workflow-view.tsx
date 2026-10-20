@@ -23,6 +23,10 @@ import {
   toneOf,
   toolRows,
   currentApproval,
+  formatDate,
+  oktaAccount,
+  onboardingTiming,
+  toolDuration,
   type DetailTab,
   type Tone,
   type ToolRow,
@@ -73,6 +77,7 @@ export function WorkflowView({
   return (
     <article className={s.stackMd} style={{ gap: 24 }}>
       <HireHeader view={view} rows={rows} />
+      <Timing view={view} />
       <Card>
         <Lifecycle steps={lifecycle(view)} />
       </Card>
@@ -114,6 +119,58 @@ function HireHeader({ view, rows }: { view: View; rows: ToolRow[] }) {
       </div>
       <p className={s.statusLine}>{statusSentence(view, rows)}</p>
     </header>
+  );
+}
+
+/** (M14) The start date, highlighted, and how long setting everything up took. */
+function Timing({ view }: { view: View }) {
+  const t = onboardingTiming(view);
+  const done = view.workflow.state === "COMPLETED";
+  return (
+    <section className={s.timing} aria-label="Start date and timing">
+      <Card className={cx(s.metric, s.timingStart)}>
+        <div className={s.stack}>
+          <span className={s.metricLabel}>Start date</span>
+          <span className={s.metricValue}>
+            {t.startDate ? formatDate(t.startDate) : "Not recorded"}
+          </span>
+          <span className={s.metricNote}>
+            {t.startDate ? t.startRelative : "The intake didn't include a start date."}
+          </span>
+          {t.readiness && (
+            <span style={{ justifySelf: "start" }}>
+              <StatusBadge tone={t.readiness.tone} label={t.readiness.text} />
+            </span>
+          )}
+        </div>
+      </Card>
+      <Card className={s.metric}>
+        <div className={s.stack}>
+          <span className={s.metricLabel}>Access set up in</span>
+          <span className={s.metricValue}>
+            {t.accessDuration ?? (t.elapsed ? "In progress" : "—")}
+          </span>
+          <span className={s.metricNote}>
+            {t.accessReadyAt
+              ? `Every tool settled ${formatTime(t.accessReadyAt)}, counted from the start of the onboarding`
+              : t.elapsed
+                ? `Running for ${t.elapsed}, including time waiting on people`
+                : "Not reached"}
+          </span>
+        </div>
+      </Card>
+      <Card className={s.metric}>
+        <div className={s.stack}>
+          <span className={s.metricLabel}>Onboarding complete in</span>
+          <span className={s.metricValue}>{t.totalDuration ?? "—"}</span>
+          <span className={s.metricNote}>
+            {done
+              ? "Access set up and the first-month plan written"
+              : "Finishes when the first-month plan is written"}
+          </span>
+        </div>
+      </Card>
+    </section>
   );
 }
 
@@ -365,9 +422,20 @@ function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
     );
   if (approval?.decidedAt)
     why.push(`${humanize(approval.status)} in ServiceNow ${formatTime(approval.decidedAt)}.`);
+  const okta = row.resource.provider === "OKTA" ? oktaAccount(view) : null;
+  const took = toolDuration(row.resource, view);
   return (
     <div className={s.stack}>
       {row.note && <span>{row.note}</span>}
+      {took && row.resource.status === "PROVISIONED" && (
+        <span className={cx(s.muted, s.small)}>Ready {took} after the onboarding started</span>
+      )}
+      {okta && (
+        <span className={s.small}>
+          Okta login: <span className={s.mono}>{okta.login}</span>
+          <span className={s.muted}> · {okta.note}</span>
+        </span>
+      )}
       {row.ticket && <span className={cx(s.muted, s.small)}>ServiceNow {row.ticket}</span>}
       {why.length > 0 && (
         <details className={s.why}>

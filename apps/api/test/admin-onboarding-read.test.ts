@@ -17,7 +17,13 @@ const lines: string[] = [];
 const summary: WorkflowSummary = {
   workflowId: WF,
   state: "COMPLETED",
-  employee: { hrisEmployeeId: "E-1", displayName: "Grace Hopper", jobTitle: null, facts: null },
+  employee: {
+    hrisEmployeeId: "E-1",
+    displayName: "Grace Hopper",
+    jobTitle: null,
+    startDate: null,
+    facts: null,
+  },
   createdAt: "2026-09-30T00:00:00.000Z",
   updatedAt: "2026-09-30T00:00:01.000Z",
   completedAt: "2026-09-30T00:00:01.000Z",
@@ -54,6 +60,7 @@ const view = (): WorkflowObservabilityView => ({
     factsSourceEventId: null,
     jobTitle: null,
     departmentDisplay: null,
+    startDate: null,
   },
   hrisEvents: [],
   roleAccessRun: null,

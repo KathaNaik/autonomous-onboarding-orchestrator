@@ -26,6 +26,12 @@ const event = {
 };
 
 describe("HrisOfferSignedEventSchema", () => {
+  it("(M14) accepts an optional start date (YYYY-MM-DD)", () => {
+    expect(HrisOfferSignedEventSchema.parse({ ...event, startDate: "2026-11-02" }).startDate).toBe(
+      "2026-11-02",
+    );
+  });
+
   it("accepts a complete offer.signed event and strips unknown fields", () => {
     expect(HrisOfferSignedEventSchema.parse({ ...event, extra: 1 })).toEqual(event);
   });
@@ -37,6 +43,8 @@ describe("HrisOfferSignedEventSchema", () => {
     ["unknown offer status", { ...event, offerStatus: "MAYBE" }],
     ["non-ISO timestamp", { ...event, occurredAt: "yesterday" }],
     ["blank role", { ...event, role: "  " }],
+    ["impossible start date", { ...event, startDate: "2026-02-30" }],
+    ["start date with a time", { ...event, startDate: "2026-11-02T09:00:00Z" }],
   ])("rejects %s", (_, input) => {
     expect(HrisOfferSignedEventSchema.safeParse(input).success).toBe(false);
   });

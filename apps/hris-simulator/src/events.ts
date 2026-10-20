@@ -119,6 +119,8 @@ export function buildOfferSignedEvent(
     },
     ...HIRE_PROFILES[profile],
     managerId: "SIM-MGR-001",
+    // Two weeks out, like a typical offer.
+    startDate: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
     offerStatus: "SIGNED",
     candidateStatus: "CLEARED",
     ...rest,

@@ -9,6 +9,8 @@ import {
 
 export const catalogs = loadCatalogRegistry();
 export const catalogRef = catalogs.current.reference;
+/** Catalog 1.0.0, which the released policies 1.0.0 and 1.1.0 are bound to. */
+export const catalogRefV1 = catalogs.get("1.0.0").reference;
 
 export function subject(overrides: Partial<PolicySubject> = {}): PolicySubject {
   return {

@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createOnboardingPlanAgent, createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf, planOutputOf } from "@aoo/agents/testing";
-import { loadCatalogRegistry } from "@aoo/catalog";
 import { accessRequests, externalOperations, type Database } from "@aoo/db";
 import type { GitHubTarget } from "@aoo/github";
-import { loadPolicyRegistry } from "@aoo/policy";
 import type { HrisOfferSignedEvent } from "@aoo/shared";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -29,7 +27,7 @@ import {
 } from "../../src/index.js";
 import { FakeGitHub } from "./fake-github.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 /**
  * (M9 tests) Builds synthetic workflows through the real services: HRIS intake → Role Access Agent
@@ -60,8 +58,7 @@ export interface LifecycleOptions {
 }
 
 export function lifecycleFor(db: Database) {
-  const catalogs = loadCatalogRegistry();
-  const policies = loadPolicyRegistry(catalogs);
+  const { catalogs, policies } = releasesBeforeM14();
   const workflows = createWorkflowService(db);
 
   async function build(resourceIds: string[], opts: LifecycleOptions = {}) {
@@ -76,6 +73,7 @@ export function lifecycleFor(db: Database) {
       ...opts.facts,
       role: "Backend Software Engineer",
       jobDescription: "Builds backend services.",
+      startDate: "2026-11-02",
     });
     const { workflowId } = await createHrisIntakeService(db).acceptOfferSigned(event);
     const wf = (await workflows.getWorkflow(workflowId))!.workflow;

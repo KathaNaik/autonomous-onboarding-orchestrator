@@ -27,6 +27,7 @@ import {
   ATTENTION_BLOCKER_CLASSES,
   ATTENTION_BLOCKERS,
   ATTENTION_REQUEST_STATUSES,
+  StartDateSchema,
   WorkflowListQuerySchema,
   type TimelineEntry,
   type WorkflowListResponse,
@@ -264,6 +265,9 @@ export class ReadModelError extends Error {
 }
 
 const ReceiptContextSchema = z.object({ role: z.string(), department: z.string() });
+/** A receipt's start date when it is a valid YYYY-MM-DD date (older receipts have none). */
+const startDateOf = (value: unknown): string | null =>
+  StartDateSchema.safeParse(value).success ? (value as string) : null;
 
 export interface WorkflowReadService {
   listWorkflows(query?: unknown): Promise<WorkflowListResponse>;
@@ -363,6 +367,7 @@ export function createWorkflowReadService(
             employee: employees,
             updatedAtText: sql<string>`${onboardingWorkflows.updatedAt}::text`,
             jobTitle: sql<string | null>`${hrisEventReceipts.payload}->>'role'`,
+            startDate: sql<string | null>`${hrisEventReceipts.payload}->>'startDate'`,
           })
           .from(onboardingWorkflows)
           .innerJoin(employees, eq(employees.id, onboardingWorkflows.employeeId))
@@ -420,7 +425,7 @@ export function createWorkflowReadService(
             )
         : [];
 
-      const items: WorkflowSummary[] = page.map(({ workflow, employee, jobTitle }) => {
+      const items: WorkflowSummary[] = page.map(({ workflow, employee, jobTitle, startDate }) => {
         const plan = current.get(workflow.id) ?? null;
         const planCatalog = plan ? catalogFor(plan.catalogVersion, plan.catalogHash) : null;
         const reqs = plan
@@ -435,6 +440,7 @@ export function createWorkflowReadService(
             hrisEmployeeId: employee.hrisEmployeeId,
             displayName: safeText(`${employee.firstName} ${employee.lastName}`, 300) ?? "",
             jobTitle: safeText(jobTitle, 300),
+            startDate: startDateOf(startDate),
             facts:
               employee.departmentCode && employee.roleFamilyCode && employee.employmentType
                 ? {
@@ -866,6 +872,9 @@ export function createWorkflowReadService(
         factsSourceEventId: employee.factsHrisEventId,
         jobTitle: context.success ? safeText(context.data.role) : null,
         departmentDisplay: context.success ? safeText(context.data.department) : null,
+        startDate: startDateOf(
+          (factsReceipt?.receipt.payload as Record<string, unknown> | undefined)?.startDate,
+        ),
       },
       hrisEvents: receipts.map(({ receipt }) => ({
         eventId: receipt.eventId,

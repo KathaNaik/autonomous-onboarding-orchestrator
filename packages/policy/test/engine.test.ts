@@ -14,7 +14,7 @@ const decide = (resourceId: string, who: Partial<PolicySubject> = {}) =>
 
 const summary = (d: PolicyDecision) => [d.resourceId, d.decision, d.matchedRuleId, d.reasonCode];
 
-describe("current released policy (1.1.0, synthetic demo data)", () => {
+describe("current released policy (1.2.0, synthetic demo data)", () => {
   it("allows the engineering baseline with the exact rule and reason", () => {
     const d = decide("github-org-membership");
     expect(d).toEqual({
@@ -238,7 +238,7 @@ describe("requests", () => {
 describe("snapshot", () => {
   it("exposes frozen metadata for the version", () => {
     const snapshot = policy.snapshot();
-    expect(snapshot.policyVersion).toBe("1.1.0");
+    expect(snapshot.policyVersion).toBe("1.2.0");
     expect(snapshot.policyHash).toBe(policy.policyHash);
     expect(snapshot.catalog).toEqual(catalogRef);
     expect(snapshot.ruleCount).toBe(9);

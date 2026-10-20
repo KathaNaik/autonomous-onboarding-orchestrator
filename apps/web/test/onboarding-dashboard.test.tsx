@@ -24,6 +24,7 @@ const row = (overrides: Partial<WorkflowSummary> = {}): WorkflowSummary => ({
     hrisEmployeeId: "E-1",
     displayName: "Grace Hopper",
     jobTitle: "Backend Software Engineer",
+    startDate: null,
     facts: {
       departmentCode: "ENGINEERING",
       roleFamilyCode: "SOFTWARE_ENGINEER",

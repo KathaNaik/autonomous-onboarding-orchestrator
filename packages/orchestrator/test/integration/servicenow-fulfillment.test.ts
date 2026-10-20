@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf } from "@aoo/agents/testing";
-import {
-  CATALOG_RELEASES,
-  CatalogRegistry,
-  ResourceCatalog,
-  loadCatalogRegistry,
-} from "@aoo/catalog";
+import { CATALOG_RELEASES, CatalogRegistry, ResourceCatalog } from "@aoo/catalog";
 import {
   accessRequests,
   auditEvents,
@@ -17,7 +12,6 @@ import {
   type DatabaseHandle,
 } from "@aoo/db";
 import type { GitHubTarget } from "@aoo/github";
-import { loadPolicyRegistry } from "@aoo/policy";
 import { OUTBOX_EVENT_TYPES, type HrisOfferSignedEvent } from "@aoo/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from "vitest";
@@ -46,12 +40,11 @@ import {
 } from "../../src/index.js";
 import { FakeGitHub } from "./fake-github.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 let handle: DatabaseHandle;
 let workflows: WorkflowService;
-const catalogs = loadCatalogRegistry();
-const policies = loadPolicyRegistry(catalogs);
+const { catalogs, policies } = releasesBeforeM14();
 const ENGINEER = {
   departmentCode: "ENGINEERING",
   roleFamilyCode: "SOFTWARE_ENGINEER",

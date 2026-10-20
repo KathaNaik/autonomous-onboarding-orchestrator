@@ -1617,3 +1617,19 @@
     display: none;
   }
 }
+
+/* (M14) Start date and timing strip on the workflow page */
+.timing {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.timingStart {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+@media (max-width: 860px) {
+  .timing {
+    grid-template-columns: 1fr;
+  }
+}

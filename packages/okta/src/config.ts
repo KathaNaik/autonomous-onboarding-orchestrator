@@ -56,6 +56,15 @@ export const OKTA_GROUP_TARGET_ENV: Readonly<Record<string, { id: string; name: 
       id: "OKTA_JIRA_ENGINEERING_GROUP_ID",
       name: "OKTA_JIRA_ENGINEERING_GROUP_NAME",
     },
+    // M14 (catalog 1.1.0): Slack (single sign-on) and AWS development (IAM Identity Center).
+    "slack-engineering": {
+      id: "OKTA_SLACK_ENGINEERING_GROUP_ID",
+      name: "OKTA_SLACK_ENGINEERING_GROUP_NAME",
+    },
+    "aws-dev": {
+      id: "OKTA_AWS_DEV_GROUP_ID",
+      name: "OKTA_AWS_DEV_GROUP_NAME",
+    },
   });
 
 export interface OktaGroupTarget {

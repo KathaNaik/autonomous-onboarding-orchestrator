@@ -1,11 +1,6 @@
 import { createRoleAccessAgent } from "@aoo/agents";
 import { createScriptedModelProvider, outputOf } from "@aoo/agents/testing";
-import {
-  CATALOG_RELEASES,
-  CatalogRegistry,
-  ResourceCatalog,
-  loadCatalogRegistry,
-} from "@aoo/catalog";
+import { CATALOG_RELEASES, CatalogRegistry, ResourceCatalog } from "@aoo/catalog";
 import {
   accessDecisions,
   accessRequests,
@@ -16,13 +11,7 @@ import {
   externalOperations,
   type DatabaseHandle,
 } from "@aoo/db";
-import {
-  CURRENT_POLICY_VERSION,
-  POLICY_RELEASES,
-  PolicyEngine,
-  PolicyRegistry,
-  loadPolicyRegistry,
-} from "@aoo/policy";
+import { POLICY_RELEASES, PolicyEngine, PolicyRegistry } from "@aoo/policy";
 import {
   DEPARTMENT_CODES,
   EMPLOYMENT_TYPE_CODES,
@@ -43,12 +32,11 @@ import {
   type WorkflowService,
 } from "../../src/index.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 let handle: DatabaseHandle;
 let workflows: WorkflowService;
-const catalogs = loadCatalogRegistry();
-const policies = loadPolicyRegistry(catalogs);
+const { catalogs, policies } = releasesBeforeM14();
 const LEASE = { ownerId: "test-worker", leaseMs: 30_000 };
 const CONTRACTOR = {
   departmentCode: "ENGINEERING",
@@ -170,7 +158,7 @@ describe("authorization outcomes", () => {
       agentRunId,
       workflowId,
       employeeId: event.employeeId,
-      policyVersion: CURRENT_POLICY_VERSION,
+      policyVersion: policies.current.policyVersion,
       policyHash: policies.current.policyHash,
       catalogVersion: "1.0.0",
       catalogHash: catalogs.current.catalogHash,
@@ -343,7 +331,7 @@ describe("snapshot and version guarantees", () => {
     const first = await servicesWith().authz.authorizeAgentRun({ agentRunId });
     expect(first.policyVersion).toBe("1.1.0");
 
-    // Release 1.2.0 (current), which would ALLOW contractor licenses.
+    // Release 1.3.0 (current), which would ALLOW contractor licenses.
     const base = POLICY_RELEASES.find(
       (r) => (r.document as { policyVersion: string }).policyVersion === "1.1.0",
     )!;
@@ -351,14 +339,14 @@ describe("snapshot and version guarantees", () => {
       policyVersion: string;
       rules: { ruleId: string }[];
     };
-    doc.policyVersion = "1.2.0";
+    doc.policyVersion = "1.3.0";
     doc.rules = doc.rules.filter((rule) => rule.ruleId !== "contractor-license-approval");
     const newer = new PolicyRegistry({
       releases: [
         ...POLICY_RELEASES,
         { document: doc, policyHash: new PolicyEngine(doc, catalogs).policyHash },
       ],
-      currentVersion: "1.2.0",
+      currentVersion: "1.3.0",
       catalogs,
       canonicalFacts: {
         departments: DEPARTMENT_CODES,
@@ -409,7 +397,7 @@ describe("snapshot and version guarantees", () => {
     const locked = await authzError(
       servicesWith(new FakeServiceNow(), { policies: newer }).authz.authorizeAgentRun({
         agentRunId,
-        policyVersion: "1.2.0",
+        policyVersion: "1.3.0",
       }),
     );
     expect(locked.code).toBe("POLICY_VERSION_LOCKED");
@@ -443,14 +431,14 @@ describe("snapshot and version guarantees", () => {
         policyVersion: string;
         rules: { explanation: string }[];
       };
-      doc.policyVersion = "1.2.0";
+      doc.policyVersion = "1.3.0";
       doc.rules[0]!.explanation = `Variant ${label}.`;
       return new PolicyRegistry({
         releases: [
           ...POLICY_RELEASES,
           { document: doc, policyHash: new PolicyEngine(doc, catalogs).policyHash },
         ],
-        currentVersion: "1.2.0",
+        currentVersion: "1.3.0",
         catalogs,
       });
     };

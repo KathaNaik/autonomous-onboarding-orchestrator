@@ -12,12 +12,7 @@ import {
   planOutputOf,
   type ScriptedStep,
 } from "@aoo/agents/testing";
-import {
-  CATALOG_RELEASES,
-  CatalogRegistry,
-  ResourceCatalog,
-  loadCatalogRegistry,
-} from "@aoo/catalog";
+import { CATALOG_RELEASES, CatalogRegistry, ResourceCatalog } from "@aoo/catalog";
 import {
   accessDecisions,
   accessRequests,
@@ -30,7 +25,6 @@ import {
   workflowProvisioningPlans,
   type DatabaseHandle,
 } from "@aoo/db";
-import { loadPolicyRegistry } from "@aoo/policy";
 import { OUTBOX_EVENT_TYPES, type HrisOfferSignedEvent } from "@aoo/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from "vitest";
@@ -55,12 +49,11 @@ import {
   type WorkflowService,
 } from "../../src/index.js";
 import { FakeServiceNow } from "./fake-servicenow.js";
-import { newOfferSignedEvent } from "./helpers.js";
+import { newOfferSignedEvent, releasesBeforeM14 } from "./helpers.js";
 
 let handle: DatabaseHandle;
 let workflows: WorkflowService;
-const catalogs = loadCatalogRegistry();
-const policies = loadPolicyRegistry(catalogs);
+const { catalogs, policies } = releasesBeforeM14();
 const ENGINEER = {
   departmentCode: "ENGINEERING",
   roleFamilyCode: "SOFTWARE_ENGINEER",

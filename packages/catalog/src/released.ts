@@ -1,4 +1,5 @@
 import v1_0_0 from "./versions/1.0.0.json" with { type: "json" };
+import v1_1_0 from "./versions/1.1.0.json" with { type: "json" };
 import { CatalogRegistry, type CatalogRelease } from "./registry.js";
 
 /**
@@ -12,10 +13,15 @@ export const CATALOG_RELEASES: readonly CatalogRelease[] = Object.freeze([
     document: v1_0_0,
     catalogHash: "sha256:e918abe116e7fd51716f9366133a60e015a4e688c99f96e6aef8cbc2493fa776",
   },
+  {
+    // M14: slack-engineering and aws-dev are granted through Okta groups (automatic).
+    document: v1_1_0,
+    catalogHash: "sha256:c7758cccba817f1c2dd52bf6c915edb37d66af25fb4a85c8eeace7109b6aec43",
+  },
 ]);
 
 /** The version new recommendations use. */
-export const CURRENT_CATALOG_VERSION = "1.0.0";
+export const CURRENT_CATALOG_VERSION = "1.1.0";
 
 /** Loads and verifies every released version. Throws on any invalid or modified release. */
 export function loadCatalogRegistry(): CatalogRegistry {
