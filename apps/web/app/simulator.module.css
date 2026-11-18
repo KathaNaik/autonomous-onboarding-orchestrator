@@ -2,7 +2,7 @@
 .sim {
   margin: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   overflow: hidden;
@@ -117,25 +117,6 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.confTrack {
-  width: 64px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--gray-bg);
-  overflow: hidden;
-}
-.confFill {
-  display: block;
-  height: 100%;
-  background: var(--primary-solid);
-  border-radius: 3px;
-  animation: grow 600ms ease-out;
-}
-@keyframes grow {
-  from {
-    width: 0 !important;
-  }
-}
 .plan {
   list-style: none;
   margin: 0;
@@ -226,10 +207,56 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .confFill {
-    animation: none;
-  }
   .table tbody tr {
     transition: none;
+  }
+}
+
+/* Wide screens: the walkthrough sits beside the table, so the whole example fits one screen. */
+.body {
+  display: grid;
+}
+.main {
+  min-width: 0;
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-sunken);
+}
+.side .controls {
+  margin-top: auto;
+}
+@media (min-width: 960px) {
+  /* Stacked, full-width actions in the side panel: the decision reads top to bottom. */
+  .side .controls {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .side .controlsRight {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+}
+@media (min-width: 960px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+  .side {
+    border-left: 1px solid var(--border);
+  }
+  .side .narration {
+    padding-top: 20px;
+  }
+  .narrationTitle {
+    font-size: 17px;
+    line-height: 1.3;
+  }
+}
+@media (max-width: 959px) {
+  .side {
+    border-top: 1px solid var(--border);
   }
 }

@@ -50,141 +50,142 @@ export function OnboardingSimulator() {
         </div>
       </div>
 
-      <div className={styles.head}>
-        <div>
-          <div className={styles.name}>{hire.name}</div>
-          <div className={styles.meta}>{hire.meta}</div>
-        </div>
-        <StatusBadge tone={status.tone ?? "gray"} label={status.label} />
-      </div>
+      <div className={styles.body}>
+        <div className={styles.main}>
+          <div className={styles.head}>
+            <div>
+              <div className={styles.name}>{hire.name}</div>
+              <div className={styles.meta}>{hire.meta}</div>
+            </div>
+            <StatusBadge tone={status.tone ?? "gray"} label={status.label} />
+          </div>
 
-      <div className={styles.lifecycle}>
-        <Lifecycle compact steps={simLifecycle(state)} />
-      </div>
+          <div className={styles.lifecycle}>
+            <Lifecycle compact steps={simLifecycle(state)} />
+          </div>
 
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <caption className={c.skip}>How each tool is decided</caption>
-          <thead>
-            <tr>
-              <th scope="col">Tool</th>
-              <th scope="col">AI suggests</th>
-              <th scope="col">Policy decides</th>
-              <th scope="col">Swift sets up</th>
-            </tr>
-          </thead>
-          <tbody>
-            {TOOLS.map((t) => {
-              const decision = decisionCell(state, t.id);
-              const execute = executeCell(state, t.id);
-              const pending = decision?.label === "Needs approval" && step === APPROVAL_STEP;
-              return (
-                <tr key={t.id} className={cx(pending && styles.focusRow)}>
-                  <th scope="row" className={styles.tool}>
-                    {t.name}
-                  </th>
-                  <td data-label="AI suggests">
-                    {step < 1 ? (
-                      <span className={c.muted}>—</span>
-                    ) : (
-                      <span className={styles.conf}>
-                        <span className={styles.confTrack} aria-hidden="true">
-                          <span className={styles.confFill} style={{ width: `${t.confidence}%` }} />
-                        </span>
-                        {t.confidence}%
-                      </span>
-                    )}
-                  </td>
-                  <td data-label="Policy decides">
-                    {decision ? (
-                      <span className={styles.cellStack}>
-                        <StatusBadge tone={decision.tone ?? "gray"} label={decision.label} />
-                        <span className={styles.why}>{decision.why}</span>
-                      </span>
-                    ) : (
-                      <span className={c.muted}>—</span>
-                    )}
-                  </td>
-                  <td data-label="Swift sets up">
-                    {execute.tone ? (
-                      <StatusBadge tone={execute.tone} label={execute.label} />
-                    ) : (
-                      <span className={c.muted}>{execute.label}</span>
-                    )}
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <caption className={c.skip}>How each tool is decided</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Tool</th>
+                  <th scope="col">AI suggests</th>
+                  <th scope="col">Policy decides</th>
+                  <th scope="col">Swift sets up</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {TOOLS.map((t) => {
+                  const decision = decisionCell(state, t.id);
+                  const execute = executeCell(state, t.id);
+                  const pending = decision?.label === "Needs approval" && step === APPROVAL_STEP;
+                  return (
+                    <tr key={t.id} className={cx(pending && styles.focusRow)}>
+                      <th scope="row" className={styles.tool}>
+                        {t.name}
+                      </th>
+                      <td data-label="AI suggests">
+                        {step < 1 ? (
+                          <span className={c.muted}>—</span>
+                        ) : (
+                          <span className={styles.conf}>{t.confidence}% confident</span>
+                        )}
+                      </td>
+                      <td data-label="Policy decides">
+                        {decision ? (
+                          <span className={styles.cellStack}>
+                            <StatusBadge tone={decision.tone ?? "gray"} label={decision.label} />
+                            <span className={styles.why}>{decision.why}</span>
+                          </span>
+                        ) : (
+                          <span className={c.muted}>—</span>
+                        )}
+                      </td>
+                      <td data-label="Swift sets up">
+                        {execute.tone ? (
+                          <StatusBadge tone={execute.tone} label={execute.label} />
+                        ) : (
+                          <span className={c.muted}>{execute.label}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-      {step >= 5 && (
-        <ul className={styles.plan} aria-label="First-month plan">
-          {planTasks(state).map((task) => (
-            <li key={task}>
-              <I.Check size={14} /> {task}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className={styles.narration} aria-live="polite">
-        <div className={styles.narrationHead}>
-          <span className={styles.stepCount}>
-            Step {step + 1} of {LAST_STEP + 1}
-          </span>
-          <ActorChip actor={n.actor} label={n.actorLabel} />
-        </div>
-        <p className={styles.narrationTitle}>{n.title}</p>
-        <p className={styles.narrationText}>{n.text}</p>
-      </div>
-
-      <div className={styles.controls}>
-        <button
-          type="button"
-          className={cx(c.button, c.ghost)}
-          onClick={() => dispatch({ type: "back" })}
-          disabled={step === 0}
-        >
-          Back
-        </button>
-        <div className={styles.controlsRight}>
-          {step === APPROVAL_STEP ? (
-            <>
-              <button
-                type="button"
-                className={cx(c.button, c.secondary)}
-                onClick={() => dispatch({ type: "decide", approval: "rejected" })}
-              >
-                Reject
-              </button>
-              <button
-                type="button"
-                className={cx(c.button, c.primary)}
-                onClick={() => dispatch({ type: "decide", approval: "approved" })}
-              >
-                Approve in ServiceNow
-              </button>
-            </>
-          ) : step === LAST_STEP ? (
-            <button
-              type="button"
-              className={cx(c.button, c.primary)}
-              onClick={() => dispatch({ type: "restart" })}
-            >
-              Start again
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={cx(c.button, c.primary)}
-              onClick={() => dispatch({ type: "next" })}
-            >
-              Next step
-            </button>
+          {step >= 5 && (
+            <ul className={styles.plan} aria-label="First-month plan">
+              {planTasks(state).map((task) => (
+                <li key={task}>
+                  <I.Check size={14} /> {task}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+
+        <aside className={styles.side}>
+          <div className={styles.narration} aria-live="polite">
+            <div className={styles.narrationHead}>
+              <span className={styles.stepCount}>
+                Step {step + 1} of {LAST_STEP + 1}
+              </span>
+              <ActorChip actor={n.actor} label={n.actorLabel} />
+            </div>
+            <p className={styles.narrationTitle}>{n.title}</p>
+            <p className={styles.narrationText}>{n.text}</p>
+          </div>
+
+          <div className={styles.controls}>
+            <button
+              type="button"
+              className={cx(c.button, c.ghost)}
+              onClick={() => dispatch({ type: "back" })}
+              disabled={step === 0}
+            >
+              Back
+            </button>
+            <div className={styles.controlsRight}>
+              {step === APPROVAL_STEP ? (
+                <>
+                  <button
+                    type="button"
+                    className={cx(c.button, c.secondary)}
+                    onClick={() => dispatch({ type: "decide", approval: "rejected" })}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    className={cx(c.button, c.primary)}
+                    onClick={() => dispatch({ type: "decide", approval: "approved" })}
+                  >
+                    Approve in ServiceNow
+                  </button>
+                </>
+              ) : step === LAST_STEP ? (
+                <button
+                  type="button"
+                  className={cx(c.button, c.primary)}
+                  onClick={() => dispatch({ type: "restart" })}
+                >
+                  Start again
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={cx(c.button, c.primary)}
+                  onClick={() => dispatch({ type: "next" })}
+                >
+                  Next step
+                </button>
+              )}
+            </div>
+          </div>
+        </aside>
       </div>
     </figure>
   );

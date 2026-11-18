@@ -27,17 +27,32 @@
 }
 
 /* ---- Hero -------------------------------------------------------------------------------- */
+/* A tinted field so the example reads as a window onto the product, not a card on a void. */
+.heroBand {
+  background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
 .hero {
+  padding-top: 44px;
+  padding-bottom: 48px;
+}
+.heroIntro {
   display: grid;
-  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
-  gap: 56px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px 56px;
   align-items: start;
-  padding-top: 72px;
-  padding-bottom: 80px;
+  margin-bottom: 28px;
+}
+.heroIntro .lead {
+  margin: 6px 0 0;
+  max-width: 54ch;
+}
+.heroIntro .ctas {
+  margin-top: 20px;
 }
 .title {
-  margin: 8px 0 0;
-  font-size: 44px;
+  margin: 0;
+  font-size: 46px;
   line-height: 1.1;
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -318,7 +333,7 @@
 
 /* ---- Responsive -------------------------------------------------------------------------- */
 @media (max-width: 1080px) {
-  .hero,
+  .heroIntro,
   .evidence,
   .story {
     grid-template-columns: 1fr;
