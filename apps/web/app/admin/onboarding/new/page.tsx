@@ -1,6 +1,6 @@
 import { ConsoleShell } from "@/components/console/shell";
 import * as I from "@/components/console/icons";
-import { Button, Callout, Card, PageHeader, Steps, cx, styles as s } from "@/components/console/ui";
+import { Button, Callout, PageHeader, Steps, cx, styles as s } from "@/components/console/ui";
 import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
 import { OFFER_ERROR_MESSAGES } from "@/lib/offer-letter-api";
 import { fetchSessionStatus } from "@/lib/onboarding-read-api";
@@ -38,11 +38,11 @@ export default async function NewOnboardingPage({
     <ConsoleShell active="new" operatorId={session.operatorId}>
       <PageHeader
         title="New onboarding"
-        description="Start from the signed offer letter. Swift's Offer Letter Extractor pre-fills the hire's details; you review everything and choose the access-relevant facts before anything starts."
+        description="Upload the signed offer letter. Swift reads it and pre-fills the hire's details; you check every field and choose the access-relevant facts before anything starts."
         back={{ href: "/admin/onboarding", label: "All workflows" }}
       />
       <Steps steps={NEW_ONBOARDING_STEPS} current={0} />
-      <Card className={s.cardBody}>
+      <section className={s.stackMd} style={{ gap: 20 }}>
         <form
           method="post"
           action="/admin/onboarding/new/upload"
@@ -84,7 +84,20 @@ export default async function NewOnboardingPage({
             <Button>Read offer letter</Button>
           </div>
         </form>
-      </Card>
+        <div className={s.sampleNote}>
+          <p>
+            <strong>No offer letter to hand?</strong>{" "}
+            <a href="/sample-offer-letter.pdf" download>
+              Download a sample letter
+            </a>{" "}
+            (a fictional engineer at a fictional company). On the review page, give the hire a
+            unique email address: Swift creates a staged Okta account with that login.
+          </p>
+          <p className={s.muted}>
+            You can start one onboarding a day, and read up to three letters a day.
+          </p>
+        </div>
+      </section>
     </ConsoleShell>
   );
 }

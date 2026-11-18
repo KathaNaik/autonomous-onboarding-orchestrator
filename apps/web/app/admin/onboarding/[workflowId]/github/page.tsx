@@ -49,7 +49,7 @@ export default async function GitHubAccountPage({
   return (
     <ConsoleShell active="workflows" operatorId={session.operatorId}>
       <PageHeader
-        title="GitHub Account"
+        title="GitHub account"
         description="For HR and onboarding staff. Record the GitHub username the employee gave you. They should create the account with their company email address."
         back={{
           href: `/admin/onboarding/${encodeURIComponent(workflowId)}`,
@@ -101,7 +101,7 @@ export default async function GitHubAccountPage({
                     />
                   </Field>
                   <div>
-                    <Button>Save GitHub Account</Button>
+                    <Button>Save GitHub username</Button>
                   </div>
                 </form>
               ) : (

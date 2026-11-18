@@ -36,6 +36,14 @@ export default async function SignUpPage({
       }
     >
       {error && <Callout tone="red" title={error} role="alert" />}
+      <div className={s.consequences}>
+        <p>
+          <strong>Every account is a full operator.</strong> Onboardings you start make real changes
+          in sandbox systems: ServiceNow tickets, a staged Okta account and GitHub invitations. Use
+          made-up people, and your own GitHub username if you try that step.
+        </p>
+        <p className={s.muted}>One new onboarding per account per day.</p>
+      </div>
       <form
         method="post"
         action="/admin/onboarding/signup/create"

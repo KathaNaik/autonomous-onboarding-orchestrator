@@ -1,0 +1,56 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 807 >>
+stream
+BT
+/F1 11 Tf
+14 TL
+72 740 Td
+(Example Corp \(fictional\)) Tj
+T* () Tj
+T* (OFFER OF EMPLOYMENT) Tj
+T* () Tj
+T* (Dear Alex Sample,) Tj
+T* () Tj
+T* (We are pleased to offer you the position of Backend Software Engineer in our Engineering department.) Tj
+T* (You will report to Jamie Example.) Tj
+T* (Your start date will be Monday, January 11, 2027.) Tj
+T* (Your company email address will be alex.sample@example.com.) Tj
+T* () Tj
+T* (In this role you will build and operate backend services and APIs,) Tj
+T* (review code with your team and take part in the on-call rotation.) Tj
+T* () Tj
+T* (This letter is a synthetic sample for trying Swift. The person and company are fictional.) Tj
+T* () Tj
+T* (Please sign below to accept this offer.) Tj
+T* () Tj
+T* (Sincerely,) Tj
+T* (Pat Example, Head of People) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000001043 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1169
+%%EOF

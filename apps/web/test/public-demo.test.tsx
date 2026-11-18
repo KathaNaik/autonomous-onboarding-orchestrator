@@ -28,20 +28,24 @@ afterEach(() => vi.unstubAllGlobals());
 const page = (slug: string) => DemoPage({ params: Promise.resolve({ slug }) });
 
 describe("(M10) public synthetic demo", () => {
-  it("landing page: what it does, the example, who does what, real evidence, the story, scenarios and stack, in that order", () => {
+  it("landing page: what it does, the example, the story, the measured run, who does what, scenarios, stack and a close, in that order", () => {
     const html = renderToStaticMarkup(Home());
     const order = [
       "Onboarding without the four weeks of tickets.</h1>",
       "Swift is for HR and IT teams.",
       "Approve in ServiceNow",
-      "What you do, and what Swift does",
-      "What a real run looked like",
-      "How it started",
       "It took me four weeks to finish onboarding at my current role.",
+      "One real onboarding, minute by minute",
+      "29–33 s",
+      "11 min",
+      "What you do, and what Swift does",
       "Three onboardings, as HR sees them",
       ">Open the demo</a>",
       "Tech stack",
-      "Swift · AOO, the Autonomous Onboarding Orchestrator.",
+      "380 integration tests",
+      "See a hire go from offer letter to first-month plan.",
+      'href="/admin/onboarding/signup"',
+      "Swift, the Autonomous Onboarding Orchestrator.",
     ].map((text) => html.indexOf(text));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));

@@ -1,13 +1,17 @@
-import { Geist, Geist_Mono } from "next/font/google";
+import { JetBrains_Mono, Public_Sans } from "next/font/google";
 
-/** Self-hosted at build time by Next (no runtime request to Google). */
-export const geistSans = Geist({
+/**
+ * Public Sans (a civic, plain-spoken UI face) for everything people read; JetBrains Mono only
+ * for identifiers, codes and durations. Self-hosted at build time by Next (no runtime request
+ * to Google).
+ */
+export const uiSans = Public_Sans({
   subsets: ["latin"],
-  variable: "--font-geist-sans",
+  variable: "--font-ui-sans",
   display: "swap",
 });
-export const geistMono = Geist_Mono({
+export const uiMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-geist-mono",
+  variable: "--font-ui-mono",
   display: "swap",
 });

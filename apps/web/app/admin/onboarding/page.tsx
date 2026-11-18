@@ -4,7 +4,7 @@ import { ConsoleShell } from "@/components/console/shell";
 import * as I from "@/components/console/icons";
 import { ButtonLink, Callout, Card, PageHeader, cx, styles as s } from "@/components/console/ui";
 import { redirectIfUnauthorized, requireOperatorSession } from "@/lib/dashboard-auth";
-import { STATE_FILTERS, stateLabel } from "@/lib/console-model";
+import { STATE_FILTERS } from "@/lib/console-model";
 import { fetchWorkflowList, listQuery } from "@/lib/onboarding-read-api";
 import { WorkflowTable } from "./workflow-table";
 
@@ -36,20 +36,6 @@ export default async function OnboardingDashboardPage({
     return `/admin/onboarding${qs ? `?${qs}` : ""}`;
   };
   const summary = result.ok ? result.body.summary : null;
-  const metrics = summary
-    ? [
-        { label: "Total", value: summary.total, note: "All onboardings" },
-        { label: "In progress", value: summary.inProgress, note: "Not yet complete" },
-        {
-          label: "Needs attention",
-          value: summary.needsAttention,
-          note: "Waiting on a person or failed",
-          alert: summary.needsAttention > 0,
-        },
-        { label: "Completed", value: summary.completed, note: "Ready for day one" },
-      ]
-    : [];
-
   return (
     <ConsoleShell active="workflows" operatorId={session.operatorId}>
       <PageHeader
@@ -63,29 +49,26 @@ export default async function OnboardingDashboardPage({
         }
       />
       {summary && (
-        <section className={s.metrics} aria-label="Summary">
-          {metrics.map((m) => (
-            <Card key={m.label} className={s.metric}>
-              <div className={s.stack}>
-                <span className={s.metricLabel}>
-                  {m.alert && (
-                    <span style={{ color: "var(--amber-fg)", display: "inline-flex" }}>
-                      <I.Alert size={14} />
-                    </span>
-                  )}
-                  {m.label}
-                </span>
-                <span className={s.metricValue}>{m.value}</span>
-                <span className={s.metricNote}>{m.note}</span>
-              </div>
-            </Card>
-          ))}
-        </section>
+        <p className={s.summaryLine} aria-label="Summary">
+          <span>
+            <strong>{summary.total}</strong> onboardings
+          </span>
+          <span>
+            <strong>{summary.inProgress}</strong> in progress
+          </span>
+          <span className={summary.needsAttention > 0 ? s.summaryAlert : undefined}>
+            {summary.needsAttention > 0 && <I.Alert size={14} />}
+            <strong>{summary.needsAttention}</strong> waiting on a person or failed
+          </span>
+          <span>
+            <strong>{summary.completed}</strong> completed
+          </span>
+        </p>
       )}
       <Card>
         <div className={s.toolbar}>
           <nav aria-label="Filter by status" className={s.tabs}>
-            {[["", "All"] as const, ...STATE_FILTERS.map((v) => [v, stateLabel(v)] as const)].map(
+            {[["", "All"] as const, ...STATE_FILTERS.map((f) => [f.state, f.label] as const)].map(
               ([value, label]) => (
                 <Link
                   key={value || "all"}

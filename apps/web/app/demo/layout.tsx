@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { geistMono, geistSans } from "@/components/console/fonts";
+import { uiMono, uiSans } from "@/components/console/fonts";
 import { ThemeMenu } from "@/components/console/theme-menu";
 import * as I from "@/components/console/icons";
 import { ButtonLink, cx, styles as c } from "@/components/console/ui";
@@ -9,7 +9,7 @@ import styles from "./demo.module.css";
 /** (M10) Public synthetic demo: read-only, no sign-in, no backend calls. Console look. */
 export default function DemoLayout({ children }: { children: ReactNode }) {
   return (
-    <div className={cx(c.root, geistSans.variable, geistMono.variable, styles.page)}>
+    <div className={cx(c.root, uiSans.variable, uiMono.variable, styles.page)}>
       <header className={styles.topbar}>
         <div className={cx(styles.container, styles.topbarInner)}>
           <Link href="/" className={c.brand}>

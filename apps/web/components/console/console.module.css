@@ -1,50 +1,51 @@
 /* Swift operator console: tokens and primitives (server-rendered; no client JavaScript). */
 
 .root {
-  --bg: #f8fafc;
+  --bg: #f3f5f5;
   --surface: #ffffff;
-  --surface-sunken: #f9fafb;
-  --text: #111827;
-  --muted: #667085;
-  --border: #e5e7eb;
-  --border-strong: #d0d5dd;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-soft: #eff4ff;
-  --primary-solid: #2563eb;
-  --primary-solid-hover: #1d4ed8;
-  --focus: #2563eb;
+  --surface-sunken: #f7f9f9;
+  --text: #15201f;
+  --muted: #56625f;
+  --border: #dbe2e0;
+  --border-strong: #c3ccca;
+  --primary: #0e5f6c;
+  --primary-hover: #0a4a54;
+  --primary-soft: #e3eff0;
+  --primary-solid: #0e5f6c;
+  --primary-solid-hover: #0a4a54;
+  --focus: #0e5f6c;
 
-  --green-bg: #ecfdf3;
-  --green-fg: #067647;
-  --green-line: #abefc6;
-  --amber-bg: #fffaeb;
-  --amber-fg: #b54708;
-  --amber-line: #fedf89;
-  --blue-bg: #eff8ff;
-  --blue-fg: #175cd3;
-  --blue-line: #b2ddff;
-  --red-bg: #fef3f2;
-  --red-fg: #b42318;
-  --red-line: #fecdca;
-  --gray-bg: #f2f4f7;
-  --gray-fg: #344054;
-  --gray-line: #e4e7ec;
-  --green-solid: #079455;
-  --red-solid: #d92d20;
-  --blue-solid: #1570ef;
-  --amber-solid: #dc6803;
-  --row-highlight: #fffaeb;
-  --chip-ai-bg: #f0f9ff;
-  --chip-ai-fg: #026aa2;
-  --chip-policy-bg: #eef2f6;
-  --chip-policy-fg: #364152;
-  --shadow: rgba(16, 24, 40, 0.08);
+  --green-bg: #e7f2eb;
+  --green-fg: #1d6a40;
+  --green-line: #b9d9c4;
+  --amber-bg: #faf0dc;
+  --amber-fg: #8a4f00;
+  --amber-line: #ead3a3;
+  --blue-bg: #e8eff6;
+  --blue-fg: #2a5684;
+  --blue-line: #bfd0e2;
+  --red-bg: #faeceb;
+  --red-fg: #a1271e;
+  --red-line: #ebc4c0;
+  --gray-bg: #edf1f0;
+  --gray-fg: #3b4745;
+  --gray-line: #d6dddb;
+  --green-solid: #23794a;
+  --red-solid: #b8322a;
+  --blue-solid: #2f6699;
+  --amber-solid: #b4690a;
+  --row-highlight: #fbf4e6;
+  --chip-ai-bg: #e3eff0;
+  --chip-ai-fg: #0e5f6c;
+  --chip-policy-bg: #edf1f0;
+  --chip-policy-fg: #3b4745;
+  --shadow: rgba(14, 33, 31, 0.08);
+  --selection: #c7e0e3;
 
-  --radius: 8px;
-  --radius-sm: 6px;
-  --sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --sans: var(--font-ui-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: var(--font-ui-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   min-height: 100vh;
   background: var(--bg);
@@ -62,8 +63,21 @@
 .root :where(h1, h2, h3, h4, p, ul, ol, dl, dd, figure) {
   margin: 0;
 }
+.root ::selection {
+  background: var(--selection);
+}
+.root {
+  font-variant-numeric: tabular-nums;
+}
+.root :where(h1, h2, h3, p, li, dd) {
+  text-wrap: pretty;
+}
+.root :where(h1, h2, h3) {
+  text-wrap: balance;
+}
 .root a {
   color: var(--primary);
+  text-underline-offset: 3px;
   text-decoration: none;
 }
 .root a:hover {
@@ -364,11 +378,11 @@
   align-items: center;
   gap: 5px;
   height: 22px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 1px solid;
+  padding: 0 7px;
+  border-radius: 3px;
+  border: 0;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   line-height: 1;
 }
@@ -1475,73 +1489,79 @@
 
 /* ---- Dark theme: chosen ("Dark"), or the device's setting when no choice is saved -------- */
 :global(html[data-theme="dark"]) .root {
-  --bg: #0b0f17;
-  --surface: #111827;
-  --surface-sunken: #0d131f;
-  --text: #f3f4f6;
-  --muted: #98a2b3;
-  --border: #1f2937;
-  --border-strong: #344054;
-  --primary: #3b82f6;
-  --primary-hover: #60a5fa;
-  --primary-soft: #172554;
-  --focus: #60a5fa;
-  --green-bg: #053321;
-  --green-fg: #75e0a7;
-  --green-line: #085d3a;
-  --amber-bg: #4e1d09;
-  --amber-fg: #fec84b;
-  --amber-line: #93370d;
-  --blue-bg: #102a56;
-  --blue-fg: #84caff;
-  --blue-line: #1849a9;
-  --red-bg: #55160c;
-  --red-fg: #fda29b;
-  --red-line: #912018;
-  --gray-bg: #1d2939;
-  --gray-fg: #d0d5dd;
-  --gray-line: #344054;
-  --row-highlight: #221a0c;
-  --chip-ai-bg: #0b2a3d;
-  --chip-ai-fg: #7cd4fd;
-  --chip-policy-bg: #1d2939;
-  --chip-policy-fg: #cdd5df;
-  --shadow: rgba(0, 0, 0, 0.4);
+  --bg: #0e1413;
+  --surface: #141c1b;
+  --surface-sunken: #111817;
+  --text: #e6edeb;
+  --muted: #9aa8a5;
+  --border: #233130;
+  --border-strong: #33443f;
+  --primary: #6cbdc9;
+  --primary-hover: #8fd0d9;
+  --primary-soft: #133238;
+  --primary-solid: #2b8593;
+  --primary-solid-hover: #35a0b0;
+  --focus: #8fd0d9;
+  --green-bg: #11291c;
+  --green-fg: #85cfa1;
+  --green-line: #22513a;
+  --amber-bg: #2e2109;
+  --amber-fg: #e9bd6a;
+  --amber-line: #5c4415;
+  --blue-bg: #13233a;
+  --blue-fg: #9cbfe3;
+  --blue-line: #2b4766;
+  --red-bg: #33140f;
+  --red-fg: #f0a39b;
+  --red-line: #6a2a22;
+  --gray-bg: #1b2523;
+  --gray-fg: #c9d3d1;
+  --gray-line: #33443f;
+  --row-highlight: #2a2110;
+  --chip-ai-bg: #133238;
+  --chip-ai-fg: #8fd0d9;
+  --chip-policy-bg: #1b2523;
+  --chip-policy-fg: #c9d3d1;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --selection: #1f4d55;
 }
 @media (prefers-color-scheme: dark) {
   :global(html:not([data-theme="light"])) .root {
-    --bg: #0b0f17;
-    --surface: #111827;
-    --surface-sunken: #0d131f;
-    --text: #f3f4f6;
-    --muted: #98a2b3;
-    --border: #1f2937;
-    --border-strong: #344054;
-    --primary: #3b82f6;
-    --primary-hover: #60a5fa;
-    --primary-soft: #172554;
-    --focus: #60a5fa;
-    --green-bg: #053321;
-    --green-fg: #75e0a7;
-    --green-line: #085d3a;
-    --amber-bg: #4e1d09;
-    --amber-fg: #fec84b;
-    --amber-line: #93370d;
-    --blue-bg: #102a56;
-    --blue-fg: #84caff;
-    --blue-line: #1849a9;
-    --red-bg: #55160c;
-    --red-fg: #fda29b;
-    --red-line: #912018;
-    --gray-bg: #1d2939;
-    --gray-fg: #d0d5dd;
-    --gray-line: #344054;
-    --row-highlight: #221a0c;
-    --chip-ai-bg: #0b2a3d;
-    --chip-ai-fg: #7cd4fd;
-    --chip-policy-bg: #1d2939;
-    --chip-policy-fg: #cdd5df;
-    --shadow: rgba(0, 0, 0, 0.4);
+    --bg: #0e1413;
+    --surface: #141c1b;
+    --surface-sunken: #111817;
+    --text: #e6edeb;
+    --muted: #9aa8a5;
+    --border: #233130;
+    --border-strong: #33443f;
+    --primary: #6cbdc9;
+    --primary-hover: #8fd0d9;
+    --primary-soft: #133238;
+    --primary-solid: #2b8593;
+    --primary-solid-hover: #35a0b0;
+    --focus: #8fd0d9;
+    --green-bg: #11291c;
+    --green-fg: #85cfa1;
+    --green-line: #22513a;
+    --amber-bg: #2e2109;
+    --amber-fg: #e9bd6a;
+    --amber-line: #5c4415;
+    --blue-bg: #13233a;
+    --blue-fg: #9cbfe3;
+    --blue-line: #2b4766;
+    --red-bg: #33140f;
+    --red-fg: #f0a39b;
+    --red-line: #6a2a22;
+    --gray-bg: #1b2523;
+    --gray-fg: #c9d3d1;
+    --gray-line: #33443f;
+    --row-highlight: #2a2110;
+    --chip-ai-bg: #133238;
+    --chip-ai-fg: #8fd0d9;
+    --chip-policy-bg: #1b2523;
+    --chip-policy-fg: #c9d3d1;
+    --shadow: rgba(0, 0, 0, 0.45);
+    --selection: #1f4d55;
   }
 }
 
@@ -1618,18 +1638,107 @@
   }
 }
 
-/* (M14) Start date and timing strip on the workflow page */
-.timing {
+/* (M14) Start date and timing: one line of facts in the workflow header */
+.timingLine {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 32px;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
 }
-.timingStart {
-  border-color: var(--primary);
-  box-shadow: inset 3px 0 0 var(--primary);
+.timingLine > div {
+  display: grid;
+  gap: 2px;
+}
+.timingLine dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.timingLine dd {
+  margin: 0;
+  font-size: 14px;
+}
+.timingLine dd > :global(span[class]) {
+  vertical-align: middle;
 }
 @media (max-width: 860px) {
-  .timing {
+  .timingLine {
     grid-template-columns: 1fr;
+  }
+}
+.timingLine strong {
+  font-weight: 600;
+}
+.oktaLine {
+  margin-top: 10px;
+  max-width: 90ch;
+}
+/* The lifecycle sits on the page ground, not in its own card */
+.lifecycleBare {
+  margin: -8px 0;
+}
+
+/* Workflows list: the counts as one line instead of four cards */
+.summaryLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+.summaryLine strong {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.summaryLine > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.summaryAlert,
+.summaryAlert strong {
+  color: var(--amber-fg);
+}
+
+/* Sign-up consequences, sample-letter note, auth top bar */
+.consequences,
+.sampleNote {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  font-size: 13px;
+  line-height: 20px;
+}
+.sampleNote {
+  font-size: 14px;
+  line-height: 22px;
+  max-width: 80ch;
+}
+.authBar {
+  position: absolute;
+  inset: 16px 16px auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.authBack {
+  font-size: 13px;
+  font-weight: 500;
+}
+.timingBadge {
+  display: block;
+  margin-top: 6px;
+}
+/* On a phone the vertical lifecycle pushes "Needs your attention" a screen down; the header's
+   status badge already says where the onboarding is. */
+@media (max-width: 640px) {
+  .lifecycleBare {
+    display: none;
   }
 }

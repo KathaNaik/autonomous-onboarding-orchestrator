@@ -279,8 +279,8 @@ describe("operator console: workflow list", () => {
       "Grace Hopper",
       "Backend Software Engineer",
       "Engineering, Software engineer, Full-time",
-      "Provisioning",
-      "1 of 2 resources",
+      "Setting up access",
+      "1 of 2 tools ready",
       "GitHub invitation not accepted yet",
       "View",
     ]) {

@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { geistMono, geistSans } from "@/components/console/fonts";
+import { uiMono, uiSans } from "@/components/console/fonts";
 import { ThemeMenu } from "@/components/console/theme-menu";
 import * as I from "@/components/console/icons";
 import { StatusBadge, cx, styles as c } from "@/components/console/ui";
@@ -40,7 +40,7 @@ const TECH_STACK: { label: string; items: string[] }[] = [
   },
   { label: "Integrations", items: ["ServiceNow", "Okta", "GitHub"] },
   { label: "Infrastructure", items: ["Vercel", "Upstash QStash", "Docker Compose"] },
-  { label: "Quality", items: ["800+ unit tests", "368 integration tests", "OpenTelemetry"] },
+  { label: "Quality", items: ["844 unit tests", "380 integration tests", "OpenTelemetry"] },
   {
     label: "Security",
     items: ["Signed webhooks", "Idempotent provider writes", "Append-only audit"],
@@ -50,7 +50,7 @@ const TECH_STACK: { label: string; items: string[] }[] = [
 /** Public landing page: what Swift does, a hands-on example, real evidence, and the story. */
 export default function HomePage() {
   return (
-    <div className={cx(c.root, geistSans.variable, geistMono.variable, styles.page)}>
+    <div className={cx(c.root, uiSans.variable, uiMono.variable, styles.page)}>
       <header className={styles.topbar}>
         <div className={cx(styles.container, styles.topbarInner)}>
           <Link href="/" className={c.brand}>
@@ -99,7 +99,89 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className={styles.section} aria-labelledby="split">
+        <section className={styles.storyBand} aria-labelledby="story">
+          <div className={cx(styles.container, styles.story)}>
+            <h2 id="story" className={styles.srOnly}>
+              Why Swift exists
+            </h2>
+            <blockquote className={styles.quote}>
+              It took me four weeks to finish onboarding at my current role.
+            </blockquote>
+            <p className={styles.body}>
+              Swift is my attempt to make that path fast: the requests, approvals and account setup
+              happen on their own, and people only step in for the decisions that need them. Every
+              step is recorded, so anyone can see what happened to a hire and why.
+            </p>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="run">
+          <div className={cx(styles.container, styles.evidence)}>
+            <div>
+              <h2 id="run" className={styles.sectionTitle}>
+                One real onboarding, minute by minute
+              </h2>
+              <p className={styles.body}>
+                An operator uploaded a signed offer letter for a synthetic engineer on the
+                production deployment, which talks to real Okta, ServiceNow and GitHub sandbox
+                accounts. Times are from the workflow&apos;s own records.
+              </p>
+              <ol className={styles.timeline}>
+                <li>
+                  <span className={styles.when}>0 s</span>
+                  <span>Offer letter confirmed; the onboarding starts.</span>
+                </li>
+                <li>
+                  <span className={styles.when}>29–33 s</span>
+                  <span>
+                    Okta account created (staged) and four tools ready with no person involved: the
+                    engineering group, Jira, Slack and AWS development.
+                  </span>
+                </li>
+                <li>
+                  <span className={styles.when}>waiting</span>
+                  <span>
+                    AWS production needs a person. Swift opened an approval in ServiceNow and waited
+                    for the approver.
+                  </span>
+                </li>
+                <li>
+                  <span className={styles.when}>11 min</span>
+                  <span>
+                    Approved, then set up by IT in ServiceNow. Swift read both tickets back before
+                    marking the tool ready.
+                  </span>
+                </li>
+                <li>
+                  <span className={styles.when}>stopped</span>
+                  <span>
+                    GitHub: our only sandbox test account already belongs to an earlier hire, so
+                    Swift refused to link it rather than guess.
+                  </span>
+                </li>
+              </ol>
+              <p className={styles.body}>
+                Running the worker again afterwards changed nothing: still one Okta account, one
+                approval and one fulfillment request.
+              </p>
+            </div>
+            <figure className={styles.shot}>
+              <Image
+                src="/console-workflow.png"
+                width={1200}
+                height={1481}
+                alt="Swift's operator page for a synthetic hire: a status line reading 4 of 7 tools ready, 1 needs you, waiting on 1 person; the start date and timing; a to-do to record the GitHub username; and a table of seven tools with their status and who acts next."
+                sizes="(max-width: 1080px) 100vw, 560px"
+              />
+              <figcaption>
+                The operator&apos;s page for a synthetic hire: what needs you, and who everyone else
+                is waiting on.
+              </figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="split">
           <div className={styles.container}>
             <h2 id="split" className={styles.sectionTitle}>
               What you do, and what Swift does
@@ -129,65 +211,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="run">
-          <div className={cx(styles.container, styles.evidence)}>
-            <div>
-              <h2 id="run" className={styles.sectionTitle}>
-                What a real run looked like
-              </h2>
-              <p className={styles.body}>
-                We ran a full onboarding on the production deployment, against real ServiceNow, Okta
-                and GitHub sandbox accounts. A signed offer arrived from the HR system. The AI
-                suggested 7 tools; the rules allowed 6 and sent 1 to an approver. The approval was
-                made in ServiceNow, and ServiceNow told Swift over the public internet. Swift then
-                opened 3 fulfillment requests in ServiceNow, created an Okta account with 2 group
-                memberships, confirmed GitHub access, and wrote a 12-task first-month plan.
-              </p>
-              <p className={styles.body}>
-                Halfway through, the run stopped on an Okta group we had forgotten to configure.
-                Once it was added, the next scheduled run carried on from where it stopped.
-              </p>
-              <p className={styles.body}>
-                Afterwards we sent the same HR event again and let the worker run three more times.
-                Nothing changed: still one account, one approval, three fulfillment requests and no
-                new writes anywhere.
-              </p>
-            </div>
-            <figure className={styles.shot}>
-              <Image
-                src="/console-workflow.png"
-                width={1200}
-                height={957}
-                alt="Swift's operator page for a synthetic hire: a status line reading 2 of 6 tools ready, 1 needs you, waiting on 2 people; a lifecycle at the Approval step; a to-do to record the GitHub username; and a table of six tools with their status and who acts next."
-                sizes="(max-width: 1080px) 100vw, 640px"
-              />
-              <figcaption>
-                The operator&apos;s page for a synthetic hire: what needs you, who everyone else is
-                waiting on, and where each tool stands.
-              </figcaption>
-            </figure>
-          </div>
-        </section>
-
-        <section className={styles.section} aria-labelledby="story">
-          <div className={styles.container}>
-            <div className={styles.story}>
-              <h2 id="story" className={styles.sectionTitle}>
-                How it started
-              </h2>
-              <blockquote className={styles.quote}>
-                It took me four weeks to finish onboarding at my current role.
-              </blockquote>
-              <p className={styles.body}>
-                Swift is my attempt to make that path fast: the requests, approvals and account
-                setup happen automatically, and people only step in for the decisions that need
-                them. Every step is recorded, so anyone can see what happened to a hire and why.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="scenarios">
+        <section className={styles.section} aria-labelledby="scenarios">
           <div className={styles.container}>
             <h2 id="scenarios" className={styles.sectionTitle}>
               Three onboardings, as HR sees them
@@ -213,7 +237,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className={styles.section} aria-labelledby="stack">
+        <section className={cx(styles.section, styles.sectionAlt)} aria-labelledby="stack">
           <div className={styles.container}>
             <h2 id="stack" className={styles.sectionTitle}>
               Tech stack
@@ -228,11 +252,32 @@ export default function HomePage() {
             </dl>
           </div>
         </section>
+        <section className={styles.close} aria-labelledby="close">
+          <div className={cx(styles.container, styles.closeInner)}>
+            <h2 id="close" className={styles.sectionTitle}>
+              See a hire go from offer letter to first-month plan.
+            </h2>
+            <p className={styles.ctas}>
+              <Link href="/demo" className={cx(c.button, c.primary, styles.bigButton)}>
+                Try the demo
+              </Link>
+              <Link
+                href="/admin/onboarding/signup"
+                className={cx(c.button, c.secondary, styles.bigButton)}
+              >
+                Create an operator account
+              </Link>
+            </p>
+          </div>
+        </section>
       </main>
 
       <footer className={styles.footer}>
         <div className={cx(styles.container, styles.footerInner)}>
-          <span>Swift · AOO, the Autonomous Onboarding Orchestrator. Demo data is synthetic.</span>
+          <span>
+            Swift, the Autonomous Onboarding Orchestrator. A portfolio project; demo data is
+            synthetic.
+          </span>
           <span className={styles.footerLinks}>
             <Link href="/demo">Demo</Link>
             <Link href="/admin/onboarding/login">Operator login</Link>

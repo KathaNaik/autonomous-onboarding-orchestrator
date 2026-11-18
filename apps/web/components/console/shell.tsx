@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { geistMono, geistSans } from "./fonts";
+import { uiMono, uiSans } from "./fonts";
 import { Logo } from "./icons";
 import { cx, styles as s } from "./ui";
 import { ThemeMenu } from "./theme-menu";
@@ -13,7 +13,7 @@ const NAV: { key: NavKey | "demo"; href: string; label: string }[] = [
   { key: "demo", href: "/demo", label: "Demo" },
 ];
 
-const fontVars = `${geistSans.variable} ${geistMono.variable}`;
+const fontVars = `${uiSans.variable} ${uiMono.variable}`;
 
 function LogoutForm() {
   return (
@@ -112,7 +112,10 @@ export function AuthShell({
 }) {
   return (
     <div className={cx(s.root, fontVars)} style={{ position: "relative" }}>
-      <div style={{ position: "absolute", top: 16, right: 16 }}>
+      <div className={s.authBar}>
+        <Link href="/" className={s.authBack}>
+          ← Back to the Swift site
+        </Link>
         <ThemeMenu />
       </div>
       <main className={s.authPage}>

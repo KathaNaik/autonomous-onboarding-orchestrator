@@ -4,5 +4,5 @@ const font = (name: string) => () => ({
   variable: `font-${name}-variable`,
   style: { fontFamily: name },
 });
-export const Geist = font("geist");
-export const Geist_Mono = font("geist-mono");
+export const Public_Sans = font("public-sans");
+export const JetBrains_Mono = font("jetbrains-mono");

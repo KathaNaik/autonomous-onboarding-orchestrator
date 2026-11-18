@@ -29,7 +29,7 @@
 /* ---- Hero -------------------------------------------------------------------------------- */
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
   gap: 56px;
   align-items: start;
   padding-top: 72px;
@@ -144,7 +144,7 @@
 /* Evidence */
 .evidence {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
   gap: 56px;
   align-items: start;
 }
@@ -156,7 +156,7 @@
   width: 100%;
   height: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 .shot figcaption {
   margin-top: 10px;
@@ -164,16 +164,84 @@
   font-size: 13px;
 }
 
-/* Story */
+/* Story: right under the hero, the reason the product exists */
+.storyBand {
+  /* Deep petrol in both themes: the one region of solid brand colour on the page. */
+  background: #0f3c43;
+  color: #eef6f6;
+  padding: 56px 0;
+}
 .story {
-  max-width: 760px;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 48px;
+  align-items: end;
+}
+.storyBand .body {
+  margin: 0;
+  color: #c3dcde;
 }
 .quote {
-  margin: 20px 0 0;
-  font-size: 26px;
-  line-height: 36px;
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.25;
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
+  max-width: 24ch;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Measured timeline of the M14 production run */
+.timeline {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  max-width: 62ch;
+}
+.timeline li {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  font-size: 15px;
+  line-height: 24px;
+}
+.timeline li:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.when {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+/* Closing call to action */
+.close {
+  padding: 72px 0 80px;
+  border-top: 1px solid var(--border);
+}
+.closeInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.closeInner .sectionTitle {
+  max-width: 22ch;
+}
+.closeInner .ctas {
+  margin: 0;
 }
 
 /* Scenarios */
@@ -251,9 +319,10 @@
 /* ---- Responsive -------------------------------------------------------------------------- */
 @media (max-width: 1080px) {
   .hero,
-  .evidence {
+  .evidence,
+  .story {
     grid-template-columns: 1fr;
-    gap: 40px;
+    gap: 32px;
   }
 }
 @media (max-width: 860px) {
@@ -287,6 +356,20 @@
   .scenario {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+  .quote {
+    font-size: 25px;
+  }
+  .storyBand {
+    padding: 44px 0;
+  }
+  /* The screenshot is unreadable at phone width; the timeline carries the evidence. */
+  .shot {
+    display: none;
+  }
+  .timeline li {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
   }
 }
 @media (max-width: 480px) {

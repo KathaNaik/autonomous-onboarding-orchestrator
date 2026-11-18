@@ -25,14 +25,13 @@
   gap: 8px;
 }
 .notice {
-  background: var(--blue-bg);
-  color: var(--blue-fg);
+  margin: 0;
+  padding: 12px 0;
+  background: var(--primary-soft);
+  color: var(--text);
   border-bottom: 1px solid var(--border);
   font-size: 13px;
-}
-.noticeInner {
-  padding-top: 8px;
-  padding-bottom: 8px;
+  line-height: 20px;
 }
 .main {
   padding-top: 32px;

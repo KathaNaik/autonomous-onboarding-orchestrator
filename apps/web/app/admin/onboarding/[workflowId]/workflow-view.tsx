@@ -77,10 +77,9 @@ export function WorkflowView({
   return (
     <article className={s.stackMd} style={{ gap: 24 }}>
       <HireHeader view={view} rows={rows} />
-      <Timing view={view} />
-      <Card>
+      <div className={s.lifecycleBare}>
         <Lifecycle steps={lifecycle(view)} />
-      </Card>
+      </div>
       <DetailTabs view={view} tab={tab} />
       {message && <Callout tone={message.tone} title={message.text} role="status" />}
       {tab === "overview" && <Overview view={view} rows={rows} />}
@@ -118,59 +117,66 @@ function HireHeader({ view, rows }: { view: View; rows: ToolRow[] }) {
         </span>
       </div>
       <p className={s.statusLine}>{statusSentence(view, rows)}</p>
+      <Timing view={view} />
+      <OktaLine view={view} />
     </header>
   );
 }
 
-/** (M14) The start date, highlighted, and how long setting everything up took. */
+/** The Okta account, said once for the hire rather than on every Okta tool row. */
+function OktaLine({ view }: { view: View }) {
+  const hasOkta = view.resources.some((r) => r.provider === "OKTA");
+  const okta = hasOkta ? oktaAccount(view) : null;
+  if (!okta) return null;
+  return (
+    <p className={cx(s.small, s.oktaLine)}>
+      Okta login <span className={s.mono}>{okta.login}</span>
+      <span className={s.muted}> · {okta.note}</span>
+    </p>
+  );
+}
+
+/** (M14) The start date and how long setting everything up took, as one line of facts. */
 function Timing({ view }: { view: View }) {
   const t = onboardingTiming(view);
   const done = view.workflow.state === "COMPLETED";
   return (
-    <section className={s.timing} aria-label="Start date and timing">
-      <Card className={cx(s.metric, s.timingStart)}>
-        <div className={s.stack}>
-          <span className={s.metricLabel}>Start date</span>
-          <span className={s.metricValue}>
-            {t.startDate ? formatDate(t.startDate) : "Not recorded"}
-          </span>
-          <span className={s.metricNote}>
-            {t.startDate ? t.startRelative : "The intake didn't include a start date."}
-          </span>
+    <dl className={s.timingLine} aria-label="Start date and timing">
+      <div>
+        <dt>Starts</dt>
+        <dd>
+          <strong>{t.startDate ? formatDate(t.startDate) : "Not recorded"}</strong>
+          {t.startDate && t.startRelative && <span className={s.muted}> · {t.startRelative}</span>}
           {t.readiness && (
-            <span style={{ justifySelf: "start" }}>
+            <span className={s.timingBadge}>
               <StatusBadge tone={t.readiness.tone} label={t.readiness.text} />
             </span>
           )}
-        </div>
-      </Card>
-      <Card className={s.metric}>
-        <div className={s.stack}>
-          <span className={s.metricLabel}>Access set up in</span>
-          <span className={s.metricValue}>
-            {t.accessDuration ?? (t.elapsed ? "In progress" : "—")}
-          </span>
-          <span className={s.metricNote}>
-            {t.accessReadyAt
+        </dd>
+      </div>
+      <div>
+        <dt>Access set up in</dt>
+        <dd
+          title={
+            t.accessReadyAt
               ? `Every tool settled ${formatTime(t.accessReadyAt)}, counted from the start of the onboarding`
-              : t.elapsed
-                ? `Running for ${t.elapsed}, including time waiting on people`
-                : "Not reached"}
-          </span>
-        </div>
-      </Card>
-      <Card className={s.metric}>
-        <div className={s.stack}>
-          <span className={s.metricLabel}>Onboarding complete in</span>
-          <span className={s.metricValue}>{t.totalDuration ?? "—"}</span>
-          <span className={s.metricNote}>
-            {done
-              ? "Access set up and the first-month plan written"
-              : "Finishes when the first-month plan is written"}
-          </span>
-        </div>
-      </Card>
-    </section>
+              : undefined
+          }
+        >
+          <strong>{t.accessDuration ?? (t.elapsed ? "In progress" : "—")}</strong>
+          {!t.accessDuration && t.elapsed && (
+            <span className={s.muted}> · running {t.elapsed}, including waits on people</span>
+          )}
+        </dd>
+      </div>
+      <div>
+        <dt>Onboarding complete in</dt>
+        <dd>
+          <strong>{t.totalDuration ?? "—"}</strong>
+          {!done && <span className={s.muted}> · when the first-month plan is written</span>}
+        </dd>
+      </div>
+    </dl>
   );
 }
 
@@ -422,19 +428,12 @@ function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
     );
   if (approval?.decidedAt)
     why.push(`${humanize(approval.status)} in ServiceNow ${formatTime(approval.decidedAt)}.`);
-  const okta = row.resource.provider === "OKTA" ? oktaAccount(view) : null;
   const took = toolDuration(row.resource, view);
   return (
     <div className={s.stack}>
       {row.note && <span>{row.note}</span>}
       {took && row.resource.status === "PROVISIONED" && (
         <span className={cx(s.muted, s.small)}>Ready {took} after the onboarding started</span>
-      )}
-      {okta && (
-        <span className={s.small}>
-          Okta login: <span className={s.mono}>{okta.login}</span>
-          <span className={s.muted}> · {okta.note}</span>
-        </span>
       )}
       {row.ticket && <span className={cx(s.muted, s.small)}>ServiceNow {row.ticket}</span>}
       {why.length > 0 && (

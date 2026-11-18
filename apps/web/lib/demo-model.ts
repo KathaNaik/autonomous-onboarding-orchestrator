@@ -109,9 +109,11 @@ export function demoToolRows(s: DemoScenario): DemoToolRow[] {
 export function demoStatusSentence(s: DemoScenario, rows: DemoToolRow[]): string {
   const grantable = rows.filter((r) => r.rank !== 5);
   const ready = grantable.filter((r) => r.status === "Ready").length;
+  const notGranted = rows.length - grantable.length;
   const parts = [
     `${ready} of ${grantable.length} ${grantable.length === 1 ? "tool" : "tools"} ready`,
   ];
+  if (notGranted) parts.push(`${notGranted} not granted`);
   if (s.state === "COMPLETED") {
     parts.unshift("Onboarding complete");
     if (s.plan) parts.push(`first-month plan with ${s.plan.tasks.length} tasks`);

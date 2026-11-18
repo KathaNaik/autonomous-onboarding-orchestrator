@@ -83,7 +83,7 @@ describe("(M10) HR GitHub account page behind the operator session", () => {
     const fetchMock = vi.fn(async () => Response.json(status));
     vi.stubGlobal("fetch", fetchMock);
     const html = renderToStaticMarkup(await GitHubAccountPage(ctx));
-    expect(html).toContain("GitHub Account");
+    expect(html).toContain("GitHub account");
     expect(html).toContain("For HR and onboarding staff");
     expect(html).toContain("Grace Hopper");
     expect(html).toContain(`action="/admin/onboarding/${WF}/github/save"`);

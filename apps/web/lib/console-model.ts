@@ -29,22 +29,23 @@ export const WORKFLOW_STATE_LABELS: Record<string, string> = {
   ACCESS_PLANNING: "Planning access",
   POLICY_REVIEW: "Policy review",
   AWAITING_APPROVAL: "Awaiting approval",
-  PROVISIONING: "Provisioning",
+  PROVISIONING: "Setting up access",
   ONBOARDING_GENERATION: "Writing plan",
   COMPLETED: "Completed",
   FAILED: "Failed",
 };
 
-export const STATE_FILTERS = [
-  "RECEIVED",
-  "ACCESS_PLANNING",
-  "POLICY_REVIEW",
-  "AWAITING_APPROVAL",
-  "PROVISIONING",
-  "ONBOARDING_GENERATION",
-  "COMPLETED",
-  "FAILED",
-] as const;
+/**
+ * The list's filters, in operator words. The intermediate phases (received, planning access,
+ * policy review, writing the plan) last seconds, so they are not offered as filters; the API
+ * still accepts them.
+ */
+export const STATE_FILTERS: readonly { state: string; label: string }[] = [
+  { state: "AWAITING_APPROVAL", label: "Waiting on an approver" },
+  { state: "PROVISIONING", label: "Setting up access" },
+  { state: "COMPLETED", label: "Completed" },
+  { state: "FAILED", label: "Failed" },
+];
 
 const TONES: Record<string, Tone> = {
   // Done
@@ -254,7 +255,7 @@ export function describeBlocker(b: BlockerLike): Issue {
       plural: (n) => `${n} manual setups pending`,
     };
   if (b.status === "PROVISIONING_FAILED")
-    return { kind: "failed", text: `${name} failed`, plural: (n) => `${n} resources failed` };
+    return { kind: "failed", text: `${name} failed`, plural: (n) => `${n} tools failed` };
   switch (b.blocker) {
     case "GITHUB_IDENTITY_CLAIM_REQUIRED":
       return {
@@ -279,7 +280,7 @@ export function describeBlocker(b: BlockerLike): Issue {
       return {
         kind: "dependency",
         text: `${name} waits on another resource`,
-        plural: (n) => `${n} resources wait on others`,
+        plural: (n) => `${n} tools wait on others`,
       };
     case "TRANSIENT_PROVIDER_FAILURE":
       return { kind: "retry", text: `Retrying ${name}`, plural: (n) => `Retrying ${n} resources` };
@@ -287,45 +288,45 @@ export function describeBlocker(b: BlockerLike): Issue {
       return {
         kind: "config",
         text: `${name}: provider not configured`,
-        plural: (n) => `${n} resources need configuration`,
+        plural: (n) => `${n} tools need configuration`,
       };
     case "MISSING_AUTHORIZED_DEPENDENCY":
     case "DEPENDENCY_NOT_AUTHORIZED":
       return {
         kind: "dependency-denied",
         text: `${name}: a required resource isn't authorized`,
-        plural: (n) => `${n} resources blocked by dependencies`,
+        plural: (n) => `${n} tools blocked by dependencies`,
       };
     case "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE":
       return {
         kind: "github-owned",
         text: `${name}: GitHub account already linked to another employee`,
-        plural: (n) => `${n} resources blocked by a GitHub account linked to another employee`,
+        plural: (n) => `${n} tools blocked by a GitHub account linked to another employee`,
       };
     case "GITHUB_IDENTITY_NOT_FOUND":
       return {
         kind: "github-not-found",
         text: `${name}: GitHub username not found`,
-        plural: (n) => `${n} resources wait for a valid GitHub username`,
+        plural: (n) => `${n} tools wait for a valid GitHub username`,
       };
     case "GITHUB_IDENTITY_CONFLICT":
       return {
         kind: "github-conflict",
         text: `${name}: GitHub account doesn't match the recorded username`,
-        plural: (n) => `${n} resources blocked by a GitHub account mismatch`,
+        plural: (n) => `${n} tools blocked by a GitHub account mismatch`,
       };
     default:
       if (b.blocker?.endsWith("_TARGET_NOT_CONFIGURED"))
         return {
           kind: "config",
           text: `${name}: target not configured`,
-          plural: (n) => `${n} resources need configuration`,
+          plural: (n) => `${n} tools need configuration`,
         };
       // A blocker says more than the status (a READY request can still be blocked).
       return {
         kind: `other:${b.blocker ?? b.status}`,
         text: `${name}: ${b.blocker ? humanize(b.blocker) : (RESOURCE_STATUS_LABELS[b.status] ?? humanize(b.status))}`,
-        plural: (n) => `${n} resources in progress`,
+        plural: (n) => `${n} tools in progress`,
       };
   }
 }
@@ -346,7 +347,7 @@ export function attentionSummary(
         ? issues[0]!.plural(issues.length)
         : pressing.length
           ? `${issues.length} actions required`
-          : `${issues.length} resources in progress`;
+          : `${issues.length} tools in progress`;
   return {
     tone: pressing.some((b) => b.status === "PROVISIONING_FAILED")
       ? "red"
@@ -361,7 +362,7 @@ export function attentionSummary(
 export function progressLine(w: WorkflowSummary): string {
   const p = w.resourceProgress;
   if (p.total === 0) return w.state === "COMPLETED" ? "No access requested" : "Not planned yet";
-  return `${p.provisioned} of ${p.total} resources`;
+  return `${p.provisioned} of ${p.total} tools ready`;
 }
 
 // ---------------------------------------------------------------------------------------------
