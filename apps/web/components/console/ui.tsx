@@ -86,11 +86,18 @@ const ACTOR_ICON: Partial<Record<ActorKind, () => ReactNode>> = {
 };
 
 /** Who did something: HR, AI, Policy, Worker, ServiceNow, GitHub, Okta… */
+/** Chip text in the operator's words (the kind names stay internal). */
+const ACTOR_TEXT: Partial<Record<ActorKind, string>> = {
+  Worker: "Swift",
+  HRIS: "HR system",
+  HR: "Operator",
+};
+
 export function ActorChip({ actor, label }: { actor: ActorKind; label?: string }) {
   return (
     <span className={cx(s.chip, ACTOR_CLASS[actor])}>
       {ACTOR_ICON[actor]?.()}
-      {label ?? actor}
+      {label ?? ACTOR_TEXT[actor] ?? actor}
     </span>
   );
 }

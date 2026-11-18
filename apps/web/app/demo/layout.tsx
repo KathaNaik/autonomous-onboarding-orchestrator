@@ -37,7 +37,7 @@ export default function DemoLayout({ children }: { children: ReactNode }) {
       <div className={cx(styles.container, styles.main)}>{children}</div>
       <footer className={styles.footer}>
         <div className={styles.container}>
-          Swift · AOO. Demo data is bundled with the site; the real console uses sandbox accounts.
+          Swift. Demo data is bundled with the site; the real console uses sandbox accounts.
         </div>
       </footer>
     </div>

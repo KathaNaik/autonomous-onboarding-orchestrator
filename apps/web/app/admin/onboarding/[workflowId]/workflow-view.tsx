@@ -27,6 +27,8 @@ import {
   oktaAccount,
   onboardingTiming,
   toolDuration,
+  startDatePassed,
+  workflowBadge,
   type DetailTab,
   type Tone,
   type ToolRow,
@@ -100,9 +102,10 @@ function HireHeader({ view, rows }: { view: View; rows: ToolRow[] }) {
       <h1 className={s.hireName}>
         {employee.displayName}
         <StatusBadge
-          tone={toneOf(workflow.state)}
-          label={stateLabel(workflow.state)}
-          code={workflow.state}
+          {...workflowBadge(workflow.state, {
+            blocked: rows.some((r) => r.status === "Blocked" || r.status === "Failed"),
+            late: startDatePassed(employee.startDate),
+          })}
         />
       </h1>
       <div className={s.hireMeta}>
@@ -129,10 +132,13 @@ function OktaLine({ view }: { view: View }) {
   const okta = hasOkta ? oktaAccount(view) : null;
   if (!okta) return null;
   return (
-    <p className={cx(s.small, s.oktaLine)}>
+    <div className={cx(s.small, s.oktaLine)}>
       Okta login <span className={s.mono}>{okta.login}</span>
-      <span className={s.muted}> · {okta.note}</span>
-    </p>
+      <details className={s.why}>
+        <summary>About this account</summary>
+        <div className={s.whyBody}>{okta.note}</div>
+      </details>
+    </div>
   );
 }
 
@@ -147,7 +153,7 @@ function Timing({ view }: { view: View }) {
         <dd>
           <strong>{t.startDate ? formatDate(t.startDate) : "Not recorded"}</strong>
           {t.startDate && t.startRelative && <span className={s.muted}> · {t.startRelative}</span>}
-          {t.readiness && (
+          {t.readiness && t.readiness.tone !== "red" && (
             <span className={s.timingBadge}>
               <StatusBadge tone={t.readiness.tone} label={t.readiness.text} />
             </span>
@@ -218,7 +224,11 @@ function Overview({ view, rows }: { view: View; rows: ToolRow[] }) {
   );
 }
 
-const GITHUB_FIX = new Set(["GITHUB_IDENTITY_NOT_FOUND", "GITHUB_IDENTITY_CONFLICT"]);
+const GITHUB_FIX = new Set([
+  "GITHUB_IDENTITY_NOT_FOUND",
+  "GITHUB_IDENTITY_CONFLICT",
+  "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE",
+]);
 
 function ToDo({ view, rows }: { view: View; rows: ToolRow[] }) {
   const wf = encodeURIComponent(view.workflow.workflowId);
@@ -323,7 +333,11 @@ function ToDo({ view, rows }: { view: View; rows: ToolRow[] }) {
     items.push(
       <li key="admin" className={s.todoItem}>
         <div className={s.stack}>
-          <span className={s.primaryText}>Tell your Swift administrator</span>
+          <span className={s.primaryText}>Needs a change by your Swift administrator</span>
+          <span className={s.muted}>
+            Nothing on this page fixes these; send the administrator the lines below. Swift carries
+            on by itself once they&apos;re fixed.
+          </span>
           {admin.map((r) => (
             <span key={r.resource.accessRequestId} className={s.muted}>
               {r.name}: {r.note}
@@ -431,11 +445,11 @@ function ToolDetail({ row, view }: { row: ToolRow; view: View }) {
   const took = toolDuration(row.resource, view);
   return (
     <div className={s.stack}>
-      {row.note && <span>{row.note}</span>}
-      {took && row.resource.status === "PROVISIONED" && (
-        <span className={cx(s.muted, s.small)}>Ready {took} after the onboarding started</span>
+      {took && row.resource.status === "PROVISIONED" ? (
+        <span title={row.note ?? undefined}>Ready {took} after the onboarding started</span>
+      ) : (
+        row.note && <span>{row.note}</span>
       )}
-      {row.ticket && <span className={cx(s.muted, s.small)}>ServiceNow {row.ticket}</span>}
       {why.length > 0 && (
         <details className={s.why}>
           <summary>Why</summary>
@@ -1110,7 +1124,7 @@ function Plan({ view }: { view: View }) {
         {!plan ? (
           <Empty>
             {run?.status === "FAILED"
-              ? "The plan couldn't be written. Tell your Swift administrator."
+              ? "The plan couldn't be written. Ask your Swift administrator to look at the Audit & technical tab."
               : run
                 ? "Writing the plan now."
                 : "Not reached yet. The plan is written once every tool is set up or settled."}
@@ -1265,18 +1279,25 @@ function TimelineList({
   entries: TimelineEntry[];
   names: Map<string, string>;
 }) {
+  // An onboarding started from an uploaded offer letter goes through the same intake as the HR
+  // system; name the real source.
+  const fromOfferLetter = entries.some((e) => e.type === "offer_letter.submitted");
   return (
     <ol className={s.timeline} aria-label="Activity timeline">
       {entries.map((e) => {
         const tone = eventTone(e);
         const resource = typeof e.details.resourceId === "string" ? e.details.resourceId : null;
+        const summary = timelineSummary(e, names, { fromOfferLetter });
+        const actor = fromOfferLetter && e.type.startsWith("hris.") ? ("HR" as const) : actorOf(e);
         return (
           <li key={e.id} className={s.tlItem}>
             <span className={cx(s.tlDot, tone && tone !== "gray" && s[tone])} aria-hidden="true" />
             <div className={s.tlHead}>
-              <span className={s.tlText}>{timelineSummary(e)}</span>
-              {resource && <span className={s.tlSubject}>{names.get(resource) ?? resource}</span>}
-              <ActorChip actor={actorOf(e)} />
+              <span className={s.tlText}>{summary}</span>
+              {resource && !summary.includes(names.get(resource) ?? resource) && (
+                <span className={s.tlSubject}>{names.get(resource) ?? resource}</span>
+              )}
+              <ActorChip actor={actor} />
             </div>
             <time dateTime={e.occurredAt} className={s.tlTime}>
               {formatTime(e.occurredAt)}

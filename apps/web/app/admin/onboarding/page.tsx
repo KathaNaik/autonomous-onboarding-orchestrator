@@ -58,11 +58,11 @@ export default async function OnboardingDashboardPage({
           </span>
           <span className={summary.needsAttention > 0 ? s.summaryAlert : undefined}>
             {summary.needsAttention > 0 && <I.Alert size={14} />}
-            <strong>{summary.needsAttention}</strong> waiting on a person or failed
+            <strong>{summary.needsAttention}</strong> need attention (shown in the list)
           </span>
-          <span>
+          <Link href={link({ state: "COMPLETED", cursor: "" })}>
             <strong>{summary.completed}</strong> completed
-          </span>
+          </Link>
         </p>
       )}
       <Card>

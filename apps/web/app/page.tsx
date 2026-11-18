@@ -172,13 +172,13 @@ export default function HomePage() {
               <Image
                 src="/console-workflow.png"
                 width={1200}
-                height={1481}
-                alt="Swift's operator page for a synthetic hire: a status line reading 4 of 7 tools ready, 1 needs you, waiting on 1 person; the start date and timing; a to-do to record the GitHub username; and a table of seven tools with their status and who acts next."
-                sizes="(max-width: 1080px) 100vw, 560px"
+                height={838}
+                alt="Swift's operator page for a synthetic hire: one task for the operator (record the GitHub username), AWS production waiting on an approver in ServiceNow, the GitHub team waiting on the organization, and four Okta tools ready 29 to 32 seconds after the onboarding started."
+                sizes="(max-width: 1280px) 100vw, 1216px"
               />
               <figcaption>
-                The operator&apos;s page for a synthetic hire: what needs you, and who everyone else
-                is waiting on.
+                The operator&apos;s page for a synthetic hire: what needs you, who everyone else is
+                waiting on, and how long each ready tool took.
               </figcaption>
             </figure>
           </div>

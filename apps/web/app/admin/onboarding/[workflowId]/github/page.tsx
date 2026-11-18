@@ -50,7 +50,7 @@ export default async function GitHubAccountPage({
     <ConsoleShell active="workflows" operatorId={session.operatorId}>
       <PageHeader
         title="GitHub account"
-        description="For HR and onboarding staff. Record the GitHub username the employee gave you. They should create the account with their company email address."
+        description="Record the GitHub username the employee gave you. They should create the account with their company email address."
         back={{
           href: `/admin/onboarding/${encodeURIComponent(workflowId)}`,
           label: "Back to workflow",
@@ -87,7 +87,7 @@ export default async function GitHubAccountPage({
                   <Field
                     label="GitHub username"
                     htmlFor="githubLogin"
-                    hint="Swift sends a real GitHub organization invitation to this account, so use your own username. Letters, digits and single hyphens, up to 39 characters."
+                    hint="Swift sends a real invitation to this account in its GitHub sandbox organization. If you're trying Swift with a made-up hire, enter your own GitHub username. Letters, digits and single hyphens, up to 39 characters."
                   >
                     <input
                       id="githubLogin"

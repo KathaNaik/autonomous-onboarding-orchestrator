@@ -5,7 +5,12 @@ export function statusLines(status: GitHubIdentityStatus): string[] {
   const lines: string[] = [];
   if (status.identity.state === "NOT_SUBMITTED") lines.push("Not provided");
   if (status.identity.state === "SUBMITTED") {
-    lines.push(`Username recorded: ${status.identity.claimedLogin} (not yet resolved at GitHub)`);
+    const stuck = status.resources.some((r) => r.progress === "NEEDS_ATTENTION");
+    lines.push(
+      stuck
+        ? `Username recorded: ${status.identity.claimedLogin}, but Swift couldn't use it (the workflow page says why). Record a different username below.`
+        : `Username recorded: ${status.identity.claimedLogin}. Swift checks it at GitHub when it sets up access.`,
+    );
   }
   if (status.identity.state === "RESOLVED") {
     lines.push(`Account resolved: ${status.identity.resolvedLogin}`);
@@ -14,7 +19,8 @@ export function statusLines(status: GitHubIdentityStatus): string[] {
     if (r.progress === "INVITATION_PENDING")
       lines.push(`${r.displayName}: Organization invitation pending`);
     if (r.progress === "CONNECTED") lines.push(`${r.displayName}: GitHub access provisioned`);
-    if (r.progress === "NEEDS_ATTENTION") lines.push(`${r.displayName}: Needs attention`);
+    if (r.progress === "NEEDS_ATTENTION")
+      lines.push(`${r.displayName}: waiting for a GitHub username Swift can use`);
   }
   return lines;
 }

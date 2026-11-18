@@ -96,6 +96,42 @@ export function toneOf(code: string | null | undefined): Tone {
 
 export const stateLabel = (state: string) => WORKFLOW_STATE_LABELS[state] ?? humanize(state);
 
+const TERMINAL = new Set(["COMPLETED", "FAILED"]);
+
+/** True when the hire's start date (YYYY-MM-DD, UTC) is before today. */
+export function startDatePassed(startDate: string | null | undefined, now = new Date()): boolean {
+  return !!startDate && startDate < now.toISOString().slice(0, 10);
+}
+
+/**
+ * The workflow badge, honest about stalls: a blocked or failed tool shows "Blocked", and a
+ * start date that has passed shows "Late", instead of the phase name ("Setting up access").
+ */
+export function workflowBadge(
+  state: string,
+  { blocked, late }: { blocked: boolean; late: boolean },
+): { tone: Tone; label: string; code: string } {
+  if (!TERMINAL.has(state)) {
+    if (blocked) return { tone: "red", label: "Blocked", code: state };
+    if (late) return { tone: "amber", label: "Late", code: state };
+  }
+  return { tone: toneOf(state), label: stateLabel(state), code: state };
+}
+
+/** The list row's badge, from its summary. */
+export function listBadge(w: {
+  state: string;
+  employee: { startDate?: string | null };
+  blockers: readonly { status: string; blockerClass: string | null }[];
+}) {
+  return workflowBadge(w.state, {
+    blocked: w.blockers.some(
+      (b) => b.status === "PROVISIONING_FAILED" || b.blockerClass === "DETERMINISTIC_FAILURE",
+    ),
+    late: startDatePassed(w.employee.startDate),
+  });
+}
+
 export const DECISION_LABELS: Record<string, string> = {
   ALLOW: "Allow",
   DENY: "Deny",
@@ -210,8 +246,8 @@ export function formatAge(iso: string, now = Date.now()): string {
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   if (h < 24) return `${h} h ago`;
-  const d = Math.round(h / 24);
-  return d < 30 ? `${d} d ago` : formatTime(iso).split(",").slice(0, 2).join(",");
+  // Older than a day: always the same short date, never a mix of "29 d ago" and full dates.
+  return formatDate(iso.slice(0, 10)).replace(/^\w+, /, "");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -362,7 +398,9 @@ export function attentionSummary(
 export function progressLine(w: WorkflowSummary): string {
   const p = w.resourceProgress;
   if (p.total === 0) return w.state === "COMPLETED" ? "No access requested" : "Not planned yet";
-  return `${p.provisioned} of ${p.total} tools ready`;
+  const grantable = p.total - p.denied - p.rejected;
+  if (grantable === 0) return "No tools to set up";
+  return `${p.provisioned} of ${grantable} tools ready`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -467,14 +505,68 @@ export function actorOf(e: Pick<TimelineEntry, "actor" | "type">): ActorKind {
   return "System";
 }
 
-/** Timeline wording: transitions read as "Moved to Awaiting approval". */
-export function timelineSummary(e: TimelineEntry): string {
-  if (e.type === "workflow.transitioned" && e.toState) return `Moved to ${stateLabel(e.toState)}`;
-  if (e.type === "workflow.created") return "Workflow created";
-  if (e.type === "hris.offer.signed") return "Signed offer received from HRIS";
+const PHASE_SENTENCES: Record<string, string> = {
+  ACCESS_PLANNING: "AI started suggesting tools",
+  POLICY_REVIEW: "Access rules started checking each tool",
+  AWAITING_APPROVAL: "Waiting for an approver",
+  PROVISIONING: "Setting up access",
+  ONBOARDING_GENERATION: "Every tool settled; writing the first-month plan",
+  COMPLETED: "Onboarding complete",
+  FAILED: "Onboarding stopped",
+};
+
+/** Timeline wording in the operator's language ("Slack engineering channels is ready"). */
+export function timelineSummary(
+  e: TimelineEntry,
+  names?: ReadonlyMap<string, string>,
+  { fromOfferLetter = false }: { fromOfferLetter?: boolean } = {},
+): string {
+  const id = typeof e.details.resourceId === "string" ? e.details.resourceId : null;
+  const name = id ? (names?.get(id) ?? resourceName(id, null)) : "A tool";
+  switch (e.type) {
+    case "workflow.transitioned":
+      return e.toState
+        ? (PHASE_SENTENCES[e.toState] ?? `Moved to ${stateLabel(e.toState)}`)
+        : e.label;
+    case "workflow.created":
+      return "Onboarding started";
+    case "hris.offer.signed":
+      return fromOfferLetter || (e.actor ?? "").startsWith("hr:")
+        ? "Offer letter confirmed by an operator"
+        : "Signed offer received from the HR system";
+    case "offer_letter.submitted":
+      return "Offer letter details confirmed";
+    case "access.policy_evaluated":
+      return "Access rules decided every tool";
+    case "access.approval_verified":
+      return `${name} approved in ServiceNow`;
+    case "access.approval_rejected":
+      return `${name} rejected in ServiceNow`;
+    case "access.approval_rerequested":
+      return `New approval ticket opened for ${name}`;
+    case "access.approval_rerequest_refused":
+      return `${name}: the old approval ticket still exists`;
+    case "github.identity_claim_recorded":
+      return "GitHub username recorded";
+    case "github.identity_claim_changed":
+      return "GitHub username corrected";
+    case "github.org_invitation_created":
+      return "GitHub invitation sent to the employee";
+    case "provisioning.manual_resource_completed":
+      return `${name} marked as done`;
+    case "resource.provisioned":
+      return `${name} is ready`;
+    case "resource.provisioning_failed":
+      return `${name} failed to set up`;
+    case "resource.retry_requested":
+      return `Retry requested for ${name}`;
+    case "onboarding_plan.generated":
+      return "First-month plan written";
+    case "onboarding_plan.generation_failed":
+      return "The first-month plan couldn't be written";
+  }
   return e.label.replace(/\bGithub\b/g, "GitHub");
 }
-
 export const NEW_ONBOARDING_STEPS = ["Upload offer", "Review details", "Start onboarding"];
 
 // ---------------------------------------------------------------------------------------------
@@ -610,11 +702,11 @@ export function toolRow(r: ResourceView, view: DetailView): ToolRow {
       );
     case "GITHUB_IDENTITY_OWNED_BY_OTHER_EMPLOYEE":
       return row(
-        "red",
-        "Blocked",
-        ADMIN,
-        "This GitHub account is already linked to another employee.",
-        1,
+        "amber",
+        "Action needed",
+        YOU,
+        "This GitHub account already belongs to another hire. Ask the employee for their own GitHub username and record it.",
+        0,
       );
     case "GITHUB_INVITATION_PENDING":
       return row(
@@ -637,14 +729,22 @@ export function toolRow(r: ResourceView, view: DetailView): ToolRow {
         fulfillment?.ticketNumber ?? null,
       );
     case "DEPENDENCIES_NOT_READY": {
-      const waitingFor = r.dependsOn
+      const deps = r.dependsOn
         .filter((d) => d.status !== "PROVISIONED")
-        .map((d) =>
-          resourceName(
-            d.resourceId,
-            view.resources.find((x) => x.resourceId === d.resourceId)?.displayName,
-          ),
+        .map((d) => view.resources.find((x) => x.resourceId === d.resourceId))
+        .filter((d): d is ResourceView => !!d);
+      // A dependency that is itself stuck: say so, and hand the next step to its owner.
+      const stuck = deps.map((d) => toolRow(d, view)).find((d) => d.owner && d.owner !== SWIFT);
+      // No owner of its own: the next step belongs to the stuck tool, counted once there.
+      if (stuck)
+        return row(
+          "gray",
+          "Waiting",
+          null,
+          `Waiting on ${stuck.name} (${stuck.status.toLowerCase()}, next step by ${stuck.owner!.you ? "you" : stuck.owner!.label.toLowerCase()}).`,
+          3,
         );
+      const waitingFor = deps.map((d) => resourceName(d.resourceId, d.displayName));
       return row(
         "blue",
         "Being set up",
@@ -703,6 +803,7 @@ export function statusSentence(view: DetailView, rows: ToolRow[] = toolRows(view
   if (you) parts.push(`${you} ${you === 1 ? "needs" : "need"} you`);
   if (others) parts.push(`waiting on ${others === 1 ? "1 person" : `${others} people`}`);
   if (state === "ONBOARDING_GENERATION") parts.push("writing the first-month plan");
+  if (startDatePassed(view.employee.startDate)) parts.push("start date has passed");
   return parts.join(" · ");
 }
 

@@ -98,8 +98,9 @@ describe("operator console: workflow detail", () => {
     expect(plan).not.toContain("Tools and access");
 
     const activity = visible(renderToStaticMarkup(<WorkflowView view={base} tab="activity" />));
-    expect(activity).toContain("Signed offer received from HRIS");
-    expect(activity).toContain("Moved to Completed");
+    expect(activity).toContain("Signed offer received from the HR system");
+    expect(activity).toContain("Onboarding complete");
+    expect(activity).not.toMatch(/Moved to|Worker|HRIS/);
 
     const html = renderToStaticMarkup(<WorkflowView view={base} tab="technical" />);
     const tech = visible(html);

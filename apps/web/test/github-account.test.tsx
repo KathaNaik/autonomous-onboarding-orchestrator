@@ -84,7 +84,8 @@ describe("(M10) HR GitHub account page behind the operator session", () => {
     vi.stubGlobal("fetch", fetchMock);
     const html = renderToStaticMarkup(await GitHubAccountPage(ctx));
     expect(html).toContain("GitHub account");
-    expect(html).toContain("For HR and onboarding staff");
+    expect(html).toContain("Record the GitHub username the employee gave you.");
+    expect(html).toContain("enter your own GitHub username");
     expect(html).toContain("Grace Hopper");
     expect(html).toContain(`action="/admin/onboarding/${WF}/github/save"`);
     expect(html).not.toContain("Operator token");

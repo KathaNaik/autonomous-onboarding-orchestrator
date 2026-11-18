@@ -7,9 +7,8 @@ import {
   formatAge,
   formatDate,
   formatTime,
+  listBadge,
   progressLine,
-  stateLabel,
-  toneOf,
 } from "@/lib/console-model";
 import { DataTable, Empty, StatusBadge, cx, styles as s } from "@/components/console/ui";
 
@@ -55,15 +54,15 @@ export function WorkflowTable({ items, now }: { items: readonly WorkflowSummary[
                 )}
               </div>
             ),
-            status: (
-              <StatusBadge tone={toneOf(w.state)} label={stateLabel(w.state)} code={w.state} />
-            ),
+            status: <StatusBadge {...listBadge(w)} />,
             progress: (
               <div className={s.stack}>
                 <span className={s.numeric}>{progressLine(w)}</span>
-                <span className={cx(s.muted, s.small)}>
-                  Plan: {PLAN_STATUS_LABELS[w.onboardingPlanStatus] ?? w.onboardingPlanStatus}
-                </span>
+                {w.onboardingPlanStatus !== "NOT_STARTED" && (
+                  <span className={cx(s.muted, s.small)}>
+                    Plan: {PLAN_STATUS_LABELS[w.onboardingPlanStatus] ?? w.onboardingPlanStatus}
+                  </span>
+                )}
               </div>
             ),
             attention:

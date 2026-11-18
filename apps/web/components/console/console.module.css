@@ -1673,7 +1673,7 @@
 }
 .oktaLine {
   margin-top: 10px;
-  max-width: 90ch;
+  max-width: 66ch;
 }
 /* The lifecycle sits on the page ground, not in its own card */
 .lifecycleBare {
@@ -1717,7 +1717,7 @@
 .sampleNote {
   font-size: 14px;
   line-height: 22px;
-  max-width: 80ch;
+  max-width: 66ch;
 }
 .authBar {
   position: absolute;
@@ -1740,5 +1740,13 @@
 @media (max-width: 640px) {
   .lifecycleBare {
     display: none;
+  }
+}
+
+/* Phones: the filter chips scroll sideways; fade the edge so that's visible. */
+@media (max-width: 640px) {
+  .tabs {
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+    padding-right: 24px;
   }
 }

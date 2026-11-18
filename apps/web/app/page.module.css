@@ -166,8 +166,8 @@
 /* Evidence */
 .evidence {
   display: grid;
-  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
-  gap: 56px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 48px;
   align-items: start;
 }
 .shot {
