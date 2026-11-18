@@ -89,7 +89,7 @@ export function OnboardingSimulator() {
                         {step < 1 ? (
                           <span className={c.muted}>—</span>
                         ) : (
-                          <span className={styles.conf}>{t.confidence}% confident</span>
+                          <span className={styles.conf}>{t.confidence}%</span>
                         )}
                       </td>
                       <td data-label="Policy decides">

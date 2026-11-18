@@ -75,29 +75,30 @@ export default function HomePage() {
         <section className={styles.heroBand}>
           <div className={cx(styles.container, styles.hero)}>
             <div className={styles.heroIntro}>
-              <div>
-                <h1 className={styles.title}>Onboarding without the four weeks of tickets.</h1>
-                <p className={styles.ctas}>
-                  <Link href="/demo" className={cx(c.button, c.primary, styles.bigButton)}>
-                    Try the demo
-                  </Link>
-                  <span className={styles.ctaNote}>
-                    Synthetic hires; nothing touches real accounts.
-                  </span>
-                </p>
-              </div>
+              <h1 className={styles.title}>Onboarding without the four weeks of tickets.</h1>
               <p className={styles.lead}>
                 Swift is for HR and IT teams. Upload a signed offer letter; Swift works out the
                 access the role needs, sends anything sensitive to an approver in ServiceNow, sets
                 up Okta and GitHub, and writes the new hire&apos;s first-month plan. You only step
                 in where a person has to decide.
               </p>
+              <p className={styles.ctas}>
+                <Link href="/demo" className={cx(c.button, c.primary, styles.bigButton)}>
+                  Try the demo
+                </Link>
+                <span className={styles.ctaNote}>
+                  Synthetic hires; nothing touches real accounts.
+                </span>
+              </p>
             </div>
-            <OnboardingSimulator />
-            <p className={styles.simCaption}>
-              A synthetic example you can click through. The approve-or-reject step is the one a
-              real approver does in ServiceNow; nothing is set up that the rules didn&apos;t allow.
-            </p>
+            <div className={styles.heroExample}>
+              <OnboardingSimulator />
+              <p className={styles.simCaption}>
+                A synthetic example you can click through. The approve-or-reject step is the one a
+                real approver does in ServiceNow; nothing is set up that the rules didn&apos;t
+                allow.
+              </p>
+            </div>
           </div>
         </section>
 
